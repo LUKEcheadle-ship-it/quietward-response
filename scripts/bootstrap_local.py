@@ -47,8 +47,10 @@ def _tool(name: str) -> str:
 
 
 def _npm_command(npm: str, *args: str) -> list[str]:
+    # npm is installed as npm.cmd on Windows. Launch it through cmd.exe rather
+    # than relying on CreateProcess to execute a batch wrapper directly.
     if os.name == "nt" and Path(npm).suffix.lower() in {".cmd", ".bat"}:
-        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", npm, *args]
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "npm", *args]
     return [npm, *args]
 
 
