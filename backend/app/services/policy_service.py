@@ -20,6 +20,17 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _os_family(value: str | None) -> str:
+    text = (value or "").strip().lower()
+    if "windows" in text:
+        return "windows"
+    if "linux" in text:
+        return "linux"
+    if "darwin" in text or "macos" in text or "mac os" in text:
+        return "darwin"
+    return "unknown"
+
+
 def evaluate_action_policy(
     session: Session,
     action: ActionRecord,
@@ -53,9 +64,9 @@ def evaluate_action_policy(
 
     host = session.get(HostRecord, action.target_host_id)
     if host is not None:
-        os_name = (host.operating_system or "unknown").lower()
-        if not any(value in os_name for value in definition.supported_os):
-            reasons.append(f"action is not supported on target OS: {os_name}")
+        family = _os_family(host.operating_system)
+        if family not in definition.supported_os:
+            reasons.append(f"action is not supported on target OS family: {family}")
 
     if _utc(action.expires_at) <= _utc(now):
         reasons.append("action request has expired")
