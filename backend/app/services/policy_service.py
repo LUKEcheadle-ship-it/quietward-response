@@ -31,6 +31,17 @@ def _os_family(value: str | None) -> str:
     return "unknown"
 
 
+def _recommended_registry_actions(incident: IncidentRecord) -> set[str]:
+    allowed: set[str] = set()
+    for item in incident.recommended_actions or []:
+        if not isinstance(item, dict) or item.get("enabled") is not True:
+            continue
+        action_type = item.get("registry_action_type")
+        if isinstance(action_type, str) and action_type:
+            allowed.add(action_type)
+    return allowed
+
+
 def evaluate_action_policy(
     session: Session,
     action: ActionRecord,
@@ -59,8 +70,11 @@ def evaluate_action_policy(
     incident = session.get(IncidentRecord, action.incident_id)
     if incident is None:
         reasons.append("incident does not exist")
-    elif action.target_host_id not in (incident.affected_hosts or []):
-        reasons.append("target host is not affected by incident")
+    else:
+        if action.target_host_id not in (incident.affected_hosts or []):
+            reasons.append("target host is not affected by incident")
+        if action.action_type not in _recommended_registry_actions(incident):
+            reasons.append("action is not an enabled recommendation for this incident")
 
     host = session.get(HostRecord, action.target_host_id)
     if host is not None:
