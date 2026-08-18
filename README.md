@@ -39,15 +39,17 @@ See [architecture](docs/architecture.md), [event/action protocol](protocol/READM
 
 ## Quick start
 
-Requirements: Python 3.12+, Node.js 22+, npm, Bash, and curl.
+Requirements: Python 3.12+, Node.js 22+, npm, and Git.
 
-```bash
+```text
 git clone https://github.com/LUKEcheadle-ship-it/quietward-response.git
 cd quietward-response
-bash scripts/bootstrap_local.sh
+python scripts/bootstrap_local.py
 ```
 
-`bootstrap_local.sh` creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, installs the local Python/Node dependencies through the normal launchers, applies database migrations, starts the API and frontend, and refuses to report ready unless both are reachable.
+On Windows, `py -3.12 scripts\bootstrap_local.py` is also supported when Python is installed through the Python launcher.
+
+`bootstrap_local.py` is the cross-platform first-run path. It creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, creates/reconciles the Python virtual environment, installs dependencies, applies database migrations, installs frontend dependencies when needed, starts the API and frontend, and refuses to report ready unless both are reachable.
 
 A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents.
 
@@ -59,9 +61,15 @@ A normal v1 startup begins with a clean incident database; it does **not** injec
 
 Press `Ctrl+C` to stop both services.
 
-### Manual local start
+### Bash launchers
 
-If you prefer to manage `.env` yourself:
+Linux/macOS users can also use the Bash wrappers:
+
+```bash
+bash scripts/bootstrap_local.sh
+```
+
+For a manually managed `.env`:
 
 ```bash
 cp .env.example .env
@@ -71,11 +79,11 @@ bash scripts/run_all.sh
 
 To populate the original three safe synthetic investigation scenarios after startup:
 
-```bash
+```text
 python scripts/seed_demo.py --api-url http://localhost:8002
 ```
 
-You can also set `QWR_SEED_DEMO=true` before `run_all.sh` when you specifically want those demo incidents created at startup.
+You can also set `QWR_SEED_DEMO=true` before startup when you specifically want those demo incidents created automatically.
 
 ### Run components separately
 
@@ -100,7 +108,7 @@ docker compose up --build
 
 Start Response first, then enroll the endpoint once:
 
-```bash
+```text
 python scripts/enroll_quietward.py --host-id YOUR_QUIETWARD_HOST_ID
 ```
 
@@ -130,7 +138,7 @@ Despite the name, this does **not** restart an operating-system service. It modi
 
 On the QuietWard integration build, initialize the fixture as unhealthy and send its authenticated event:
 
-```bash
+```text
 python scripts/quietward_response_demo.py init-unhealthy --host-id YOUR_QUIETWARD_HOST_ID
 python scripts/quietward_response_demo.py sync --host-id YOUR_QUIETWARD_HOST_ID
 ```
@@ -180,18 +188,18 @@ Events claiming `source=quietward` require authenticated agent delivery when `QW
 
 The complete release-candidate gate is:
 
-```bash
+```text
 python scripts/finalize_v1.py --quietward-repo ../quietward
 ```
 
 The underlying gates can also be run separately:
 
-```bash
+```text
 python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the final UI smoke check.
+See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves, the version-promotion step, and the final UI smoke check.
 
 ## Safety status
 
