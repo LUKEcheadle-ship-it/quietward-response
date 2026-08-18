@@ -210,6 +210,7 @@ def main() -> int:
     print(f"Python: {python}")
 
     _run([python, "-m", "compileall", "-q", "app", "tests"], cwd=BACKEND)
+    _run([python, "-m", "compileall", "-q", "scripts"], cwd=ROOT)
     _run([python, str(ROOT / "scripts" / "audit_public_release.py")], cwd=ROOT)
     _run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _verify_action_surface(python)
