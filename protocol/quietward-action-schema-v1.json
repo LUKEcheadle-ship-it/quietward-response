@@ -13,7 +13,8 @@
       "required": [
         "schema_version", "action_id", "incident_id", "target_agent_id",
         "target_host_id", "action_type", "parameters", "requested_at",
-        "requested_by", "approval_id", "expires_at", "status"
+        "requested_by", "approval_id", "expires_at", "status",
+        "policy_allowed", "policy_reasons"
       ],
       "properties": {
         "schema_version": {"const": "1.0"},
@@ -29,7 +30,13 @@
         "expires_at": {"type": "string", "format": "date-time"},
         "status": {"enum": ["approved", "dispatching", "executing"]},
         "policy_allowed": {"type": ["boolean", "null"]},
-        "policy_reasons": {"type": "array", "items": {"type": "string"}}
+        "policy_reasons": {"type": "array", "items": {"type": "string"}},
+        "dispatched_at": {"type": ["string", "null"], "format": "date-time"},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "result": {"type": ["object", "null"]},
+        "error": {"type": ["string", "null"]},
+        "evidence": {"type": ["object", "null"]}
       }
     },
     "ActionResult": {
