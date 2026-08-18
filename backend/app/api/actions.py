@@ -27,6 +27,11 @@ def _action_error(exc: ActionError) -> HTTPException:
     )
 
 
+def _actor_id(value: str) -> str:
+    resolved = value.strip() or "local-analyst"
+    return resolved[:128]
+
+
 @router.get("/actions/registry")
 def action_registry() -> list[dict[str, object]]:
     return public_action_registry()
@@ -45,7 +50,7 @@ def request_action(
             db,
             incident_id=incident_id,
             payload=payload,
-            actor_id=actor_id,
+            actor_id=_actor_id(actor_id),
             default_ttl_seconds=request.app.state.settings.action_default_ttl_seconds,
         )
     except ActionError as exc:
@@ -70,7 +75,7 @@ def approve_action(
         action = decide_action(
             db,
             action_id=action_id,
-            actor_id=actor_id,
+            actor_id=_actor_id(actor_id),
             approve=True,
             reason=payload.reason,
         )
@@ -91,7 +96,7 @@ def reject_action(
         action = decide_action(
             db,
             action_id=action_id,
-            actor_id=actor_id,
+            actor_id=_actor_id(actor_id),
             approve=False,
             reason=payload.reason,
         )
