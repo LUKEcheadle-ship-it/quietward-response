@@ -15,6 +15,8 @@ from app.services.action_registry import get_action_definition
 
 
 RECOMMENDATION_BINDING_REASON = "action is not an enabled recommendation for incident"
+INCIDENT_STATUS_REASON = "incident status does not allow response actions"
+_ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
 
 
 def _utc(value: datetime) -> datetime:
@@ -32,6 +34,10 @@ def _os_family(value: str | None) -> str:
     if "darwin" in text or "macos" in text or "mac os" in text:
         return "darwin"
     return "unknown"
+
+
+def incident_allows_response(incident: IncidentRecord) -> bool:
+    return incident.status in _ACTIONABLE_INCIDENT_STATUSES
 
 
 def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
@@ -83,6 +89,8 @@ def evaluate_action_policy(
     else:
         if action.target_host_id not in (incident.affected_hosts or []):
             reasons.append("target host is not affected by incident")
+        if not incident_allows_response(incident):
+            reasons.append(INCIDENT_STATUS_REASON)
         if not incident_enables_action(incident, action.action_type):
             reasons.append(RECOMMENDATION_BINDING_REASON)
 
