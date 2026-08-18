@@ -19,6 +19,7 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - agent-initiated action polling
 - one executable allowlisted demo-fixture action with no arbitrary parameters
 - endpoint retry/crash idempotency and duplicate terminal-result checks
+- agent disable/re-enable API and console control
 - tamper-evident hash-chained audit verification
 - Agents and Response Actions analyst UI
 - PostgreSQL-ready Alembic schema and Docker Compose path
@@ -28,13 +29,17 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 
 - frozen Alembic revisions instead of importing mutable current ORM metadata
 - consistent runtime/migration `.env` database selection
+- combined launcher honors repository `.env` API-port selection
 - non-development rejection of the known development enrollment token
+- non-development enforcement of QuietWard agent authentication
 - non-development rejection of unauthenticated generic sensor sources
 - single-use authenticated nonces even when later business validation rejects the request
+- bounded analyst identity headers before database persistence
 - private local SQLite and endpoint integration state files where POSIX modes are supported
 - request serialization for single-process v1 audit-chain consistency
 - QuietWard `info` severity compatibility normalization to canonical `informational`
 - controlled recommendation metadata preserved through FastAPI response serialization
+- dedicated demo incidents keep their recommendation set focused on the demo fixture rather than unrelated operational/disk guidance
 
 ### Safety boundary
 
