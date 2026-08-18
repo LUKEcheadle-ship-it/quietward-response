@@ -138,7 +138,20 @@ def decide_action(
     if _as_utc(approval.expires_at) <= now:
         approval.status = "expired"
         action.status = "expired"
-        raise ActionError("approval has expired")
+        action.policy_allowed = False
+        action.policy_reasons = ["approval has expired"]
+        record_audit(
+            session,
+            actor_type="system",
+            actor_id="approval-policy",
+            action="response_action_expired",
+            resource_type="action",
+            resource_id=action.action_id,
+            incident_id=action.incident_id,
+            details={"approval_id": approval.approval_id, "reason": "approval has expired"},
+        )
+        session.flush()
+        return action
 
     if approve:
         approval.status = "approved"
@@ -196,15 +209,24 @@ def pending_actions_for_agent(session: Session, agent: AgentRecord) -> list[Acti
             select(ActionRecord)
             .where(
                 ActionRecord.target_agent_id == agent.agent_id,
-                ActionRecord.status.in_(["approved", "dispatching"]),
+                ActionRecord.status.in_(["approved", "dispatching", "executing"]),
             )
             .order_by(ActionRecord.requested_at.asc())
         )
     )
     deliverable: list[ActionRecord] = []
     for action in actions:
+        # An action that already reached executing was authorized while its policy
+        # and approval were valid. Re-deliver it to the same authenticated agent so
+        # the endpoint can reconcile after a crash without opening a new approval.
+        if action.status == "executing":
+            deliverable.append(action)
+            continue
+
         if _as_utc(action.expires_at) <= now:
             action.status = "expired"
+            action.policy_allowed = False
+            action.policy_reasons = ["action request has expired"]
             record_audit(
                 session,
                 actor_type="system",
@@ -253,9 +275,21 @@ def apply_action_result(
         raise ActionError("result host does not match action target")
 
     if action.status in {"succeeded", "failed"}:
-        if action.status == payload.status:
-            return action
-        raise ActionError("completed action cannot change terminal status")
+        if action.status != payload.status:
+            raise ActionError("completed action cannot change terminal status")
+        if (
+            (action.result or {}) != payload.result
+            or action.error != payload.error
+            or (action.evidence or {}) != payload.evidence
+        ):
+            raise ActionError("duplicate terminal result does not match stored result")
+        return action
+
+    # Retried execution-state reports are idempotent and should not create an
+    # unbounded audit trail while an endpoint is recovering.
+    if action.status == "executing" and payload.status == "executing":
+        return action
+
     if action.status not in {"dispatching", "executing"}:
         raise ActionError(f"result is not valid from action status {action.status}")
 
