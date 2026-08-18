@@ -13,18 +13,20 @@ Include the affected revision, a minimal reproduction, impact, and any suggested
 - The API defaults to `127.0.0.1` and CORS permits only configured origins.
 - Event envelopes are strictly validated and duplicate UUIDs are idempotent/audited.
 - QuietWard events are authenticated with enrolled per-agent HMAC credentials by default.
+- Unauthenticated generic/synthetic sensor sources are accepted only in development and fail closed outside development until they have an authenticated adapter.
 - Signed agent requests bind method, target, timestamp, nonce, and exact body digest; persisted nonces provide replay resistance.
-- Database access uses SQLAlchemy parameter binding and Alembic migrations.
+- Database access uses SQLAlchemy parameter binding and frozen Alembic migrations.
 - Local SQLite data and QuietWard response-state files use private-file permissions where the operating system supports POSIX modes.
 - Response actions are separately versioned, typed, allowlisted, approval-gated, policy-checked, and revalidated by QuietWard.
 - Agent polling is outbound from QuietWard; no inbound endpoint command listener is introduced.
 - The only executable v1 action is `restart_quietward_demo_service`. It accepts no parameters and modifies only the dedicated QuietWard JSON demo fixture; it does not control a real service.
 - There is no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, firewall modification, file deletion/quarantine, or host isolation capability.
 - Audit records are hash-chained and verifiable for tamper evidence. This is not equivalent to immutable external retention.
+- v1 serializes API request transactions inside a single Response process and is supported only with one Uvicorn worker; both provided backend launch paths enforce this.
 - The known development enrollment token is rejected when `QWR_ENVIRONMENT` is not `development`. Replace it even in development before enrolling a real endpoint.
 
 ## Deployment limitations
 
-v1 does not provide production analyst authentication/RBAC, TLS termination, multi-tenancy, distributed replay storage, secret rotation automation, external immutable auditing, or general host remediation. Use TLS for any non-loopback transport and protect agent credentials as secrets.
+v1 does not provide production analyst authentication/RBAC, TLS termination, multi-tenancy, horizontally scaled/multi-worker API operation, distributed replay storage, secret rotation automation, external immutable auditing, or general host remediation. Use TLS for any non-loopback transport and protect agent credentials as secrets.
 
 See `docs/threat-model.md` for the detailed trust model and `docs/V1_ACCEPTANCE.md` for the required release gates.
