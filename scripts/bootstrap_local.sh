@@ -60,4 +60,4 @@ PY
 fi
 
 cd "${ROOT}"
-exec ./scripts/run_all.sh
+exec bash ./scripts/run_all.sh
