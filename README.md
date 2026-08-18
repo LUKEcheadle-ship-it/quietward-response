@@ -44,7 +44,7 @@ Requirements: Python 3.12+, Node.js 22+, npm, Bash, and curl.
 ```bash
 git clone https://github.com/LUKEcheadle-ship-it/quietward-response.git
 cd quietward-response
-./scripts/bootstrap_local.sh
+bash scripts/bootstrap_local.sh
 ```
 
 `bootstrap_local.sh` creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, installs the local Python/Node dependencies through the normal launchers, applies database migrations, starts the API and frontend, and refuses to report ready unless both are reachable.
@@ -66,7 +66,7 @@ If you prefer to manage `.env` yourself:
 ```bash
 cp .env.example .env
 # replace QWR_ENROLLMENT_TOKEN with a random 24+ character value
-./scripts/run_all.sh
+bash scripts/run_all.sh
 ```
 
 To populate the original three safe synthetic investigation scenarios after startup:
@@ -80,8 +80,8 @@ You can also set `QWR_SEED_DEMO=true` before `run_all.sh` when you specifically 
 ### Run components separately
 
 ```bash
-./scripts/run_backend.sh
-./scripts/run_frontend.sh
+bash scripts/run_backend.sh
+bash scripts/run_frontend.sh
 ```
 
 The frontend launcher reads the repository API configuration so a local `QWR_API_PORT` / `NEXT_PUBLIC_API_URL` override does not leave the browser pointing at the default API port.
