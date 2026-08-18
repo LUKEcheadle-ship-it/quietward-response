@@ -41,12 +41,9 @@ def incident_allows_response(incident: IncidentRecord) -> bool:
 
 
 def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
-    """Return whether the incident currently exposes this controlled action.
-
-    The registry says what the product *can* execute. The incident recommendation
-    says whether that capability is appropriate for this particular evidence set.
-    Both conditions must hold before an executable action can be created or sent.
-    """
+    """Return whether this open incident currently exposes the action."""
+    if not incident_allows_response(incident):
+        return False
     for recommendation in incident.recommended_actions or []:
         if not isinstance(recommendation, dict):
             continue
@@ -91,7 +88,7 @@ def evaluate_action_policy(
             reasons.append("target host is not affected by incident")
         if not incident_allows_response(incident):
             reasons.append(INCIDENT_STATUS_REASON)
-        if not incident_enables_action(incident, action.action_type):
+        elif not incident_enables_action(incident, action.action_type):
             reasons.append(RECOMMENDATION_BINDING_REASON)
 
     host = session.get(HostRecord, action.target_host_id)
