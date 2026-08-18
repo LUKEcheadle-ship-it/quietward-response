@@ -42,12 +42,17 @@ class Settings(BaseSettings):
     require_agent_auth_for_quietward_events: bool = True
 
     @model_validator(mode="after")
-    def reject_development_token_outside_development(self) -> "Settings":
-        if (
-            self.environment.strip().lower() != "development"
-            and self.enrollment_token == DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN
-        ):
-            raise ValueError("QWR_ENROLLMENT_TOKEN must be replaced outside development")
+    def enforce_non_development_security_boundary(self) -> "Settings":
+        if self.environment.strip().lower() != "development":
+            if self.enrollment_token == DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN:
+                raise ValueError(
+                    "QWR_ENROLLMENT_TOKEN must be replaced outside development"
+                )
+            if not self.require_agent_auth_for_quietward_events:
+                raise ValueError(
+                    "QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS must remain enabled "
+                    "outside development"
+                )
         return self
 
 
