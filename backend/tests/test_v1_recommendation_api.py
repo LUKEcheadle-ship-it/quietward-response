@@ -24,3 +24,8 @@ def test_controlled_recommendation_metadata_survives_incident_api(client, event_
     assert len(controlled) == 1
     assert controlled[0]["enabled"] is True
     assert controlled[0]["requires_approval"] is True
+
+    # The demo fixture is transported as an operational event, but it is not a
+    # disk/resource incident. Its response card should stay focused on the fixture.
+    titles = {item["title"] for item in recommendations}
+    assert titles == {"Confirm demo service health", "Restart QuietWard demo service"}
