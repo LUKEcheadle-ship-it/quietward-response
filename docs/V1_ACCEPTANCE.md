@@ -1,19 +1,49 @@
 # QuietWard Response v1 acceptance
 
-QuietWard Response v1 is considered release-ready only after the Phase 1 and Phase 2 branches have been validated together with the companion QuietWard integration branch.
+QuietWard Response v1 is release-ready only after the Response and companion QuietWard branches pass both deterministic verification and the live two-repository loop.
 
-## Required validation
+## Automated deterministic gate
 
-1. Apply Alembic through `0002_phase2` on a fresh database and an upgraded Phase 1 database.
-2. Run the full backend test suite with warnings treated as errors.
-3. Run frontend TypeScript checks, production build, and dependency audit.
-4. Enroll one real QuietWard endpoint with a non-default enrollment token.
-5. Verify an authenticated QuietWard event is accepted and an unsigned or replayed event is rejected.
-6. Run the controlled demo fixture end to end: unhealthy fixture -> incident -> prepared action -> analyst approval -> agent poll -> single execution -> signed result.
-7. Run the same poll again and confirm the action is not executed a second time.
-8. Verify `/api/v1/audit/verify` reports a valid chain after the full lifecycle.
-9. Confirm QuietWard continues local monitoring when Response is disabled and when Response is temporarily unreachable.
-10. Confirm no generic command, process-control, filesystem-deletion, firewall, quarantine, or host-isolation action exists in either action registry.
+From the QuietWard Response checkout:
+
+```bash
+python scripts/verify_v1.py --quietward-repo ../quietward
+```
+
+This gate checks:
+
+1. Python compilation for the Response backend/tests.
+2. The full Response backend test suite with warnings treated as errors.
+3. The executable server action registry contains exactly the one v1 demo action.
+4. Alembic reaches `0002_phase2` from a fresh SQLite database.
+5. Alembic upgrades a legacy Phase 1-shaped audit database and adds the Phase 2 schema.
+6. Frontend TypeScript checks and production build.
+7. npm dependency audit unless explicitly skipped for an offline machine.
+8. The full companion QuietWard test suite when `--quietward-repo` is supplied.
+
+## Automated live two-repository gate
+
+```bash
+python scripts/verify_v1_live.py --quietward-repo ../quietward
+```
+
+The live gate starts an isolated local Response API on a temporary database and then uses the actual QuietWard response client over HTTP. It proves:
+
+1. one QuietWard agent can enroll;
+2. a real HMAC-signed QuietWard event is accepted;
+3. that event becomes an incident;
+4. the controlled recommendation is produced;
+5. an action starts in `pending` and therefore requires analyst approval;
+6. deterministic policy allows the approved demo action;
+7. QuietWard polls outward for the action;
+8. the dedicated fixture changes exactly once;
+9. a signed terminal result returns to Response;
+10. a second poll does not re-execute the action; and
+11. the complete audit chain verifies after the lifecycle.
+
+## Manual UI smoke check
+
+After the automated gates pass, start the normal stack and verify that Overview, Incidents, Agents, Hosts, and Events render without browser console errors. On the live-demo incident, confirm that the Response Actions card displays the transition from awaiting approval through succeeded and exposes the structured result.
 
 ## Release boundary
 
