@@ -209,6 +209,20 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# QuietWard Response local state
+quietward-response.db
+backend/quietward-response.db
+*.db-journal
+node_modules/
+.next/
+frontend/out/
+!frontend/src/lib/
+!frontend/src/lib/*.ts
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store
+.env.local
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

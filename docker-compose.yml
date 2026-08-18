@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quietward_response}
+      POSTGRES_USER: ${POSTGRES_USER:-quietward_response}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    volumes:
+      - response-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [response-internal]
+
+  backend:
+    build: ./backend
+    environment:
+      QWR_ENVIRONMENT: development
+      QWR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quietward_response}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-quietward_response}
+      QWR_API_HOST: 0.0.0.0
+      QWR_API_PORT: 8001
+      QWR_CORS_ORIGINS: '["http://localhost:3001"]'
+    ports:
+      - "127.0.0.1:8002:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [response-internal]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8002
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8002
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on: [backend]
+    networks: [response-internal]
+
+volumes:
+  response-postgres:
+
+networks:
+  response-internal:
+    driver: bridge
