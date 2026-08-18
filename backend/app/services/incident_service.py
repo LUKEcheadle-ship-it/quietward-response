@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.database.models import AuditRecord, EventRecord, IncidentRecord
 from app.schemas.incident import IncidentPatch
+from app.services.action_service import cancel_undispatched_actions_for_incident
 from app.services.audit_service import record_audit
 from app.services.timeline import timeline_for
 
@@ -111,6 +112,12 @@ def update_incident(
             details={"previous": previous, "current": incident.status},
             incident_id=incident.incident_id,
         )
+        if incident.status in {"resolved", "dismissed"}:
+            cancel_undispatched_actions_for_incident(
+                session,
+                incident.incident_id,
+                reason=f"incident moved to {incident.status}",
+            )
     if patch.severity is not None and patch.severity.value != incident.severity:
         previous = incident.severity
         incident.severity = patch.severity.value
