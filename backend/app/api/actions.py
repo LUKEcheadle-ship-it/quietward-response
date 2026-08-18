@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.database.models import ActionRecord
 from app.database.session import get_db
 from app.schemas.action import ActionCreate, ActionRead, ActionResultCreate, ApprovalDecision
 from app.services.action_registry import public_action_registry
@@ -46,6 +47,27 @@ def _validate_result_clock(payload: ActionResultCreate, *, replay_window_seconds
                     "field": field_name,
                 },
             )
+
+
+def _validate_result_transition(db: Session, action_id: str, payload: ActionResultCreate) -> None:
+    """Require the endpoint to acknowledge execution before reporting a terminal result.
+
+    This keeps the persisted lifecycle truthful: an approved action becomes
+    `dispatching` when polled, then the endpoint must report `executing`, and only
+    then may it report `succeeded` or `failed`. The QuietWard client already follows
+    this sequence; this guard prevents a compromised/buggy client from skipping it.
+    """
+    action = db.get(ActionRecord, action_id)
+    if action is None:
+        return  # apply_action_result returns the canonical unknown-action conflict.
+    if action.status == "dispatching" and payload.status in {"succeeded", "failed"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "action_requires_executing_state",
+                "message": "endpoint must report executing before a terminal action result",
+            },
+        )
 
 
 @router.get("/actions/registry")
@@ -160,6 +182,7 @@ async def action_result(
     if payload.action_id != action_id:
         raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
     _validate_result_clock(payload, replay_window_seconds=replay_window_seconds)
+    _validate_result_transition(db, action_id, payload)
     try:
         action = apply_action_result(db, agent=agent, payload=payload)
     except ActionError as exc:
