@@ -36,11 +36,18 @@ def action_registry() -> list[dict[str, object]]:
 def request_action(
     incident_id: str,
     payload: ActionCreate,
+    request: Request,
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     try:
-        action = create_action(db, incident_id=incident_id, payload=payload, actor_id=actor_id)
+        action = create_action(
+            db,
+            incident_id=incident_id,
+            payload=payload,
+            actor_id=actor_id,
+            default_ttl_seconds=request.app.state.settings.action_default_ttl_seconds,
+        )
     except ActionError as exc:
         raise _action_error(exc) from exc
     db.commit()
