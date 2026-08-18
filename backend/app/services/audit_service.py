@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -58,6 +58,10 @@ def _ordered_records(session: Session) -> list[AuditRecord]:
     )
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
 def backfill_legacy_audit_chain(session: Session) -> int:
     """Hash Phase 1 rows once when every existing row is still unhashed.
 
@@ -105,6 +109,11 @@ def record_audit(
     ).first()
     previous_hash = previous.entry_hash if previous and previous.entry_hash else GENESIS_HASH
     timestamp = datetime.now(timezone.utc)
+    # The chain is verified in timestamp/audit_id order. Keep generated timestamps
+    # strictly monotonic so equal-resolution clocks or a small wall-clock rollback
+    # cannot reorder newly appended entries and falsely break the chain.
+    if previous is not None and timestamp <= _as_utc(previous.timestamp):
+        timestamp = _as_utc(previous.timestamp) + timedelta(microseconds=1)
     audit_id = str(uuid4())
     resolved_details = details or {}
     entry_hash = _hash_entry(
