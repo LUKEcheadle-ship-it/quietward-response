@@ -19,7 +19,7 @@ v1 remains local/trusted-network development software. Public Internet exposure 
 - A capability in the global action registry is not enough to execute it: the specific incident must currently expose that action as an enabled controlled recommendation and the incident must still be active (`new`, `investigating`, or `contained`).
 - Execution requires stored human approval and a deterministic policy decision before agent polling can retrieve a new action.
 - Only one active lifecycle of a given action type may exist for the same incident and host, even if the host has multiple enrolled credentials during rotation.
-- Closing an incident or disabling an agent cancels pending/approved actions so an old approval cannot silently become usable again after the context is later reopened or re-enabled.
+- Closing an incident or disabling an agent cancels pending/approved actions and also invalidates a `dispatching` lifecycle that has not yet produced an endpoint `executing` acknowledgement. Once execution is acknowledged, v1 preserves the recovery path rather than pretending an in-flight endpoint change can be recalled.
 - Agents initiate outbound polling; QuietWard does not expose a remote command listener.
 - Audit records are hash-chained for tamper evidence. This detects many modifications but does not make a locally controlled database immutable.
 - Local SQLite data and QuietWard response-state files are written with private-file permissions where POSIX permission semantics are available.
@@ -37,7 +37,7 @@ Residual risk: a compromised legitimate QuietWard agent can still sign false tel
 
 Possession of the derived HMAC key or original enrollment secret permits an attacker to impersonate that agent within the replay window. The current design limits the credential to one enrolled agent/host and supports disabling the agent record, but automated rotation/revocation is not yet implemented.
 
-Disabling an agent immediately prevents new authenticated requests from that credential and cancels any pending or approved action that has not yet been dispatched. Re-enabling the agent does not revive those cancelled action approvals.
+Disabling an agent immediately prevents new authenticated requests from that credential. It cancels pending/approved actions and invalidates any server-side `dispatching` lifecycle that has not yet been acknowledged as `executing`. Re-enabling the agent does not revive those cancelled approval lifecycles.
 
 Mitigations for deployment: store endpoint secrets with OS-protected secret storage, use TLS, rotate keys, revoke suspected agents, and avoid copying credentials into logs or source control.
 
@@ -55,19 +55,19 @@ Residual risk: nonce persistence is database-backed and designed for local scale
 
 The HMAC includes a SHA-256 digest of the exact request body plus method and target path/query. Changing the event, result, requested resource, or endpoint invalidates the signature. Action requests are never supplied by the endpoint itself; the server returns only persisted typed actions addressed to that agent.
 
-A new action is returned only after approval and policy evaluation. The policy revalidates the target, incident state, current controlled recommendation, expiry, and approval at dispatch time. An action already in `executing` may be returned again to the same authenticated endpoint strictly for crash/retry reconciliation.
+A new action is returned only after approval and policy evaluation. The policy revalidates the target, incident state, current controlled recommendation, expiry, and approval at dispatch time. QuietWard then independently validates the complete typed action again. An action already in `executing` may be returned again to the same authenticated endpoint strictly for crash/retry reconciliation.
 
 ### Forged ActionResult
 
 Action results are accepted only over an authenticated agent request. The `agent_id`, `host_id`, URL action ID, and stored action target must all agree. Results for unknown actions or another agent/host are rejected. A completed action cannot be changed to another terminal status.
 
-A repeated terminal result is accepted only when status, structured result, error, and evidence match what Response already stored. A conflicting duplicate terminal result is rejected.
+The persisted lifecycle requires a `dispatching -> executing -> succeeded|failed` sequence. A terminal result cannot skip the endpoint execution acknowledgement. A repeated terminal result is accepted only when status, structured result, error, and evidence match what Response already stored; a conflicting duplicate terminal result is rejected.
 
 ### Duplicate or stale action execution
 
 The server permits at most one active action lifecycle per incident + target host + action type. This prevents two enrolled credentials for the same host from creating parallel action IDs for the same controlled remediation.
 
-If the incident is resolved/dismissed or the target agent is disabled before dispatch, pending/approved actions are cancelled and their approval record is cancelled. Reopening the incident or re-enabling the agent does not revive that stale action; a new action request and approval are required.
+If the incident is resolved/dismissed or the target agent is disabled before execution acknowledgement, pending/approved actions are cancelled and a `dispatching` lifecycle is invalidated. Reopening the incident or re-enabling the agent does not revive that stale action; a new action request and approval are required. Because `dispatching` means an endpoint may already have received a copy, this is a best-effort pre-execution revocation boundary, not a claim that a delivered network message can be recalled. A result submitted after cancellation is rejected by lifecycle validation.
 
 The endpoint persists an `executing` intent before attempting local execution. The dedicated demo fixture stores the applied `action_id` and prior structured result, and the endpoint also keeps a durable terminal-result ledger.
 
@@ -77,7 +77,7 @@ This gives the single v1 demo action explicit crash/retry idempotency. Future hi
 
 ### Approval bypass
 
-The server refuses action creation or dispatch when the action is unregistered, parameters are invalid, the action is not an enabled controlled recommendation for the incident, the incident is closed, target agent/host do not match the incident, the action or approval is expired, the agent is disabled, or the approval is not approved. Expired/cancelled state is persisted rather than rolled back. The agent separately rejects unknown types, non-empty parameters, wrong host, and wrong agent.
+The server refuses action creation or dispatch when the action is unregistered, parameters are invalid, the action is not an enabled controlled recommendation for the incident, the incident is closed, target agent/host do not match the incident, the action or approval is expired, the agent is disabled, or the approval is not approved. Expired/cancelled state is persisted rather than rolled back. The agent separately rejects unknown fields/types, non-empty parameters, stale expiry, missing policy allowance, wrong host, and wrong agent.
 
 Current limitation: local analyst identity is represented by `X-Actor-ID` and is not yet backed by OIDC/RBAC. The identifier is bounded before persistence, but v1 proves the approval state machine and security boundary, not production analyst authentication.
 
@@ -89,7 +89,7 @@ The event outbox has a fixed v1 capacity. When full it reports an integration er
 
 ### Malicious or compromised Response server
 
-A compromised server can attempt to send malicious action data, but the v1 QuietWard executor only recognizes one hard-coded demo action, requires its own exact host/agent identifiers, accepts no parameters, and refuses arbitrary paths/service names/commands. This materially limits the blast radius of a server compromise in v1.
+A compromised server can attempt to send malicious action data, but the v1 QuietWard executor only recognizes one hard-coded demo action, requires its own exact host/agent identifiers, requires a valid policy-marked typed lifecycle, accepts no parameters, and refuses arbitrary paths/service names/commands. This materially limits the blast radius of a server compromise in v1.
 
 A future real remediation library must preserve endpoint-side allowlisting, scoped capabilities, expiry, least privilege, and independent validation.
 
