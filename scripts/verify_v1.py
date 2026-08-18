@@ -178,6 +178,11 @@ def _verify_quietward(quietward_repo: Path, python: str) -> None:
         env=env,
     )
     _run(
+        [python, "scripts/public_release_audit.py"],
+        cwd=quietward_repo,
+        env=env,
+    )
+    _run(
         [python, "-m", "unittest", "discover", "-s", "tests", "-q"],
         cwd=quietward_repo,
         env=env,
