@@ -21,7 +21,7 @@ services:
       QWR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quietward_response}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-quietward_response}
       QWR_API_HOST: 0.0.0.0
       QWR_API_PORT: 8001
-      QWR_CORS_ORIGINS: '["http://localhost:3001"]'
+      QWR_CORS_ORIGINS: '["http://localhost:3001","http://127.0.0.1:3001"]'
       QWR_ENROLLMENT_TOKEN: ${QWR_ENROLLMENT_TOKEN:?Set QWR_ENROLLMENT_TOKEN in .env before starting Compose}
       QWR_AGENT_REPLAY_WINDOW_SECONDS: ${QWR_AGENT_REPLAY_WINDOW_SECONDS:-300}
       QWR_ACTION_DEFAULT_TTL_SECONDS: ${QWR_ACTION_DEFAULT_TTL_SECONDS:-600}
