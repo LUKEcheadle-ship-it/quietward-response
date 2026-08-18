@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -155,4 +155,9 @@ def verify_agent_request(
 
     agent.last_seen = _utcnow()
     session.flush()
+
+    # Authentication state is committed before the business operation runs. This
+    # makes a valid nonce single-use even when a later host/action/schema check
+    # rejects the request and its transaction is rolled back.
+    session.commit()
     return agent
