@@ -56,6 +56,7 @@ def create_action(
     incident_id: str,
     payload: ActionCreate,
     actor_id: str,
+    default_ttl_seconds: int = 600,
 ) -> ActionRecord:
     incident = session.get(IncidentRecord, incident_id)
     if incident is None:
@@ -74,6 +75,12 @@ def create_action(
     if parameter_errors:
         raise ActionError("; ".join(parameter_errors))
 
+    ttl_seconds = payload.expires_in_seconds
+    if ttl_seconds is None:
+        ttl_seconds = default_ttl_seconds
+    if not 30 <= ttl_seconds <= 3600:
+        raise ActionError("action TTL must be between 30 and 3600 seconds")
+
     now = _utcnow()
     action = ActionRecord(
         incident_id=incident_id,
@@ -83,7 +90,7 @@ def create_action(
         parameters=payload.parameters,
         requested_at=now,
         requested_by=actor_id,
-        expires_at=now + timedelta(seconds=payload.expires_in_seconds),
+        expires_at=now + timedelta(seconds=ttl_seconds),
         status="pending",
     )
     session.add(action)
@@ -112,6 +119,7 @@ def create_action(
             "target_agent_id": action.target_agent_id,
             "target_host_id": action.target_host_id,
             "approval_id": approval.approval_id,
+            "ttl_seconds": ttl_seconds,
         },
     )
     session.flush()
