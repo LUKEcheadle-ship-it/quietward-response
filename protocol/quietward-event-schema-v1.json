@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quietward.dev/schemas/quietward-event-v1.json",
+  "title": "QuietWard Response Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "source", "host_id", "timestamp", "event_type", "severity", "summary"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "event_id": { "type": "string", "format": "uuid" },
+    "source": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "source_version": { "type": ["string", "null"], "maxLength": 50 },
+    "host_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "host_name": { "type": ["string", "null"], "maxLength": 255 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "event_type": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "category": { "type": ["string", "null"], "maxLength": 100 },
+    "severity": { "enum": ["info", "low", "medium", "high", "critical"] },
+    "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "evidence": { "$ref": "#/$defs/openObject" },
+    "process": { "$ref": "#/$defs/openObject" },
+    "file": { "$ref": "#/$defs/openObject" },
+    "network": { "$ref": "#/$defs/openObject" },
+    "persistence": { "$ref": "#/$defs/openObject" },
+    "metadata": { "$ref": "#/$defs/openObject" }
+  },
+  "$defs": {
+    "openObject": { "type": ["object", "null"], "additionalProperties": true }
+  }
+}

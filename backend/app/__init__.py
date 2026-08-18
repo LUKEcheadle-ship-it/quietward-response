@@ -1,0 +1,1 @@
+"""QuietWard Response API."""
