@@ -19,6 +19,7 @@ Include the affected revision, a minimal reproduction, impact, and any suggested
 - Database access uses SQLAlchemy parameter binding and Alembic migrations.
 - Local SQLite data and QuietWard response-state files use private-file permissions where the operating system supports POSIX modes.
 - Response actions are separately versioned, typed, allowlisted, approval-gated, policy-checked, and revalidated by QuietWard.
+- Executable action creation is additionally bound to an enabled controlled recommendation on the specific incident, and policy rechecks that binding before dispatch.
 - Analyst identity headers are bounded before persistence; v1 still treats analyst identity itself as local-development grade rather than production RBAC.
 - Agent polling is outbound from QuietWard; no inbound endpoint command listener is introduced.
 - The only executable v1 action is `restart_quietward_demo_service`. It accepts no parameters and modifies only the dedicated QuietWard JSON demo fixture; it does not control a real service.
