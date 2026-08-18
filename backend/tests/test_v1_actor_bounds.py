@@ -4,7 +4,12 @@ from __future__ import annotations
 def test_action_actor_headers_are_bounded(client, event_factory) -> None:
     event = client.post(
         "/api/v1/events",
-        json=event_factory(host_id="actor-bound-host"),
+        json=event_factory(
+            host_id="actor-bound-host",
+            event_type="quietward_demo_service_unhealthy",
+            category="operational",
+            summary="Dedicated demo fixture is unhealthy",
+        ),
     )
     assert event.status_code == 201
     incident_id = event.json()["incident_id"]
