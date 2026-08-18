@@ -13,6 +13,8 @@ from app.models.incident import incident_title
 from app.services.audit_service import record_audit
 from app.services.recommendation import probable_cause_for, recommendations_for
 
+_ACTIONABLE_INCIDENT_STATUSES = ("new", "investigating", "contained")
+
 
 def _values(payload: dict[str, Any], section: str, keys: tuple[str, ...]) -> set[str]:
     value = payload.get(section) or {}
@@ -82,12 +84,14 @@ def correlate_event(
     recent = list(
         session.scalars(
             select(EventRecord)
+            .join(IncidentRecord, EventRecord.incident_id == IncidentRecord.incident_id)
             .where(
                 EventRecord.host_id == event.host_id,
                 EventRecord.event_id != event.event_id,
                 EventRecord.occurred_at >= earliest,
                 EventRecord.occurred_at <= latest,
                 EventRecord.incident_id.is_not(None),
+                IncidentRecord.status.in_(_ACTIONABLE_INCIDENT_STATUSES),
             )
             .order_by(EventRecord.occurred_at.desc())
             .limit(100)
