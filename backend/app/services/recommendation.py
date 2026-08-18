@@ -11,21 +11,21 @@ def _action(
     registry_action_type: str | None = None,
 ) -> dict[str, object]:
     diagnostic = action_type == "diagnostic"
-    controlled_phase2 = registry_action_type is not None
+    controlled_v1 = registry_action_type is not None
     return {
         "action_type": action_type,
         "title": title,
         "description": description,
-        "enabled": diagnostic or controlled_phase2,
+        "enabled": diagnostic or controlled_v1,
         "phase": (
-            "Phase 1"
+            "v1 diagnostic"
             if diagnostic
-            else "Phase 2 — approval required"
-            if controlled_phase2
-            else "Phase 2 — not enabled"
+            else "v1 — approval required"
+            if controlled_v1
+            else "v1 — not enabled"
         ),
         "registry_action_type": registry_action_type,
-        "requires_approval": controlled_phase2,
+        "requires_approval": controlled_v1,
     }
 
 
@@ -59,8 +59,8 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action("diagnostic", "Inspect persistence entry", "Review the task, service, or startup entry and the account that created it."),
                 _action("diagnostic", "Trace process ancestry", "Inspect the parent process and related launches around the first observation."),
                 _action("diagnostic", "Review related network activity", "Correlate destinations and connection timing with the executable lifecycle."),
-                _action("remediation", "Disable persistence mechanism", "Policy approval and endpoint execution are intentionally unavailable in Phase 2."),
-                _action("remediation", "Quarantine executable", "File quarantine is intentionally unavailable in Phase 2."),
+                _action("remediation", "Disable persistence mechanism", "General persistence changes are intentionally unavailable in v1."),
+                _action("remediation", "Quarantine executable", "File quarantine is intentionally unavailable in v1."),
             ]
         )
 
@@ -70,7 +70,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action("diagnostic", "Identify the owning process", "Map the socket to its process, service, image path, and execution account."),
                 _action("diagnostic", "Inspect service configuration", "Review service arguments, dependencies, startup mode, and recent configuration changes."),
                 _action("diagnostic", "Confirm bind scope", "Determine whether the listener is loopback, interface-specific, or wildcard-bound."),
-                _action("remediation", "Restrict or stop the listener", "Network and general service changes are not enabled in Phase 2."),
+                _action("remediation", "Restrict or stop the listener", "Network and general service changes are not enabled in v1."),
             ]
         )
 
@@ -80,7 +80,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action("diagnostic", "Identify largest consumers", "Measure filesystem usage and locate the largest recent contributors."),
                 _action("diagnostic", "Inspect recent growth", "Compare file, database, and log growth over the incident window."),
                 _action("diagnostic", "Assess service health", "Review health checks and dependency failures caused by resource exhaustion."),
-                _action("remediation", "Reclaim disk space", "Deletion and cleanup actions are not enabled in Phase 2."),
+                _action("remediation", "Reclaim disk space", "Deletion and cleanup actions are not enabled in v1."),
             ]
         )
 
@@ -89,7 +89,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action("diagnostic", "Validate the original evidence", "Confirm the reporting source, timestamps, and affected host context."),
                 _action("diagnostic", "Review adjacent activity", "Inspect related events before and after this observation."),
-                _action("remediation", "Apply corrective action", "No general remediation action is enabled in Phase 2."),
+                _action("remediation", "Apply corrective action", "No general remediation action is enabled in v1."),
             ]
         )
 
