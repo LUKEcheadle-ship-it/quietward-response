@@ -5,6 +5,9 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from sqlalchemy import select
+
+from app.database.models import AuditRecord
 from app.services.agent_auth import sign_request
 
 
@@ -28,6 +31,15 @@ def test_disabled_agent_can_no_longer_send_authenticated_events(client) -> None:
     )
     assert disabled.status_code == 200
     assert disabled.json()["enabled"] is False
+
+    with client.app.state.database.session_factory() as session:
+        audits = list(session.scalars(select(AuditRecord).order_by(AuditRecord.timestamp.asc())))
+        assert any(
+            audit.action == "agent_disabled"
+            and audit.resource_id == enrollment["agent_id"]
+            and audit.actor_id == "analyst-test"
+            for audit in audits
+        )
 
     payload = {
         "schema_version": "1.0",
@@ -67,6 +79,3 @@ def test_disabled_agent_can_no_longer_send_authenticated_events(client) -> None:
     rejected = client.post(target, content=body, headers=headers)
     assert rejected.status_code == 401
     assert rejected.json()["detail"]["code"] == "unknown_or_disabled_agent"
-
-    audit_actions = [item["action"] for item in client.get("/api/v1/incidents").json()] if False else None
-    assert audit_actions is None  # keep the endpoint behavior assertion focused above
