@@ -2,7 +2,9 @@
 
 QuietWard Response is an event-driven incident investigation and controlled-response platform. It validates sensor events, tracks hosts, deterministically correlates related observations into incidents, reconstructs timelines, recommends investigation steps, and records a tamper-evident audit trail.
 
-The v1 release path adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. There is still **no arbitrary command execution** and no general host-remediation surface.
+The v1 line adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. There is still **no arbitrary command execution** and no general host-remediation surface.
+
+> **Release status:** the current development branch is `1.0.0rc1` until the documented automated and UI acceptance gates are executed successfully. The source is intentionally not labeled `1.0.0` before those gates pass.
 
 ## Relationship with QuietWard
 
@@ -42,25 +44,12 @@ Requirements: Python 3.12+, Node.js 22+, npm, Bash, and curl.
 ```bash
 git clone https://github.com/LUKEcheadle-ship-it/quietward-response.git
 cd quietward-response
-git switch feature/phase2-secure-integration
-cp .env.example .env
+./scripts/bootstrap_local.sh
 ```
 
-Before enrolling a real QuietWard endpoint, replace the loopback development enrollment token in `.env`. One simple local token generator is:
+`bootstrap_local.sh` creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, installs the local Python/Node dependencies through the normal launchers, applies database migrations, starts the API and frontend, and refuses to report ready unless both are reachable.
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-Put that value in `QWR_ENROLLMENT_TOKEN`, then start:
-
-```bash
-./scripts/run_all.sh
-```
-
-A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents. To populate the original three safe demo scenarios, either run `python scripts/seed_demo.py --api-url http://localhost:8002` after startup or set `QWR_SEED_DEMO=true` before `run_all.sh`.
-
-The backend launcher and container image apply Alembic migrations before startup. The backend and Alembic both load the repository-root `.env`, so they target the same configured database.
+A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents.
 
 - Frontend: <http://localhost:3001>
 - API: <http://localhost:8002>
@@ -70,13 +59,32 @@ The backend launcher and container image apply Alembic migrations before startup
 
 Press `Ctrl+C` to stop both services.
 
+### Manual local start
+
+If you prefer to manage `.env` yourself:
+
+```bash
+cp .env.example .env
+# replace QWR_ENROLLMENT_TOKEN with a random 24+ character value
+./scripts/run_all.sh
+```
+
+To populate the original three safe synthetic investigation scenarios after startup:
+
+```bash
+python scripts/seed_demo.py --api-url http://localhost:8002
+```
+
+You can also set `QWR_SEED_DEMO=true` before `run_all.sh` when you specifically want those demo incidents created at startup.
+
 ### Run components separately
 
 ```bash
 ./scripts/run_backend.sh
 ./scripts/run_frontend.sh
-python3 scripts/seed_demo.py --api-url http://localhost:8002
 ```
+
+The frontend launcher reads the repository API configuration so a local `QWR_API_PORT` / `NEXT_PUBLIC_API_URL` override does not leave the browser pointing at the default API port.
 
 ### Docker Compose
 
@@ -90,14 +98,13 @@ docker compose up --build
 
 ## Enroll a QuietWard endpoint
 
-Start Response first and enroll the endpoint once:
+Start Response first, then enroll the endpoint once:
 
 ```bash
-python3 scripts/enroll_quietward.py \
-  --api-url http://127.0.0.1:8002 \
-  --token "$QWR_ENROLLMENT_TOKEN" \
-  --host-id YOUR_QUIETWARD_HOST_ID
+python scripts/enroll_quietward.py --host-id YOUR_QUIETWARD_HOST_ID
 ```
+
+The enrollment helper reads the Response URL and enrollment token from the repository `.env` by default. You can still override either with `--api-url` or `--token`.
 
 The command prints these one-time endpoint values:
 
@@ -121,20 +128,21 @@ The only executable v1 action is:
 
 Despite the name, this does **not** restart an operating-system service. It modifies only a dedicated QuietWard-owned JSON demo fixture named `quietward-response-demo.json`. The endpoint rejects arbitrary action types, arbitrary service names, executable paths, shell fragments, and non-empty parameters.
 
-On the QuietWard integration branch, initialize the demo fixture as unhealthy:
+On the QuietWard integration build, initialize the fixture as unhealthy and send its authenticated event:
 
 ```bash
 python scripts/quietward_response_demo.py init-unhealthy --host-id YOUR_QUIETWARD_HOST_ID
 python scripts/quietward_response_demo.py sync --host-id YOUR_QUIETWARD_HOST_ID
 ```
 
-The sync produces an authenticated `quietward_demo_service_unhealthy` event. Response creates an incident and exposes the allowlisted recommendation. In the incident console:
+Response creates an incident and exposes the allowlisted recommendation. In the incident console:
 
-1. Prepare the controlled action.
-2. Approve it.
-3. Run another QuietWard sync or service cycle.
-4. QuietWard polls for the approved action, validates it locally, changes only the dedicated demo fixture, and returns a signed result.
-5. Response shows the action lifecycle and records it in the audit chain.
+1. Choose the intended enabled QuietWard agent if more than one credential exists for an affected host.
+2. Prepare the controlled action.
+3. Approve it.
+4. Run another QuietWard `sync` or normal service cycle.
+5. QuietWard polls for the approved action, validates it locally, changes only the dedicated demo fixture, and returns a signed result.
+6. Response shows the terminal result and records the lifecycle in the audit chain.
 
 The endpoint persists execution intent and a terminal-result ledger, and the dedicated fixture records the applied action ID. This allows an interrupted `executing` action to be reconciled without changing the fixture twice. Event retries treat only an identical already-accepted event ID as successful delivery; reusing an event ID with different content is rejected as an integrity conflict.
 
@@ -156,6 +164,7 @@ Controlled-response endpoints:
 - `POST /api/v1/agents/enroll`
 - `GET /api/v1/agents`
 - `GET /api/v1/agents/{agent_id}`
+- `PATCH /api/v1/agents/{agent_id}`
 - `GET /api/v1/actions/registry`
 - `POST /api/v1/incidents/{incident_id}/actions`
 - `GET /api/v1/incidents/{incident_id}/actions`
@@ -169,7 +178,7 @@ Events claiming `source=quietward` require authenticated agent delivery when `QW
 
 ## v1 verification
 
-The easiest release-candidate check runs both automated gates in order:
+The complete release-candidate gate is:
 
 ```bash
 python scripts/finalize_v1.py --quietward-repo ../quietward
@@ -182,7 +191,7 @@ python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the final manual UI smoke check.
+See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the final UI smoke check.
 
 ## Safety status
 
