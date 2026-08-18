@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database.models import AgentRecord
 from app.database.session import get_db
 from app.schemas.agent import AgentEnrollRequest, AgentEnrollResponse, AgentPatch, AgentRead
+from app.services.action_service import cancel_undispatched_actions_for_agent
 from app.services.agent_auth import enroll_agent
 from app.services.audit_service import record_audit
 
@@ -113,6 +114,8 @@ def patch_agent(
             resource_id=agent.agent_id,
             details={"host_id": agent.host_id},
         )
+        if not agent.enabled:
+            cancel_undispatched_actions_for_agent(db, agent.agent_id)
     db.commit()
     db.refresh(agent)
     return _agent_to_dict(agent)
