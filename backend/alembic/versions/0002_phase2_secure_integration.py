@@ -21,7 +21,6 @@ def upgrade() -> None:
         sa.Column("last_seen", sa.DateTime(timezone=True), nullable=True),
         sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column("agent_version", sa.String(length=64), nullable=True),
-        sa.UniqueConstraint("key_id", name="uq_agents_key_id"),
     )
     op.create_index("ix_agents_host_id", "agents", ["host_id"], unique=False)
     op.create_index("ix_agents_key_id", "agents", ["key_id"], unique=True)
@@ -51,7 +50,6 @@ def upgrade() -> None:
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("rejection_reason", sa.Text(), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("action_id", name="uq_approvals_action_id"),
     )
     op.create_index("ix_approvals_incident_id", "approvals", ["incident_id"], unique=False)
     op.create_index("ix_approvals_action_id", "approvals", ["action_id"], unique=True)
