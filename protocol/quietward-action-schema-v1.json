@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quietward.local/protocol/quietward-action-schema-v1.json",
+  "title": "QuietWard Response Action Protocol v1",
+  "oneOf": [
+    {"$ref": "#/$defs/ActionRequest"},
+    {"$ref": "#/$defs/ActionResult"}
+  ],
+  "$defs": {
+    "ActionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "action_id", "incident_id", "target_agent_id",
+        "target_host_id", "action_type", "parameters", "requested_at",
+        "requested_by", "approval_id", "expires_at", "status"
+      ],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "action_id": {"type": "string", "format": "uuid"},
+        "incident_id": {"type": "string", "format": "uuid"},
+        "target_agent_id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "target_host_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "action_type": {"enum": ["restart_quietward_demo_service"]},
+        "parameters": {"type": "object", "maxProperties": 0},
+        "requested_at": {"type": "string", "format": "date-time"},
+        "requested_by": {"type": "string", "minLength": 1, "maxLength": 128},
+        "approval_id": {"type": "string", "format": "uuid"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "status": {"enum": ["approved", "dispatching"]},
+        "policy_allowed": {"type": ["boolean", "null"]},
+        "policy_reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "ActionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "action_id", "agent_id", "host_id", "status",
+        "result", "evidence"
+      ],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "action_id": {"type": "string", "format": "uuid"},
+        "agent_id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "host_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "status": {"enum": ["executing", "succeeded", "failed"]},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "result": {"type": "object"},
+        "error": {"type": ["string", "null"]},
+        "evidence": {"type": "object"},
+        "agent_version": {"type": ["string", "null"], "maxLength": 64}
+      }
+    }
+  }
+}
