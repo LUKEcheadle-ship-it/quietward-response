@@ -17,6 +17,10 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
     v1 intentionally runs a single Uvicorn process/worker. A future horizontally
     scaled deployment must replace this process-local guard with a database-backed
     atomic chain-head/append mechanism before adding multiple API workers.
+
+    API responses may contain endpoint identities or incident evidence, so v1 also
+    marks every `/api/v1` response non-cacheable. The one-time enrollment response
+    keeps its explicit `Pragma: no-cache` header in addition to this shared policy.
     """
 
     def __init__(self, app) -> None:  # type intentionally follows Starlette middleware API
@@ -29,4 +33,7 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
         call_next: RequestResponseEndpoint,
     ) -> Response:
         async with self._lock:
-            return await call_next(request)
+            response = await call_next(request)
+        if request.url.path.startswith("/api/v1"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
