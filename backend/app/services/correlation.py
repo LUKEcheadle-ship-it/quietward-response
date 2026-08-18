@@ -22,7 +22,7 @@ def _values(payload: dict[str, Any], section: str, keys: tuple[str, ...]) -> set
 
 
 def correlation_reasons(current: EventRecord, previous: EventRecord) -> list[str]:
-    reasons = ["same host within the configured five-minute correlation window"]
+    reasons = ["same host within the configured correlation window"]
     if current.category and current.category == previous.category:
         reasons.append(f"shared category: {current.category}")
 
@@ -76,7 +76,9 @@ def correlate_event(
     *,
     correlation_window_seconds: int,
 ) -> tuple[IncidentRecord, list[str]]:
-    earliest = event.occurred_at - timedelta(seconds=correlation_window_seconds)
+    window = timedelta(seconds=correlation_window_seconds)
+    earliest = event.occurred_at - window
+    latest = event.occurred_at + window
     recent = list(
         session.scalars(
             select(EventRecord)
@@ -84,7 +86,7 @@ def correlate_event(
                 EventRecord.host_id == event.host_id,
                 EventRecord.event_id != event.event_id,
                 EventRecord.occurred_at >= earliest,
-                EventRecord.occurred_at <= event.occurred_at + timedelta(seconds=30),
+                EventRecord.occurred_at <= latest,
                 EventRecord.incident_id.is_not(None),
             )
             .order_by(EventRecord.occurred_at.desc())
