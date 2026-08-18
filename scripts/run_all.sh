@@ -16,7 +16,18 @@ else
 fi
 export PYTHON_BIN
 
-API_PORT="${QWR_API_PORT:-8002}"
+# run_backend.sh loads repository-root .env through the Pydantic settings layer.
+# Resolve the same simple numeric port here so health checks do not accidentally
+# keep probing the default when .env selected a different local port.
+API_PORT="${QWR_API_PORT:-}"
+if [[ -z "${API_PORT}" && -f "${ROOT}/.env" ]]; then
+  API_PORT="$(sed -n 's/^QWR_API_PORT=//p' "${ROOT}/.env" | tail -n 1 | tr -d '[:space:]')"
+fi
+API_PORT="${API_PORT:-8002}"
+if [[ ! "${API_PORT}" =~ ^[0-9]+$ ]] || (( API_PORT < 1 || API_PORT > 65535 )); then
+  echo "QWR_API_PORT must be a valid TCP port." >&2
+  exit 1
+fi
 API_URL="http://127.0.0.1:${API_PORT}"
 
 ./scripts/run_backend.sh &
