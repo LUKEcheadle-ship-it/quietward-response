@@ -1,6 +1,6 @@
 # Security policy
 
-QuietWard Response is pre-release security software. Phase 1 is designed for local development and investigation workflows; it is not an internet-facing production service.
+QuietWard Response is pre-release security software. The v1 release candidate is designed for local or explicitly trusted-network incident investigation and controlled-response testing; it is not an Internet-facing production service.
 
 ## Reporting a vulnerability
 
@@ -8,13 +8,23 @@ Please use GitHub's private **Report a vulnerability** / Security Advisories wor
 
 Include the affected revision, a minimal reproduction, impact, and any suggested mitigation. Synthetic evidence is preferred.
 
-## Phase 1 boundary
+## v1 security boundary
 
-- The API defaults to `127.0.0.1` and CORS permits only the configured local frontend.
-- Event envelopes are strictly validated and duplicate UUIDs are rejected and audited.
-- Database access uses SQLAlchemy parameter binding.
-- Secrets are supplied through environment variables and are never committed.
-- There is no shell, process termination, isolation, firewall, quarantine, deletion, or arbitrary action endpoint.
-- Recommendations labeled remediation are disabled data, not executable requests.
+- The API defaults to `127.0.0.1` and CORS permits only configured origins.
+- Event envelopes are strictly validated and duplicate UUIDs are idempotent/audited.
+- QuietWard events are authenticated with enrolled per-agent HMAC credentials by default.
+- Signed agent requests bind method, target, timestamp, nonce, and exact body digest; persisted nonces provide replay resistance.
+- Database access uses SQLAlchemy parameter binding and Alembic migrations.
+- Local SQLite data and QuietWard response-state files use private-file permissions where the operating system supports POSIX modes.
+- Response actions are separately versioned, typed, allowlisted, approval-gated, policy-checked, and revalidated by QuietWard.
+- Agent polling is outbound from QuietWard; no inbound endpoint command listener is introduced.
+- The only executable v1 action is `restart_quietward_demo_service`. It accepts no parameters and modifies only the dedicated QuietWard JSON demo fixture; it does not control a real service.
+- There is no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, firewall modification, file deletion/quarantine, or host isolation capability.
+- Audit records are hash-chained and verifiable for tamper evidence. This is not equivalent to immutable external retention.
+- The known development enrollment token is rejected when `QWR_ENVIRONMENT` is not `development`. Replace it even in development before enrolling a real endpoint.
 
-Authentication, signed sensor enrollment, role-based authorization, approval quorum, and a separately versioned endpoint action protocol are required before production or remote deployment.
+## Deployment limitations
+
+v1 does not provide production analyst authentication/RBAC, TLS termination, multi-tenancy, distributed replay storage, secret rotation automation, external immutable auditing, or general host remediation. Use TLS for any non-loopback transport and protect agent credentials as secrets.
+
+See `docs/threat-model.md` for the detailed trust model and `docs/V1_ACCEPTANCE.md` for the required release gates.
