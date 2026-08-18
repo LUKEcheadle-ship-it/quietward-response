@@ -3,14 +3,29 @@ from __future__ import annotations
 from app.database.models import EventRecord
 
 
-def _action(action_type: str, title: str, description: str) -> dict[str, object]:
+def _action(
+    action_type: str,
+    title: str,
+    description: str,
+    *,
+    registry_action_type: str | None = None,
+) -> dict[str, object]:
     diagnostic = action_type == "diagnostic"
+    controlled_phase2 = registry_action_type is not None
     return {
         "action_type": action_type,
         "title": title,
         "description": description,
-        "enabled": diagnostic,
-        "phase": "Phase 1" if diagnostic else "Phase 2 — not enabled",
+        "enabled": diagnostic or controlled_phase2,
+        "phase": (
+            "Phase 1"
+            if diagnostic
+            else "Phase 2 — approval required"
+            if controlled_phase2
+            else "Phase 2 — not enabled"
+        ),
+        "registry_action_type": registry_action_type,
+        "requires_approval": controlled_phase2,
     }
 
 
@@ -18,6 +33,23 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     categories = {event.category for event in events}
     types = {event.event_type for event in events}
     recommendations: list[dict[str, object]] = []
+
+    if any(value in {"quietward_demo_service_unhealthy", "demo_service_unhealthy"} for value in types):
+        recommendations.extend(
+            [
+                _action(
+                    "diagnostic",
+                    "Confirm demo service health",
+                    "Verify the dedicated QuietWard Response demo service is the affected fixture and inspect its local health state.",
+                ),
+                _action(
+                    "remediation",
+                    "Restart QuietWard demo service",
+                    "Restart only the dedicated QuietWard Response demo fixture after analyst approval and policy validation.",
+                    registry_action_type="restart_quietward_demo_service",
+                ),
+            ]
+        )
 
     if "persistence" in categories or any("scheduled_task" in value for value in types):
         recommendations.extend(
@@ -27,8 +59,8 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action("diagnostic", "Inspect persistence entry", "Review the task, service, or startup entry and the account that created it."),
                 _action("diagnostic", "Trace process ancestry", "Inspect the parent process and related launches around the first observation."),
                 _action("diagnostic", "Review related network activity", "Correlate destinations and connection timing with the executable lifecycle."),
-                _action("remediation", "Disable persistence mechanism", "Policy approval and endpoint execution are intentionally unavailable in Phase 1."),
-                _action("remediation", "Quarantine executable", "File quarantine is intentionally unavailable in Phase 1."),
+                _action("remediation", "Disable persistence mechanism", "Policy approval and endpoint execution are intentionally unavailable in Phase 2."),
+                _action("remediation", "Quarantine executable", "File quarantine is intentionally unavailable in Phase 2."),
             ]
         )
 
@@ -38,7 +70,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action("diagnostic", "Identify the owning process", "Map the socket to its process, service, image path, and execution account."),
                 _action("diagnostic", "Inspect service configuration", "Review service arguments, dependencies, startup mode, and recent configuration changes."),
                 _action("diagnostic", "Confirm bind scope", "Determine whether the listener is loopback, interface-specific, or wildcard-bound."),
-                _action("remediation", "Restrict or stop the listener", "Network and service changes require Phase 2 policy and approval controls."),
+                _action("remediation", "Restrict or stop the listener", "Network and general service changes are not enabled in Phase 2."),
             ]
         )
 
@@ -48,7 +80,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action("diagnostic", "Identify largest consumers", "Measure filesystem usage and locate the largest recent contributors."),
                 _action("diagnostic", "Inspect recent growth", "Compare file, database, and log growth over the incident window."),
                 _action("diagnostic", "Assess service health", "Review health checks and dependency failures caused by resource exhaustion."),
-                _action("remediation", "Reclaim disk space", "Deletion and cleanup actions are intentionally unavailable in Phase 1."),
+                _action("remediation", "Reclaim disk space", "Deletion and cleanup actions are not enabled in Phase 2."),
             ]
         )
 
@@ -57,7 +89,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action("diagnostic", "Validate the original evidence", "Confirm the reporting source, timestamps, and affected host context."),
                 _action("diagnostic", "Review adjacent activity", "Inspect related events before and after this observation."),
-                _action("remediation", "Apply corrective action", "Remediation remains policy-gated and unavailable in Phase 1."),
+                _action("remediation", "Apply corrective action", "No general remediation action is enabled in Phase 2."),
             ]
         )
 
@@ -73,6 +105,9 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
 
 def probable_cause_for(events: list[EventRecord]) -> str:
     categories = {event.category for event in events}
+    types = {event.event_type for event in events}
+    if any(value in {"quietward_demo_service_unhealthy", "demo_service_unhealthy"} for value in types):
+        return "The dedicated QuietWard Response demo service reported an unhealthy state. The only enabled remediation is an approval-gated restart of that demo fixture."
     if "persistence" in categories:
         return "A newly observed executable appears related to a persistence mechanism and subsequent execution or network activity. Analyst validation is required."
     if "network" in categories:
