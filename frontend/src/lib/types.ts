@@ -6,6 +6,8 @@ export interface RecommendedAction {
   description: string;
   enabled: boolean;
   phase: string;
+  registry_action_type?: string | null;
+  requires_approval?: boolean;
 }
 
 export interface Incident {
@@ -84,6 +86,51 @@ export interface Host {
   status: string;
   event_count: number;
   incident_count: number;
+}
+
+export interface Agent {
+  agent_id: string;
+  host_id: string;
+  display_name: string;
+  key_id: string;
+  created_at: string;
+  last_seen: string | null;
+  enabled: boolean;
+  agent_version: string | null;
+}
+
+export type ResponseActionStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "dispatching"
+  | "executing"
+  | "succeeded"
+  | "failed"
+  | "expired"
+  | "cancelled";
+
+export interface ResponseAction {
+  schema_version: string;
+  action_id: string;
+  incident_id: string;
+  target_agent_id: string;
+  target_host_id: string;
+  action_type: string;
+  parameters: Record<string, unknown>;
+  requested_at: string;
+  requested_by: string;
+  approval_id: string | null;
+  expires_at: string;
+  status: ResponseActionStatus;
+  policy_allowed: boolean | null;
+  policy_reasons: string[];
+  dispatched_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  evidence: Record<string, unknown> | null;
 }
 
 export interface Overview {
