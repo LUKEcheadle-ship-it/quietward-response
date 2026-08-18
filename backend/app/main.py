@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app import __version__
 from app.api import actions, agents, audit, events, health, hosts, incidents, overview
 from app.config import Settings, get_settings
 from app.database.session import Database
@@ -38,7 +39,7 @@ def create_app(
 
     application = FastAPI(
         title="QuietWard Response API",
-        version="0.2.0",
+        version=__version__,
         description=(
             "Deterministic event ingestion, incident correlation, investigation, "
             "authenticated agents, policy-controlled response actions, and tamper-evident audit."
