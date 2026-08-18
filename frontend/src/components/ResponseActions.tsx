@@ -4,9 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, formatTime } from "@/lib/api";
 import type { Agent, IncidentDetail, RecommendedAction, ResponseAction } from "@/lib/types";
 
+const ACTIVE_ACTION_STATUSES = new Set<ResponseAction["status"]>([
+  "pending",
+  "approved",
+  "dispatching",
+  "executing",
+]);
+const ACTIONABLE_INCIDENT_STATUSES = new Set(["new", "investigating", "contained"]);
+
 function statusClass(status: ResponseAction["status"]): string {
   if (status === "succeeded") return "bg-emerald-500/10 text-emerald-300 border-emerald-500/20";
   if (status === "failed" || status === "rejected" || status === "expired") return "bg-rose-500/10 text-rose-300 border-rose-500/20";
+  if (status === "cancelled") return "bg-slate-500/10 text-slate-300 border-slate-500/20";
   if (status === "approved" || status === "dispatching" || status === "executing") return "bg-cyan/10 text-cyan border-cyan/20";
   return "bg-amber-500/10 text-amber-200 border-amber-500/20";
 }
@@ -48,7 +57,7 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Refresh active actions so the analyst sees agent polling/result transitions.
+  // Refresh dispatched/executing actions so the analyst sees agent polling/result transitions.
   useEffect(() => {
     const active = actions.some((item) => ["approved", "dispatching", "executing"].includes(item.status));
     if (!active) return;
@@ -61,10 +70,21 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
     [incident.recommended_actions],
   );
   const eligibleAgents = agents.filter((agent) => agent.enabled && incident.affected_hosts.includes(agent.host_id));
+  const incidentAllowsResponse = ACTIONABLE_INCIDENT_STATUSES.has(incident.status);
+
+  function activeActionFor(recommendation: RecommendedAction): ResponseAction | undefined {
+    if (!recommendation.registry_action_type) return undefined;
+    return actions.find(
+      (action) =>
+        action.action_type === recommendation.registry_action_type &&
+        ACTIVE_ACTION_STATUSES.has(action.status),
+    );
+  }
 
   async function prepare(recommendation: RecommendedAction) {
     const agent = eligibleAgents[0];
-    if (!agent || !recommendation.registry_action_type) return;
+    if (!agent || !recommendation.registry_action_type || !incidentAllowsResponse) return;
+    if (activeActionFor(recommendation)) return;
     setBusy(`prepare:${recommendation.registry_action_type}`);
     try {
       await apiFetch<ResponseAction>(`/api/v1/incidents/${incident.incident_id}/actions`, {
@@ -114,14 +134,21 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
 
       {error && <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</div>}
 
-      {controlledRecommendations.length > 0 && actions.length === 0 && (
+      {controlledRecommendations.length > 0 && (
         <div className="mt-5 space-y-3">
           {controlledRecommendations.map((recommendation) => {
             const agent = eligibleAgents[0];
+            const activeAction = activeActionFor(recommendation);
             return <div key={recommendation.registry_action_type} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium text-white">{recommendation.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{recommendation.description}</p></div><span className="text-[10px] uppercase tracking-wider text-amber-200">Approval required</span></div>
               <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
-              <button disabled={!agent || busy !== null} onClick={() => prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">Prepare controlled action</button>
+              {!incidentAllowsResponse ? (
+                <span className="mt-3 inline-block rounded border border-slate-500/20 bg-slate-500/10 px-3 py-1.5 text-xs text-slate-400">Incident is closed — response actions disabled</span>
+              ) : activeAction ? (
+                <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">Active action: {humanStatus(activeAction.status)}</span>
+              ) : (
+                <button disabled={!agent || busy !== null} onClick={() => prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">Prepare controlled action</button>
+              )}
             </div>;
           })}
         </div>
