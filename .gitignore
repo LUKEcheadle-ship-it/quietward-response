@@ -101,6 +101,8 @@ activemq-data/
 
 # Environments and local secrets
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -142,7 +144,6 @@ frontend/out/
 !frontend/src/lib/*.ts
 *.tsbuildinfo
 npm-debug.log*
-.env.local
 
 # Marimo
 marimo/_static/
