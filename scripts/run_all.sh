@@ -29,6 +29,7 @@ if [[ ! "${API_PORT}" =~ ^[0-9]+$ ]] || (( API_PORT < 1 || API_PORT > 65535 )); 
   exit 1
 fi
 API_URL="http://127.0.0.1:${API_PORT}"
+FRONTEND_URL="http://127.0.0.1:3001"
 
 ./scripts/run_backend.sh &
 BACKEND_PID=$!
@@ -42,6 +43,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 for _ in $(seq 1 60); do
+  if ! kill -0 "${BACKEND_PID}" 2>/dev/null; then
+    echo "Backend exited before becoming healthy." >&2
+    exit 1
+  fi
   if curl --fail --silent "${API_URL}/health" >/dev/null; then
     break
   fi
@@ -50,6 +55,22 @@ done
 
 if ! curl --fail --silent "${API_URL}/health" >/dev/null; then
   echo "Backend did not become healthy within 60 seconds." >&2
+  exit 1
+fi
+
+for _ in $(seq 1 60); do
+  if ! kill -0 "${FRONTEND_PID}" 2>/dev/null; then
+    echo "Frontend exited before becoming reachable." >&2
+    exit 1
+  fi
+  if curl --fail --silent "${FRONTEND_URL}/" >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+if ! curl --fail --silent "${FRONTEND_URL}/" >/dev/null; then
+  echo "Frontend did not become reachable within 60 seconds." >&2
   exit 1
 fi
 
