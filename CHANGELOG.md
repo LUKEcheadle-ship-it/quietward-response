@@ -36,11 +36,13 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - single-use authenticated nonces even when later business validation rejects the request
 - bounded analyst identity headers before database persistence
 - executable actions must be enabled controlled recommendations on the specific incident, with the same binding rechecked before dispatch
+- resolved or dismissed incidents reject new response actions and policy blocks prepared actions if an incident closes before dispatch
 - private local SQLite and endpoint integration state files where POSIX modes are supported
 - request serialization for single-process v1 audit-chain consistency
 - QuietWard `info` severity compatibility normalization to canonical `informational`
 - controlled recommendation metadata preserved through FastAPI response serialization
 - dedicated demo incidents keep their recommendation set focused on the demo fixture rather than unrelated operational/disk guidance
+- QuietWard endpoint response state fails closed on corrupt outbox/ledger/demo data and no longer silently discards older queued events when the bounded outbox fills
 
 ### Safety boundary
 
