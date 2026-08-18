@@ -15,12 +15,13 @@ This gate checks:
 1. Python compilation for the Response backend/tests.
 2. The full Response backend test suite with warnings treated as errors.
 3. The executable server action registry contains exactly the one v1 demo action.
-4. Alembic reaches `0002_phase2` from a fresh SQLite database.
-5. `alembic check` confirms current ORM metadata has no migration drift beyond the frozen v1 revisions.
-6. A real database created from the frozen `0001_phase1` migration upgrades to v1 and its legacy unhashed audit row is backfilled/verified exactly once.
-7. Frontend TypeScript checks and production build.
-8. npm dependency audit unless explicitly skipped for an offline machine.
-9. The full companion QuietWard test suite when `--quietward-repo` is supplied.
+4. Executable action creation is rejected unless the action is an enabled controlled recommendation on that specific incident, and policy rechecks the same binding before dispatch.
+5. Alembic reaches `0002_phase2` from a fresh SQLite database.
+6. `alembic check` confirms current ORM metadata has no migration drift beyond the frozen v1 revisions.
+7. A real database created from the frozen `0001_phase1` migration upgrades to v1 and its legacy unhashed audit row is backfilled/verified exactly once.
+8. Frontend TypeScript checks and production build.
+9. npm dependency audit unless explicitly skipped for an offline machine.
+10. The full companion QuietWard test suite when `--quietward-repo` is supplied.
 
 ## Automated live two-repository gate
 
@@ -35,7 +36,7 @@ The live gate starts an isolated local Response API on a temporary database and 
 3. that event becomes an incident;
 4. the controlled recommendation metadata survives the API response and is shown as executable only for the demo fixture;
 5. an action starts in `pending` and therefore requires analyst approval;
-6. deterministic policy allows the approved demo action;
+6. deterministic policy allows the approved incident-bound demo action;
 7. QuietWard polls outward for the action;
 8. the dedicated fixture changes exactly once;
 9. a signed terminal result returns to Response;
