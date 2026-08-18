@@ -31,7 +31,7 @@ def test_protocol_and_integration_reject_unknown_top_level_fields(event_factory)
         QuietWardV1Integration().parse(payload)
 
 
-def test_action_protocol_accepts_dispatch_and_recovery_states() -> None:
+def test_action_protocol_accepts_full_server_dispatch_and_result_shapes() -> None:
     schema = _schema("quietward-action-schema-v1.json")
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
@@ -40,6 +40,8 @@ def test_action_protocol_accepts_dispatch_and_recovery_states() -> None:
     incident_id = str(uuid4())
     approval_id = str(uuid4())
 
+    # Match the complete ActionRead shape emitted by FastAPI. Optional lifecycle
+    # fields are still serialized as null and therefore belong in the wire schema.
     request = {
         "schema_version": "1.0",
         "action_id": action_id,
@@ -55,6 +57,12 @@ def test_action_protocol_accepts_dispatch_and_recovery_states() -> None:
         "status": "executing",
         "policy_allowed": True,
         "policy_reasons": [],
+        "dispatched_at": now,
+        "started_at": now,
+        "completed_at": None,
+        "result": {},
+        "error": None,
+        "evidence": {},
     }
     validator.validate(request)
 
@@ -91,6 +99,8 @@ def test_action_protocol_has_no_generic_command_surface() -> None:
         "approval_id": str(uuid4()),
         "expires_at": now,
         "status": "approved",
+        "policy_allowed": True,
+        "policy_reasons": [],
     }
     with pytest.raises(ValidationError):
         validator.validate(payload)
