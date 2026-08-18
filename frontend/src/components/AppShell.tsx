@@ -8,6 +8,7 @@ const links = [
   ["Overview", "/"],
   ["Incidents", "/incidents"],
   ["Hosts", "/hosts"],
+  ["Agents", "/agents"],
   ["Events", "/events"]
 ];
 
@@ -26,7 +27,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
           <div className="flex items-center gap-3 text-xs text-slate-400">
             <span className="hidden rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-emerald-300 sm:inline">Local development</span>
-            <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-amber-200">Remediation disabled</span>
+            <span className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-cyan">Controlled response · approval required</span>
           </div>
         </div>
         <nav className="mx-auto flex max-w-[1500px] gap-1 px-6">
