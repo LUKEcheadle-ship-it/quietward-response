@@ -58,6 +58,8 @@ Put that value in `QWR_ENROLLMENT_TOKEN`, then start:
 ./scripts/run_all.sh
 ```
 
+A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents. To populate the original three safe demo scenarios, either run `python scripts/seed_demo.py --api-url http://localhost:8002` after startup or set `QWR_SEED_DEMO=true` before `run_all.sh`.
+
 The backend launcher and container image apply Alembic migrations before startup. The backend and Alembic both load the repository-root `.env`, so they target the same configured database.
 
 - Frontend: <http://localhost:3001>
@@ -134,7 +136,7 @@ The sync produces an authenticated `quietward_demo_service_unhealthy` event. Res
 4. QuietWard polls for the approved action, validates it locally, changes only the dedicated demo fixture, and returns a signed result.
 5. Response shows the action lifecycle and records it in the audit chain.
 
-The endpoint persists execution intent and a terminal-result ledger, and the dedicated fixture records the applied action ID. This allows an interrupted `executing` action to be reconciled without changing the fixture twice. Event retries also treat an already-accepted duplicate event ID as successful delivery so a lost HTTP response cannot wedge the outbox.
+The endpoint persists execution intent and a terminal-result ledger, and the dedicated fixture records the applied action ID. This allows an interrupted `executing` action to be reconciled without changing the fixture twice. Event retries treat only an identical already-accepted event ID as successful delivery; reusing an event ID with different content is rejected as an integrity conflict.
 
 ## API
 
@@ -167,21 +169,20 @@ Events claiming `source=quietward` require authenticated agent delivery when `QW
 
 ## v1 verification
 
-The repository includes two release gates.
+The easiest release-candidate check runs both automated gates in order:
 
-Deterministic/backend/frontend/migration + optional full QuietWard suite:
+```bash
+python scripts/finalize_v1.py --quietward-repo ../quietward
+```
+
+The underlying gates can also be run separately:
 
 ```bash
 python scripts/verify_v1.py --quietward-repo ../quietward
-```
-
-Real local HTTP integration using the actual QuietWard client:
-
-```bash
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves.
+See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the final manual UI smoke check.
 
 ## Safety status
 
