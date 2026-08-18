@@ -202,8 +202,8 @@ def _wait_http(url: str, process: subprocess.Popen[object], label: str, timeout:
     raise RuntimeError(f"{label} did not become reachable within {int(timeout)} seconds{detail}")
 
 
-def _terminate(process: subprocess.Popen[object]) -> None:
-    if process.poll() is not None:
+def _terminate(process: subprocess.Popen[object] | None) -> None:
+    if process is None or process.poll() is not None:
         return
     process.terminate()
     try:
@@ -237,28 +237,34 @@ def main() -> int:
     frontend_env["NEXT_PUBLIC_API_URL"] = _frontend_api_url(lines, port)
     frontend_env["NEXT_TELEMETRY_DISABLED"] = "1"
 
-    backend = subprocess.Popen(
-        [
-            python,
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--workers",
-            "1",
-        ],
-        cwd=BACKEND,
-    )
-    frontend = subprocess.Popen(
-        _npm_command(npm, "run", "dev"),
-        cwd=FRONTEND,
-        env=frontend_env,
-    )
-
+    backend: subprocess.Popen[object] | None = None
+    frontend: subprocess.Popen[object] | None = None
     try:
+        backend = subprocess.Popen(
+            [
+                python,
+                "-m",
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                host,
+                "--port",
+                str(port),
+                "--workers",
+                "1",
+            ],
+            cwd=BACKEND,
+        )
+        try:
+            frontend = subprocess.Popen(
+                _npm_command(npm, "run", "dev"),
+                cwd=FRONTEND,
+                env=frontend_env,
+            )
+        except Exception:
+            _terminate(backend)
+            raise
+
         _wait_http(f"http://127.0.0.1:{port}/health", backend, "Backend")
         _wait_http("http://127.0.0.1:3001/", frontend, "Frontend")
 
