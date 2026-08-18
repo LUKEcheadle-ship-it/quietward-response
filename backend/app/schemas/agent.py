@@ -30,3 +30,9 @@ class AgentRead(BaseModel):
     last_seen: datetime | None
     enabled: bool
     agent_version: str | None
+
+
+class AgentPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
