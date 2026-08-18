@@ -196,7 +196,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-npm-audit",
         action="store_true",
-        help="Skip npm audit when the machine intentionally has no network access.",
+        help="Skip npm audit only for a deliberately offline development check; final release verification does not use this option.",
     )
     args = parser.parse_args()
 
@@ -205,6 +205,7 @@ def main() -> int:
     print(f"Python: {python}")
 
     _run([python, "-m", "compileall", "-q", "app", "tests"], cwd=BACKEND)
+    _run([python, str(ROOT / "scripts" / "audit_public_release.py")], cwd=ROOT)
     _run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _verify_action_surface(python)
 
@@ -230,6 +231,8 @@ def main() -> int:
     print("\nV1 STATIC/LOCAL RELEASE GATE: PASS")
     if args.quietward_repo is None:
         print("Companion QuietWard suite: NOT RUN (pass --quietward-repo PATH to include it)")
+    if args.skip_npm_audit:
+        print("npm audit: SKIPPED (this run is not a final release qualification)")
     print("The live two-repository HTTP demo remains a separate acceptance check.")
     return 0
 
