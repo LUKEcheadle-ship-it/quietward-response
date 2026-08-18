@@ -163,7 +163,7 @@ Controlled-response endpoints:
 - `POST /api/v1/actions/{action_id}/result` — agent-authenticated
 - `GET /api/v1/audit/verify`
 
-Events claiming `source=quietward` require authenticated agent delivery when `QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS=true`. Synthetic/development sources remain available for the local demo and must not be treated as authenticated endpoint evidence.
+Events claiming `source=quietward` require authenticated agent delivery when `QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS=true`. Synthetic/development sources remain available for the local demo; outside development, unauthenticated generic sensor sources fail closed until they have an authenticated adapter.
 
 ## v1 verification
 
@@ -198,6 +198,8 @@ Current guarantees are deliberately narrow:
 - no LLM-generated command execution
 - agent-initiated polling instead of an inbound endpoint command listener
 - one demo-fixture action requiring human approval and deterministic policy validation
+
+v1 is intentionally qualified as a **single-process/single-worker** API. Both the native launcher and backend container enforce one Uvicorn worker because request serialization protects the linear audit-chain append model. Do not horizontally scale this version against one database; multi-worker support requires a database-backed atomic audit append/head mechanism and requalification.
 
 Analyst identity is still local-development grade (`X-Actor-ID`) rather than OIDC/RBAC. HMAC should be carried over TLS outside loopback/local trusted development. The audit chain provides tamper evidence, not immutability.
 
