@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_RESPONSE_BRANCH = "feature/phase2-secure-integration"
 EXPECTED_QUIETWARD_BRANCH = "feature/response-platform-integration"
+SUPPORTED_RESPONSE_VERSIONS = {"1.0.0rc1", "1.0.0"}
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -31,6 +33,18 @@ def _fetch_release_refs(repo: Path) -> None:
     )
 
 
+def _remote_repo_name(remote: str) -> str:
+    return remote.rstrip("/").removesuffix(".git").rsplit("/", 1)[-1]
+
+
+def _response_version() -> str:
+    text = (ROOT / "backend" / "app" / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
+    if match is None or match.group(1) not in SUPPORTED_RESPONSE_VERSIONS:
+        raise RuntimeError("Response version is missing or is not an expected v1 version")
+    return match.group(1)
+
+
 def _verify_checkout(repo: Path, *, expected_branch: str, expected_repo_name: str) -> str:
     if not (repo / ".git").exists():
         raise RuntimeError(f"not a git checkout: {repo}")
@@ -38,8 +52,8 @@ def _verify_checkout(repo: Path, *, expected_branch: str, expected_repo_name: st
     if branch != expected_branch:
         raise RuntimeError(f"{repo.name}: expected branch {expected_branch!r}, found {branch!r}")
     remote = _git(repo, "remote", "get-url", "origin")
-    if expected_repo_name not in remote:
-        raise RuntimeError(f"{repo.name}: origin does not look like {expected_repo_name}: {remote}")
+    if _remote_repo_name(remote) != expected_repo_name:
+        raise RuntimeError(f"{repo.name}: origin is not the expected {expected_repo_name} repository: {remote}")
     dirty = _git(repo, "status", "--porcelain", "--untracked-files=no")
     if dirty:
         raise RuntimeError(f"{repo.name}: tracked working tree changes must be committed before release verification:\n{dirty}")
@@ -79,6 +93,7 @@ def main() -> int:
     args = parser.parse_args()
 
     quietward = args.quietward_repo.resolve()
+    version = _response_version()
     response_head = _verify_checkout(
         ROOT,
         expected_branch=EXPECTED_RESPONSE_BRANCH,
@@ -112,11 +127,15 @@ def main() -> int:
     )
 
     print("\nQUIETWARD RESPONSE V1 AUTOMATED GATES: PASS")
+    print(f"response_version={version}")
     print(f"response_head={response_head}")
     print(f"quietward_head={quietward_head}")
     print("npm audit was required and was not skipped.")
     print("Both local release branches matched their current GitHub refs and contained origin/main.")
-    print("Remaining release step: perform the documented UI smoke check, then promote rc1 to 1.0.0 and rerun the complete gate before merge/tag.")
+    if version == "1.0.0rc1":
+        print("Next: perform the UI smoke check, then run scripts/promote_v1.py, commit/push those version-only changes, and rerun this complete gate.")
+    else:
+        print("Version is final 1.0.0. Remaining release step: documented UI smoke check, then merge/tag/publication if clean.")
     return 0
 
 
