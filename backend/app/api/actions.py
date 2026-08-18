@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -30,6 +32,20 @@ def _action_error(exc: ActionError) -> HTTPException:
 def _actor_id(value: str) -> str:
     resolved = value.strip() or "local-analyst"
     return resolved[:128]
+
+
+def _validate_result_clock(payload: ActionResultCreate, *, replay_window_seconds: int) -> None:
+    maximum = datetime.now(timezone.utc) + timedelta(seconds=replay_window_seconds)
+    for field_name in ("started_at", "completed_at"):
+        value = getattr(payload, field_name)
+        if value is not None and value.astimezone(timezone.utc) > maximum:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "action_result_timestamp_too_far_in_future",
+                    "field": field_name,
+                },
+            )
 
 
 @router.get("/actions/registry")
@@ -134,14 +150,16 @@ async def action_result(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
+    replay_window_seconds = request.app.state.settings.agent_replay_window_seconds
     agent = verify_agent_request(
         db,
         request,
         raw,
-        replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+        replay_window_seconds=replay_window_seconds,
     )
     if payload.action_id != action_id:
         raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
+    _validate_result_clock(payload, replay_window_seconds=replay_window_seconds)
     try:
         action = apply_action_result(db, agent=agent, payload=payload)
     except ActionError as exc:
