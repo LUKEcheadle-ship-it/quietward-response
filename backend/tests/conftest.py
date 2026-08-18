@@ -23,6 +23,7 @@ def client(tmp_path: Path):
     # Pin every security-sensitive setting that the tests rely on so a developer's
     # repository-root .env cannot silently change the test contract.
     settings = Settings(
+        environment="development",
         database_url=f"sqlite:///{database.as_posix()}",
         cors_origins=["http://localhost:3001"],
         correlation_window_seconds=300,
