@@ -56,7 +56,7 @@ def test_resolved_incident_rejects_new_response_action(client, event_factory) ->
         json=_action_payload(agent),
     )
     assert rejected.status_code == 409
-    assert "enabled recommendation" in rejected.text
+    assert "incident status does not allow response actions" in rejected.text
 
 
 def test_policy_blocks_prepared_action_after_incident_is_resolved(
