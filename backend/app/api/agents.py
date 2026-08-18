@@ -12,6 +12,7 @@ from app.schemas.agent import AgentEnrollRequest, AgentEnrollResponse, AgentPatc
 from app.services.action_service import cancel_undispatched_actions_for_agent
 from app.services.agent_auth import enroll_agent
 from app.services.audit_service import record_audit
+from app.services.preexecution_guard import cancel_dispatching_actions_for_agent
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
@@ -116,6 +117,10 @@ def patch_agent(
         )
         if not agent.enabled:
             cancel_undispatched_actions_for_agent(db, agent.agent_id)
+            # If this credential already polled an action but has not yet reported
+            # execution, invalidate that dispatch so re-enabling the credential
+            # cannot revive the prior approval lifecycle.
+            cancel_dispatching_actions_for_agent(db, agent.agent_id)
     db.commit()
     db.refresh(agent)
     return _agent_to_dict(agent)
