@@ -45,7 +45,13 @@ function humanStatus(status: ResponseAction["status"]): string {
   return map[status];
 }
 
-export function ResponseActions({ incident }: { incident: IncidentDetail }) {
+export function ResponseActions({
+  incident,
+  onIncidentRefresh,
+}: {
+  incident: IncidentDetail;
+  onIncidentRefresh?: () => Promise<void> | void;
+}) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [actions, setActions] = useState<ResponseAction[]>([]);
   const [selectedAgentIds, setSelectedAgentIds] = useState<Record<string, string>>({});
@@ -63,16 +69,18 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
       setActions(actionRows);
       setClock(Date.now());
       setError(null);
+      await onIncidentRefresh?.();
     } catch (value) {
       setError((value as Error).message);
     }
-  }, [incident.incident_id]);
+  }, [incident.incident_id, onIncidentRefresh]);
 
   // Reload when the incident lifecycle changes because closing an incident can
   // cancel undispatched actions server-side.
   useEffect(() => { void load(); }, [load, incident.status]);
 
-  // Refresh dispatched/executing actions so the analyst sees endpoint transitions.
+  // Refresh dispatched/executing actions so the analyst sees endpoint transitions
+  // and the parent incident audit trail stays current at the same time.
   useEffect(() => {
     const active = actions.some((item) => ["approved", "dispatching", "executing"].includes(effectiveStatus(item)));
     if (!active) return;
@@ -194,7 +202,7 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
               ) : activeAction ? (
                 <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">Active action: {humanStatus(effectiveStatus(activeAction))}</span>
               ) : (
-                <button disabled={!agent || busy !== null} onClick={() => prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">Prepare controlled action</button>
+                <button disabled={!agent || busy !== null} onClick={() => void prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">Prepare controlled action</button>
               )}
             </div>;
           })}
@@ -209,7 +217,7 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
           <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium text-white">{action.action_type.replaceAll("_", " ")}</p><p className="mt-1 font-mono text-[11px] text-slate-500">{action.action_id}</p></div><span className={`rounded-full border px-2.5 py-1 text-xs ${statusClass(shownStatus)}`}>{humanStatus(shownStatus)}</span></div>
           <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">Target</p><p className="mt-1 text-slate-300">{action.target_host_id}</p><p className="mt-1 font-mono text-[10px] text-slate-600">{action.target_agent_id}</p></div><div><p className="text-slate-500">Requested</p><p className="mt-1 text-slate-300">{formatTime(action.requested_at)}</p></div><div><p className="text-slate-500">Policy</p><p className={`mt-1 ${shownStatus === "expired" || action.policy_allowed === false ? "text-rose-300" : action.policy_allowed === true ? "text-emerald-300" : "text-slate-400"}`}>{shownStatus === "expired" ? "Expired" : action.policy_allowed === null ? "Pending approval" : action.policy_allowed ? "Allowed" : "Blocked"}</p></div></div>
           {action.policy_reasons.length > 0 && <ul className="mt-3 space-y-1 text-xs text-rose-300">{action.policy_reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul>}
-          {canDecide && <div className="mt-4 flex gap-2"><button disabled={busy !== null} onClick={() => decide(action, true)} className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-40">Approve</button><button disabled={busy !== null} onClick={() => decide(action, false)} className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 disabled:opacity-40">Reject</button></div>}
+          {canDecide && <div className="mt-4 flex gap-2"><button disabled={busy !== null} onClick={() => void decide(action, true)} className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-40">Approve</button><button disabled={busy !== null} onClick={() => void decide(action, false)} className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 disabled:opacity-40">Reject</button></div>}
           {action.result && <details className="mt-4"><summary className="cursor-pointer text-xs font-medium text-slate-300">Execution result</summary><pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-400">{JSON.stringify({ result: action.result, evidence: action.evidence, error: action.error }, null, 2)}</pre></details>}
         </div>
       );})}</div>}
