@@ -30,6 +30,18 @@ def test_enrollment_token_has_minimum_length() -> None:
         Settings(environment="development", enrollment_token="too-short")
 
 
+def test_quietward_auth_cannot_be_disabled_outside_development() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS",
+    ):
+        Settings(
+            environment="production",
+            enrollment_token="production-enrollment-token-for-test",
+            require_agent_auth_for_quietward_events=False,
+        )
+
+
 def test_local_sqlite_database_is_private_on_posix(tmp_path: Path) -> None:
     if os.name == "nt":
         pytest.skip("POSIX mode semantics do not apply on Windows")
