@@ -22,7 +22,7 @@ def _action(
             if diagnostic
             else "v1 — approval required"
             if controlled_v1
-            else "not enabled in v1"
+            else "v1 — not enabled"
         ),
         "registry_action_type": registry_action_type,
         "requires_approval": controlled_v1,
