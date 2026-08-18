@@ -16,6 +16,9 @@ else
 fi
 export PYTHON_BIN
 
+API_PORT="${QWR_API_PORT:-8002}"
+API_URL="http://127.0.0.1:${API_PORT}"
+
 ./scripts/run_backend.sh &
 BACKEND_PID=$!
 ./scripts/run_frontend.sh &
@@ -28,26 +31,33 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 for _ in $(seq 1 60); do
-  if curl --fail --silent http://127.0.0.1:8002/health >/dev/null; then
+  if curl --fail --silent "${API_URL}/health" >/dev/null; then
     break
   fi
   sleep 1
 done
 
-if ! curl --fail --silent http://127.0.0.1:8002/health >/dev/null; then
+if ! curl --fail --silent "${API_URL}/health" >/dev/null; then
   echo "Backend did not become healthy within 60 seconds." >&2
   exit 1
 fi
 
-"${PYTHON_BIN}" "${ROOT}/scripts/seed_demo.py" --api-url http://127.0.0.1:8002
+# v1 no longer pollutes a normal startup with synthetic incidents. Opt in when
+# demonstrating the original Phase 1 scenarios.
+case "${QWR_SEED_DEMO:-false}" in
+  1|true|TRUE|yes|YES|on|ON)
+    "${PYTHON_BIN}" "${ROOT}/scripts/seed_demo.py" --api-url "${API_URL}"
+    ;;
+esac
 
-cat <<'EOF'
+cat <<EOF
 
 QuietWard Response is ready.
 Frontend: http://localhost:3001
-API:      http://localhost:8002
-API docs: http://localhost:8002/docs
+API:      http://localhost:${API_PORT}
+API docs: http://localhost:${API_PORT}/docs
 
+Set QWR_SEED_DEMO=true before startup only when you want the three synthetic demo incidents.
 Press Ctrl+C to stop both services.
 EOF
 
