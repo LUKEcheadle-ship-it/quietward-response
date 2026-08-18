@@ -30,15 +30,21 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - frozen Alembic revisions instead of importing mutable current ORM metadata
 - consistent runtime/migration `.env` database selection
 - combined launcher honors repository `.env` API-port selection
+- reproducible qualification bootstraps the Python venv/requirements and rebuilds frontend dependencies from `package-lock.json` with `npm ci`
 - non-development rejection of the known development enrollment token
 - non-development enforcement of QuietWard agent authentication
 - non-development rejection of unauthenticated generic sensor sources
 - single-use authenticated nonces even when later business validation rejects the request
 - bounded analyst identity headers before database persistence
+- authenticated QuietWard events and ActionResults reject timestamps too far in the future while still allowing legitimate queued older telemetry
 - executable actions must be enabled controlled recommendations on the specific incident, with the same binding rechecked before dispatch
-- resolved or dismissed incidents reject new response actions and policy blocks prepared actions if an incident closes before dispatch
+- only one active action lifecycle is allowed per incident + host + action type, including during agent credential rotation
+- resolved or dismissed incidents reject new response actions and cancel pending/approved lifecycles so stale approvals cannot revive later
+- disabling an agent cancels pending/approved actions so re-enabling the credential cannot revive prior approval state
+- expired pending/approved/dispatching actions are surfaced as expired immediately and persisted as expired before a replacement action is created
 - private local SQLite and endpoint integration state files where POSIX modes are supported
 - request serialization for single-process v1 audit-chain consistency
+- `/api/v1` responses are marked `no-store`; one-time enrollment-secret responses also include `Pragma: no-cache`
 - QuietWard `info` severity compatibility normalization to canonical `informational`
 - controlled recommendation metadata preserved through FastAPI response serialization
 - dedicated demo incidents keep their recommendation set focused on the demo fixture rather than unrelated operational/disk guidance
