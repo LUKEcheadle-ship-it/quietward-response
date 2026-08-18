@@ -22,27 +22,36 @@ async def receive_event(
     request: Request,
     db: Session = Depends(get_db),
 ) -> IngestionResult:
-    if (
-        request.app.state.settings.require_agent_auth_for_quietward_events
-        and payload.source.strip().lower() == "quietward"
-    ):
+    settings = request.app.state.settings
+    source = payload.source.strip().lower()
+
+    if settings.require_agent_auth_for_quietward_events and source == "quietward":
         raw = await request.body()
         agent = verify_agent_request(
             db,
             request,
             raw,
-            replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+            replay_window_seconds=settings.agent_replay_window_seconds,
         )
         if agent.host_id != payload.host_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "agent_host_mismatch"},
             )
+    elif source != "quietward" and settings.environment.strip().lower() != "development":
+        # Sensor-neutral synthetic adapters are convenient for local demos, but they
+        # are not authenticated identities. Fail closed outside development until a
+        # source has its own authenticated adapter/trust contract.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "unauthenticated_sensor_source"},
+        )
+
     try:
         event, incident_id, reasons = ingest_event(
             db,
             payload,
-            correlation_window_seconds=request.app.state.settings.correlation_window_seconds,
+            correlation_window_seconds=settings.correlation_window_seconds,
         )
     except DuplicateEventError as exc:
         raise HTTPException(
