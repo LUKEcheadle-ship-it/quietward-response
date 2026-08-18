@@ -1,3 +1,4 @@
+from app import __version__
 from scripts.seed_demo import build_demo_events
 
 
@@ -7,7 +8,7 @@ def test_health_and_empty_overview(client) -> None:
     assert health.json() == {
         "status": "ok",
         "service": "quietward-response",
-        "version": "1.0.0rc1",
+        "version": __version__,
         "database": "ok",
         "remediation_enabled": False,
         "controlled_response_enabled": True,
