@@ -9,11 +9,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import events, health, hosts, incidents, overview
+from app.api import actions, agents, audit, events, health, hosts, incidents, overview
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.logging import configure_logging
-from app.services.audit_service import record_audit
+from app.services.audit_service import backfill_legacy_audit_chain, record_audit
 
 
 def create_app(
@@ -30,13 +30,19 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         database.create_all()
+        with database.session_factory() as session:
+            if backfill_legacy_audit_chain(session):
+                session.commit()
         yield
         database.dispose()
 
     application = FastAPI(
         title="QuietWard Response API",
-        version="0.1.0",
-        description="Deterministic event ingestion, incident correlation, investigation, and audit.",
+        version="0.2.0",
+        description=(
+            "Deterministic event ingestion, incident correlation, investigation, "
+            "authenticated agents, policy-controlled response actions, and tamper-evident audit."
+        ),
         lifespan=lifespan,
     )
     application.state.database = database
@@ -46,7 +52,16 @@ def create_app(
         allow_origins=resolved.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Actor-ID"],
+        allow_headers=[
+            "Content-Type",
+            "X-Actor-ID",
+            "X-QWR-Enrollment-Token",
+            "X-QWR-Agent-ID",
+            "X-QWR-Key-ID",
+            "X-QWR-Timestamp",
+            "X-QWR-Nonce",
+            "X-QWR-Signature",
+        ],
     )
 
     @application.exception_handler(RequestValidationError)
@@ -85,6 +100,9 @@ def create_app(
     application.include_router(incidents.router)
     application.include_router(hosts.router)
     application.include_router(overview.router)
+    application.include_router(agents.router)
+    application.include_router(actions.router)
+    application.include_router(audit.router)
 
     @application.get("/", include_in_schema=False)
     def root() -> dict[str, str]:
