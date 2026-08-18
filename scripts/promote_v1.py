@@ -13,6 +13,7 @@ PACKAGE_LOCK = ROOT / "frontend" / "package-lock.json"
 SEED_DEMO = ROOT / "scripts" / "seed_demo.py"
 README = ROOT / "README.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
+SECURITY = ROOT / "SECURITY.md"
 
 RC_BACKEND_VERSION = "1.0.0rc1"
 FINAL_BACKEND_VERSION = "1.0.0"
@@ -94,6 +95,11 @@ def main() -> int:
         '> **Release status:** `v1.0.0` is the first public controlled-response release. It remains intentionally narrow: authenticated telemetry, deterministic investigation/approval/policy, and one demo-fixture-only executable action.',
     )
     _replace_once(
+        SECURITY,
+        'QuietWard Response is pre-release security software. The v1 release candidate is designed for local or explicitly trusted-network incident investigation and controlled-response testing; it is not an Internet-facing production service.',
+        'QuietWard Response v1 is local/trusted-network security software for incident investigation and controlled-response testing; it is not an Internet-facing production service.',
+    )
+    _replace_once(
         CHANGELOG,
         '## 1.0.0-rc.1 — 2026-08-18',
         '## 1.0.0 — 2026-08-18',
@@ -118,6 +124,7 @@ def main() -> int:
     print("QUIETWARD RESPONSE VERSION PROMOTION: PREPARED")
     print("backend=1.0.0")
     print("frontend=1.0.0")
+    print("public security/release docs=1.0.0")
     print("Next: review these deterministic version-only changes, commit them, then rerun scripts/finalize_v1.py before merge/tag/publication.")
     return 0
 
