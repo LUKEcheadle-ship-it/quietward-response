@@ -22,15 +22,21 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - agent disable/re-enable API and console control
 - tamper-evident hash-chained audit verification
 - Agents and Response Actions analyst UI
+- selectable target agent when multiple enabled credentials exist for affected hosts
 - PostgreSQL-ready Alembic schema and Docker Compose path
 - deterministic v1 release gate and real two-repository HTTP acceptance harness
+- one-command local bootstrap that generates a private enrollment token and starts both product surfaces
 
 ### Hardened
 
 - frozen Alembic revisions instead of importing mutable current ORM metadata
 - consistent runtime/migration `.env` database selection
 - combined launcher honors repository `.env` API-port selection
+- frontend launcher receives the repository API URL/port instead of silently falling back after an API-port override
+- combined launcher now fails if either backend or frontend exits or never becomes reachable
 - reproducible qualification bootstraps the Python venv/requirements and rebuilds frontend dependencies from `package-lock.json` with `npm ci`
+- finalizer verifies the expected Response/QuietWard branches, origins, clean tracked state, and untracked `.env` boundary before qualification
+- final release qualification cannot silently skip npm audit
 - non-development rejection of the known development enrollment token
 - non-development enforcement of QuietWard agent authentication
 - non-development rejection of unauthenticated generic sensor sources
@@ -45,9 +51,10 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - private local SQLite and endpoint integration state files where POSIX modes are supported
 - request serialization for single-process v1 audit-chain consistency
 - `/api/v1` responses are marked `no-store`; one-time enrollment-secret responses also include `Pragma: no-cache`
+- frontend API errors now preserve useful server conflict/policy details instead of reducing failures to only an HTTP status
 - QuietWard `info` severity compatibility normalization to canonical `informational`
 - controlled recommendation metadata preserved through FastAPI response serialization
-- dedicated demo incidents keep their recommendation set focused on the demo fixture rather than unrelated operational/disk guidance
+- dedicated demo incidents keep their response recommendations focused on the demo fixture rather than unrelated operational/disk guidance
 - QuietWard endpoint response state fails closed on corrupt outbox/ledger/demo data and no longer silently discards older queued events when the bounded outbox fills
 
 ### Safety boundary
@@ -63,4 +70,10 @@ python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-After those gates and the documented UI smoke check pass, promote the backend version from `1.0.0rc1` to `1.0.0` and merge the staged PRs.
+The required release wrapper is:
+
+```bash
+python scripts/finalize_v1.py --quietward-repo ../quietward
+```
+
+After those automated gates and the documented UI smoke check pass, promote the backend version from `1.0.0rc1` to `1.0.0` and merge the staged PRs.
