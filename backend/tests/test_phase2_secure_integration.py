@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import select
 
-from app.database.models import AuditRecord
+from app.database.models import ActionRecord, ApprovalRecord, AuditRecord
 from app.services.agent_auth import sign_request
 
 
@@ -82,6 +82,30 @@ def _post_signed_json(client, enrollment: dict, target: str, payload: dict, *, n
         nonce=nonce,
     )
     return client.post(target, content=body, headers=headers)
+
+
+def _create_approved_action(client, event_factory, enrollment: dict) -> tuple[str, dict]:
+    event = client.post("/api/v1/events", json=event_factory(host_id=enrollment["host_id"]))
+    assert event.status_code == 201
+    incident_id = event.json()["incident_id"]
+    created = client.post(
+        f"/api/v1/incidents/{incident_id}/actions",
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": enrollment["host_id"],
+            "action_type": "restart_quietward_demo_service",
+            "parameters": {},
+        },
+    )
+    assert created.status_code == 201, created.text
+    action = created.json()
+    approved = client.post(
+        f"/api/v1/actions/{action['action_id']}/approve",
+        json={"reason": "test"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+    return incident_id, action
 
 
 def test_enrollment_requires_token(client) -> None:
@@ -220,6 +244,85 @@ def test_action_requires_registry_approval_policy_and_correct_agent(client, even
     assert delivered.json()[0]["status"] == "dispatching"
 
 
+def test_executing_action_is_redelivered_to_same_agent_for_recovery(client, event_factory) -> None:
+    enrollment = _enroll(client, host_id="host-alpha")
+    _, action = _create_approved_action(client, event_factory, enrollment)
+    pending_target = f"/api/v1/agents/{enrollment['agent_id']}/actions/pending"
+    first_poll = client.get(
+        pending_target,
+        headers=_signed_headers(enrollment, method="GET", target=pending_target),
+    )
+    assert first_poll.status_code == 200
+    assert first_poll.json()[0]["status"] == "dispatching"
+
+    executing_payload = {
+        "schema_version": "1.0",
+        "action_id": action["action_id"],
+        "agent_id": enrollment["agent_id"],
+        "host_id": "host-alpha",
+        "status": "executing",
+        "result": {},
+        "evidence": {"executor": "quietward-demo-fixture-v1"},
+        "agent_version": "0.4.0a2",
+    }
+    executing = _post_signed_json(
+        client,
+        enrollment,
+        f"/api/v1/actions/{action['action_id']}/result",
+        executing_payload,
+    )
+    assert executing.status_code == 200
+    assert executing.json()["status"] == "executing"
+
+    recovery_poll = client.get(
+        pending_target,
+        headers=_signed_headers(enrollment, method="GET", target=pending_target),
+    )
+    assert recovery_poll.status_code == 200
+    assert len(recovery_poll.json()) == 1
+    assert recovery_poll.json()[0]["action_id"] == action["action_id"]
+    assert recovery_poll.json()[0]["status"] == "executing"
+
+
+def test_expired_approval_is_persisted_as_expired(client, event_factory) -> None:
+    enrollment = _enroll(client, host_id="host-alpha")
+    event = client.post("/api/v1/events", json=event_factory(host_id="host-alpha"))
+    incident_id = event.json()["incident_id"]
+    created = client.post(
+        f"/api/v1/incidents/{incident_id}/actions",
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": "host-alpha",
+            "action_type": "restart_quietward_demo_service",
+            "parameters": {},
+        },
+    ).json()
+
+    with client.app.state.database.session_factory() as session:
+        action = session.get(ActionRecord, created["action_id"])
+        assert action is not None and action.approval_id is not None
+        approval = session.get(ApprovalRecord, action.approval_id)
+        assert approval is not None
+        past = datetime.now(timezone.utc) - timedelta(seconds=1)
+        approval.expires_at = past
+        action.expires_at = past
+        session.commit()
+
+    expired = client.post(
+        f"/api/v1/actions/{created['action_id']}/approve",
+        json={"reason": "too late"},
+    )
+    assert expired.status_code == 200
+    assert expired.json()["status"] == "expired"
+    assert expired.json()["policy_allowed"] is False
+    assert "approval has expired" in expired.json()["policy_reasons"]
+
+    with client.app.state.database.session_factory() as session:
+        stored = session.get(ActionRecord, created["action_id"])
+        assert stored is not None
+        assert stored.status == "expired"
+
+
 def test_action_result_lifecycle_and_duplicate_terminal_result(client, event_factory) -> None:
     event = client.post("/api/v1/events", json=event_factory(host_id="host-alpha"))
     incident_id = event.json()["incident_id"]
@@ -304,18 +407,39 @@ def test_action_result_lifecycle_and_duplicate_terminal_result(client, event_fac
     assert duplicate.status_code == 200
     assert duplicate.json()["status"] == "succeeded"
 
+    conflicting = dict(final_payload)
+    conflicting["result"] = {"before": "different", "after": "different"}
+    rejected = _post_signed_json(
+        client,
+        enrollment,
+        f"/api/v1/actions/{created['action_id']}/result",
+        conflicting,
+    )
+    assert rejected.status_code == 409
+
 
 def test_audit_chain_verifies_and_detects_tampering(client, event_factory) -> None:
-    response = client.post("/api/v1/events", json=event_factory())
-    assert response.status_code == 201
+    for index in range(3):
+        response = client.post("/api/v1/events", json=event_factory(index=index))
+        assert response.status_code == 201
     valid = client.get("/api/v1/audit/verify")
     assert valid.status_code == 200
     assert valid.json()["valid"] is True
     assert valid.json()["entries_checked"] > 0
 
     with client.app.state.database.session_factory() as session:
-        first = session.scalars(select(AuditRecord).order_by(AuditRecord.timestamp.asc())).first()
-        assert first is not None
+        rows = list(session.scalars(select(AuditRecord).order_by(AuditRecord.timestamp.asc(), AuditRecord.audit_id.asc())))
+        assert len(rows) > 1
+        for previous, current in zip(rows, rows[1:]):
+            previous_time = previous.timestamp
+            current_time = current.timestamp
+            if previous_time.tzinfo is None:
+                previous_time = previous_time.replace(tzinfo=timezone.utc)
+            if current_time.tzinfo is None:
+                current_time = current_time.replace(tzinfo=timezone.utc)
+            assert current_time > previous_time
+
+        first = rows[0]
         first.details = {"tampered": True}
         session.commit()
 
