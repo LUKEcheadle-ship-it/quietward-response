@@ -48,6 +48,7 @@ function humanStatus(status: ResponseAction["status"]): string {
 export function ResponseActions({ incident }: { incident: IncidentDetail }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [actions, setActions] = useState<ResponseAction[]>([]);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
@@ -105,8 +106,15 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
     );
   }
 
+  function selectedAgentFor(recommendation: RecommendedAction): Agent | undefined {
+    const actionType = recommendation.registry_action_type;
+    if (!actionType) return undefined;
+    const selectedId = selectedAgentIds[actionType];
+    return eligibleAgents.find((agent) => agent.agent_id === selectedId) ?? eligibleAgents[0];
+  }
+
   async function prepare(recommendation: RecommendedAction) {
-    const agent = eligibleAgents[0];
+    const agent = selectedAgentFor(recommendation);
     if (!agent || !recommendation.registry_action_type || !incidentAllowsResponse) return;
     if (activeActionFor(recommendation)) return;
     setBusy(`prepare:${recommendation.registry_action_type}`);
@@ -162,11 +170,25 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
       {controlledRecommendations.length > 0 && (
         <div className="mt-5 space-y-3">
           {controlledRecommendations.map((recommendation) => {
-            const agent = eligibleAgents[0];
+            const agent = selectedAgentFor(recommendation);
             const activeAction = activeActionFor(recommendation);
-            return <div key={recommendation.registry_action_type} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
+            const actionType = recommendation.registry_action_type!;
+            return <div key={actionType} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium text-white">{recommendation.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{recommendation.description}</p></div><span className="text-[10px] uppercase tracking-wider text-amber-200">Approval required</span></div>
-              <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
+              {eligibleAgents.length > 1 ? (
+                <label className="mt-3 block text-xs text-slate-500">Target agent
+                  <select
+                    value={agent?.agent_id ?? ""}
+                    onChange={(event) => setSelectedAgentIds((current) => ({ ...current, [actionType]: event.target.value }))}
+                    disabled={Boolean(activeAction) || busy !== null}
+                    className="mt-2 block w-full rounded-lg border border-line bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {eligibleAgents.map((candidate) => <option key={candidate.agent_id} value={candidate.agent_id}>{candidate.display_name} · {candidate.host_id}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
+              )}
               {!incidentAllowsResponse ? (
                 <span className="mt-3 inline-block rounded border border-slate-500/20 bg-slate-500/10 px-3 py-1.5 text-xs text-slate-400">Incident is closed — response actions disabled</span>
               ) : activeAction ? (
@@ -185,7 +207,7 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
         return (
         <div key={action.action_id} className="rounded-xl border border-line bg-slate-950/40 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium text-white">{action.action_type.replaceAll("_", " ")}</p><p className="mt-1 font-mono text-[11px] text-slate-500">{action.action_id}</p></div><span className={`rounded-full border px-2.5 py-1 text-xs ${statusClass(shownStatus)}`}>{humanStatus(shownStatus)}</span></div>
-          <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">Target</p><p className="mt-1 text-slate-300">{action.target_host_id}</p></div><div><p className="text-slate-500">Requested</p><p className="mt-1 text-slate-300">{formatTime(action.requested_at)}</p></div><div><p className="text-slate-500">Policy</p><p className={`mt-1 ${shownStatus === "expired" || action.policy_allowed === false ? "text-rose-300" : action.policy_allowed === true ? "text-emerald-300" : "text-slate-400"}`}>{shownStatus === "expired" ? "Expired" : action.policy_allowed === null ? "Pending approval" : action.policy_allowed ? "Allowed" : "Blocked"}</p></div></div>
+          <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">Target</p><p className="mt-1 text-slate-300">{action.target_host_id}</p><p className="mt-1 font-mono text-[10px] text-slate-600">{action.target_agent_id}</p></div><div><p className="text-slate-500">Requested</p><p className="mt-1 text-slate-300">{formatTime(action.requested_at)}</p></div><div><p className="text-slate-500">Policy</p><p className={`mt-1 ${shownStatus === "expired" || action.policy_allowed === false ? "text-rose-300" : action.policy_allowed === true ? "text-emerald-300" : "text-slate-400"}`}>{shownStatus === "expired" ? "Expired" : action.policy_allowed === null ? "Pending approval" : action.policy_allowed ? "Allowed" : "Blocked"}</p></div></div>
           {action.policy_reasons.length > 0 && <ul className="mt-3 space-y-1 text-xs text-rose-300">{action.policy_reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul>}
           {canDecide && <div className="mt-4 flex gap-2"><button disabled={busy !== null} onClick={() => decide(action, true)} className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-40">Approve</button><button disabled={busy !== null} onClick={() => decide(action, false)} className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 disabled:opacity-40">Reject</button></div>}
           {action.result && <details className="mt-4"><summary className="cursor-pointer text-xs font-medium text-slate-300">Execution result</summary><pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-400">{JSON.stringify({ result: action.result, evidence: action.evidence, error: action.error }, null, 2)}</pre></details>}
