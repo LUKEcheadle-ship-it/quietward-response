@@ -18,14 +18,15 @@ Compatibility contract:
 - New optional nested evidence fields may be added without changing the major version; the top-level envelope remains strict.
 - Breaking changes require a new schema file and major version, with an explicit migration and overlap period.
 - `event_id` is a UUID and is globally idempotent. Replays of an accepted ID return `409 Conflict`.
+- QuietWard treats that duplicate-ID response as successful retry completion because a network timeout may occur after Response has already committed the event.
 - Timestamps are timezone-aware RFC 3339 values and are normalized to UTC.
 - QuietWard local event identifiers do not need to be UUIDs. The integration adapter deterministically maps them to v1 UUIDs and preserves the original identifier in metadata.
 
-When `source` is `quietward`, Phase 2 can require authenticated delivery. Authentication is outside the JSON body so the observation schema stays sensor-neutral.
+When `source` is `quietward`, v1 requires authenticated delivery by default. Authentication is outside the JSON body so the observation schema stays sensor-neutral.
 
 ## Agent request authentication
 
-Phase 2 QuietWard requests use HMAC-SHA256 with these headers:
+QuietWard requests use HMAC-SHA256 with these headers:
 
 ```text
 X-QWR-Agent-ID
@@ -71,7 +72,7 @@ The action protocol is deliberately narrower than the event protocol. It carries
 - structured result, error, and evidence
 - agent version
 
-### Phase 2 allowlist
+### v1 allowlist
 
 The only executable action is:
 
@@ -110,4 +111,4 @@ succeeded | failed
 
 Other terminal paths are `rejected`, `expired`, and `cancelled`.
 
-A QuietWard endpoint keeps a durable local ledger of terminal action IDs. If a dispatch is seen again after a network failure, the endpoint re-reports the saved result rather than executing the action twice.
+An `executing` action may be returned again to the same authenticated endpoint after a restart so the endpoint can reconcile an interrupted delivery. QuietWard persists execution intent before changing local state, keeps a durable terminal-result ledger, and marks the dedicated demo fixture with the action ID and prior result. Those two local records close the important crash windows: a repeated action ID returns the previously applied result instead of changing the fixture twice. Response also rejects a duplicate terminal result when its stored result/evidence does not match.
