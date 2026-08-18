@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LUKEcheadle-ship-it/quietward-response/blob/main/protocol/quietward-event-schema-v1.json",
+  "title": "QuietWard Response Event Protocol v1",
+  "description": "Sensor-neutral event envelope accepted by QuietWard Response. QuietWard is one supported source, not a runtime dependency.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "source",
+    "host_id",
+    "timestamp",
+    "event_type",
+    "severity",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "event_id": { "type": "string", "format": "uuid" },
+    "source": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "source_version": { "type": ["string", "null"], "maxLength": 64 },
+    "host_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+    },
+    "host_name": { "type": ["string", "null"], "maxLength": 255 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "event_type": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "category": { "type": ["string", "null"], "maxLength": 128 },
+    "severity": {
+      "enum": ["informational", "low", "medium", "high", "critical"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "evidence": { "type": "object", "default": {} },
+    "process": { "type": ["object", "null"] },
+    "file": { "type": ["object", "null"] },
+    "network": { "type": ["object", "null"] },
+    "persistence": { "type": ["object", "null"] },
+    "metadata": { "type": "object", "default": {} }
+  }
+}
