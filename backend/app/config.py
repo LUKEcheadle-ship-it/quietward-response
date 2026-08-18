@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     correlation_window_seconds: int = Field(default=300, ge=30, le=3600)
     log_level: str = "INFO"
 
+    # Phase 2: local enrollment is intentionally explicit. Replace this value in .env.
+    enrollment_token: str = "development-enrollment-token-change-me"
+    agent_replay_window_seconds: int = Field(default=300, ge=30, le=900)
+    action_default_ttl_seconds: int = Field(default=600, ge=30, le=3600)
+    require_agent_auth_for_quietward_events: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:
