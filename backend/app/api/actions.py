@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from sqlalchemy.orm import Session
+
+from app.database.session import get_db
+from app.schemas.action import ActionCreate, ActionRead, ActionResultCreate, ApprovalDecision
+from app.services.action_registry import public_action_registry
+from app.services.action_service import (
+    ActionError,
+    action_to_dict,
+    apply_action_result,
+    create_action,
+    decide_action,
+    list_incident_actions,
+    pending_actions_for_agent,
+)
+from app.services.agent_auth import verify_agent_request
+
+router = APIRouter(prefix="/api/v1", tags=["response-actions"])
+
+
+def _action_error(exc: ActionError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": "action_conflict", "message": str(exc)},
+    )
+
+
+@router.get("/actions/registry")
+def action_registry() -> list[dict[str, object]]:
+    return public_action_registry()
+
+
+@router.post("/incidents/{incident_id}/actions", response_model=ActionRead, status_code=201)
+def request_action(
+    incident_id: str,
+    payload: ActionCreate,
+    actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        action = create_action(db, incident_id=incident_id, payload=payload, actor_id=actor_id)
+    except ActionError as exc:
+        raise _action_error(exc) from exc
+    db.commit()
+    return action_to_dict(action)
+
+
+@router.get("/incidents/{incident_id}/actions", response_model=list[ActionRead])
+def incident_actions(incident_id: str, db: Session = Depends(get_db)) -> list[dict[str, object]]:
+    return [action_to_dict(item) for item in list_incident_actions(db, incident_id)]
+
+
+@router.post("/actions/{action_id}/approve", response_model=ActionRead)
+def approve_action(
+    action_id: str,
+    payload: ApprovalDecision,
+    actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        action = decide_action(
+            db,
+            action_id=action_id,
+            actor_id=actor_id,
+            approve=True,
+            reason=payload.reason,
+        )
+    except ActionError as exc:
+        raise _action_error(exc) from exc
+    db.commit()
+    return action_to_dict(action)
+
+
+@router.post("/actions/{action_id}/reject", response_model=ActionRead)
+def reject_action(
+    action_id: str,
+    payload: ApprovalDecision,
+    actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        action = decide_action(
+            db,
+            action_id=action_id,
+            actor_id=actor_id,
+            approve=False,
+            reason=payload.reason,
+        )
+    except ActionError as exc:
+        raise _action_error(exc) from exc
+    db.commit()
+    return action_to_dict(action)
+
+
+@router.get("/agents/{agent_id}/actions/pending", response_model=list[ActionRead])
+async def pending_agent_actions(
+    agent_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[dict[str, object]]:
+    raw = await request.body()
+    agent = verify_agent_request(
+        db,
+        request,
+        raw,
+        replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+    )
+    if agent.agent_id != agent_id:
+        raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
+    actions = pending_actions_for_agent(db, agent)
+    db.commit()
+    return [action_to_dict(item) for item in actions]
+
+
+@router.post("/actions/{action_id}/result", response_model=ActionRead)
+async def action_result(
+    action_id: str,
+    payload: ActionResultCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    raw = await request.body()
+    agent = verify_agent_request(
+        db,
+        request,
+        raw,
+        replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+    )
+    if payload.action_id != action_id:
+        raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
+    try:
+        action = apply_action_result(db, agent=agent, payload=payload)
+    except ActionError as exc:
+        raise _action_error(exc) from exc
+    db.commit()
+    return action_to_dict(action)
