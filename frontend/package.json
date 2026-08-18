@@ -6,7 +6,6 @@
     "dev": "next dev -H 127.0.0.1 -p 3001",
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3001",
-    "start:container": "next start -H 0.0.0.0 -p 3001",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
