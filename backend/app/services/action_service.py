@@ -23,6 +23,9 @@ class ActionError(ValueError):
     pass
 
 
+ACTIVE_ACTION_STATUSES = ("pending", "approved", "dispatching", "executing")
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -170,6 +173,22 @@ def create_action(
         raise ActionError(INCIDENT_STATUS_REASON)
     if not incident_enables_action(incident, payload.action_type):
         raise ActionError(RECOMMENDATION_BINDING_REASON)
+
+    existing = session.scalars(
+        select(ActionRecord)
+        .where(
+            ActionRecord.incident_id == incident_id,
+            ActionRecord.target_agent_id == payload.target_agent_id,
+            ActionRecord.action_type == payload.action_type,
+            ActionRecord.status.in_(ACTIVE_ACTION_STATUSES),
+        )
+        .order_by(ActionRecord.requested_at.desc())
+        .limit(1)
+    ).first()
+    if existing is not None:
+        raise ActionError(
+            "an active action of this type already exists for this incident and agent"
+        )
 
     ttl_seconds = payload.expires_in_seconds
     if ttl_seconds is None:
