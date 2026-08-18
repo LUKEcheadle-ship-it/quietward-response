@@ -1,13 +1,29 @@
-def test_event_persists_and_duplicate_is_rejected(client, event_factory) -> None:
+def test_event_persists_and_identical_duplicate_is_rejected_as_idempotent_retry(client, event_factory) -> None:
     event = event_factory()
     first = client.post("/api/v1/events", json=event)
     second = client.post("/api/v1/events", json=event)
     assert first.status_code == 201
     assert first.json()["accepted"] is True
     assert second.status_code == 409
+    assert second.json()["detail"]["code"] == "duplicate_event_id"
     events = client.get("/api/v1/events").json()
     assert len(events) == 1
     assert events[0]["event_id"] == event["event_id"]
+
+
+def test_same_event_id_with_different_payload_fails_as_conflict(client, event_factory) -> None:
+    event = event_factory()
+    assert client.post("/api/v1/events", json=event).status_code == 201
+
+    conflicting = dict(event)
+    conflicting["summary"] = "Different content reusing the same event ID"
+    response = client.post("/api/v1/events", json=conflicting)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "event_id_conflict"
+    stored = client.get("/api/v1/events").json()
+    assert len(stored) == 1
+    assert stored[0]["summary"] == event["summary"]
 
 
 def test_host_is_created_and_updated(client, event_factory) -> None:
