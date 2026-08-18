@@ -10,7 +10,11 @@ from app.database.models import ActionRecord, AgentRecord, ApprovalRecord, Incid
 from app.schemas.action import ActionCreate, ActionResultCreate
 from app.services.action_registry import get_action_definition
 from app.services.audit_service import record_audit
-from app.services.policy_service import evaluate_action_policy
+from app.services.policy_service import (
+    RECOMMENDATION_BINDING_REASON,
+    evaluate_action_policy,
+    incident_enables_action,
+)
 
 
 class ActionError(ValueError):
@@ -74,6 +78,8 @@ def create_action(
     parameter_errors = definition.validate_parameters(payload.parameters)
     if parameter_errors:
         raise ActionError("; ".join(parameter_errors))
+    if not incident_enables_action(incident, payload.action_type):
+        raise ActionError(RECOMMENDATION_BINDING_REASON)
 
     ttl_seconds = payload.expires_in_seconds
     if ttl_seconds is None:
