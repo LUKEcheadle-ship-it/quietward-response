@@ -16,10 +16,11 @@ This gate checks:
 2. The full Response backend test suite with warnings treated as errors.
 3. The executable server action registry contains exactly the one v1 demo action.
 4. Alembic reaches `0002_phase2` from a fresh SQLite database.
-5. Alembic upgrades a legacy Phase 1-shaped audit database and adds the Phase 2 schema.
-6. Frontend TypeScript checks and production build.
-7. npm dependency audit unless explicitly skipped for an offline machine.
-8. The full companion QuietWard test suite when `--quietward-repo` is supplied.
+5. `alembic check` confirms current ORM metadata has no migration drift beyond the frozen v1 revisions.
+6. A real database created from the frozen `0001_phase1` migration upgrades to v1 and its legacy unhashed audit row is backfilled/verified exactly once.
+7. Frontend TypeScript checks and production build.
+8. npm dependency audit unless explicitly skipped for an offline machine.
+9. The full companion QuietWard test suite when `--quietward-repo` is supplied.
 
 ## Automated live two-repository gate
 
@@ -32,7 +33,7 @@ The live gate starts an isolated local Response API on a temporary database and 
 1. one QuietWard agent can enroll;
 2. a real HMAC-signed QuietWard event is accepted;
 3. that event becomes an incident;
-4. the controlled recommendation is produced;
+4. the controlled recommendation metadata survives the API response and is shown as executable only for the demo fixture;
 5. an action starts in `pending` and therefore requires analyst approval;
 6. deterministic policy allows the approved demo action;
 7. QuietWard polls outward for the action;
@@ -44,6 +45,12 @@ The live gate starts an isolated local Response API on a temporary database and 
 ## Manual UI smoke check
 
 After the automated gates pass, start the normal stack and verify that Overview, Incidents, Agents, Hosts, and Events render without browser console errors. On the live-demo incident, confirm that the Response Actions card displays the transition from awaiting approval through succeeded and exposes the structured result.
+
+## Supported v1 runtime shape
+
+v1 intentionally uses **one Response API process/worker**. Request transactions are serialized inside that process so concurrent HTTP operations cannot independently append from the same audit-chain head. Both the native launcher and backend container explicitly start Uvicorn with `--workers 1`.
+
+Do not horizontally scale the v1 API or start multiple independent API workers against one database. A future multi-worker release must replace the process-local serialization guard with a database-backed atomic audit append/head mechanism and requalify replay/action concurrency.
 
 ## Release boundary
 
@@ -60,5 +67,6 @@ Anything that controls arbitrary host state belongs to a later version and must 
 - Analyst identity is local-development grade rather than OIDC/RBAC.
 - HMAC transport assumes TLS outside loopback or a trusted local network.
 - The audit chain is tamper-evident, not immutable.
-- No multi-tenant or cloud deployment model is claimed.
+- The API is qualified only as a single-process/single-worker service.
+- No multi-tenant, horizontally scaled, or cloud deployment model is claimed.
 - No autonomous remediation is enabled.
