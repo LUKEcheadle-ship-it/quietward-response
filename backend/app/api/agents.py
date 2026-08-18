@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,7 @@ def _actor_id(value: str) -> str:
 def enroll(
     payload: AgentEnrollRequest,
     request: Request,
+    response: Response,
     token: str | None = Header(default=None, alias="X-QWR-Enrollment-Token"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
@@ -62,6 +63,11 @@ def enroll(
         details={"host_id": agent.host_id, "key_id": agent.key_id},
     )
     db.commit()
+
+    # Enrollment is the only API response that contains the one-time endpoint
+    # secret. Explicitly prevent browsers/proxies from caching it.
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     return {
         "agent_id": agent.agent_id,
         "key_id": agent.key_id,
