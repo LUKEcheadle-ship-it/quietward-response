@@ -107,7 +107,7 @@ export function ResponseActions({ incident }: { incident: IncidentDetail }) {
         <div>
           <p className="eyebrow">Response actions</p>
           <h2 className="mt-2 text-lg font-semibold text-white">Controlled remediation</h2>
-          <p className="muted mt-2 max-w-2xl text-sm">Only typed actions in the server and endpoint allowlists can be dispatched. Phase 2 requires explicit analyst approval; arbitrary command execution is not available.</p>
+          <p className="muted mt-2 max-w-2xl text-sm">Only typed actions in the server and endpoint allowlists can be dispatched. v1 requires explicit analyst approval; arbitrary command execution is not available.</p>
         </div>
         <span className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-xs text-cyan">Observe → Recommend → Approve → Act</span>
       </div>
