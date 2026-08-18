@@ -14,6 +14,9 @@ from app.database.models import (
 from app.services.action_registry import get_action_definition
 
 
+RECOMMENDATION_BINDING_REASON = "action is not an enabled recommendation for incident"
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -29,6 +32,24 @@ def _os_family(value: str | None) -> str:
     if "darwin" in text or "macos" in text or "mac os" in text:
         return "darwin"
     return "unknown"
+
+
+def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
+    """Return whether the incident currently exposes this controlled action.
+
+    The registry says what the product *can* execute. The incident recommendation
+    says whether that capability is appropriate for this particular evidence set.
+    Both conditions must hold before an executable action can be created or sent.
+    """
+    for recommendation in incident.recommended_actions or []:
+        if not isinstance(recommendation, dict):
+            continue
+        if (
+            recommendation.get("enabled") is True
+            and recommendation.get("registry_action_type") == action_type
+        ):
+            return True
+    return False
 
 
 def evaluate_action_policy(
@@ -59,8 +80,11 @@ def evaluate_action_policy(
     incident = session.get(IncidentRecord, action.incident_id)
     if incident is None:
         reasons.append("incident does not exist")
-    elif action.target_host_id not in (incident.affected_hosts or []):
-        reasons.append("target host is not affected by incident")
+    else:
+        if action.target_host_id not in (incident.affected_hosts or []):
+            reasons.append("target host is not affected by incident")
+        if not incident_enables_action(incident, action.action_type):
+            reasons.append(RECOMMENDATION_BINDING_REASON)
 
     host = session.get(HostRecord, action.target_host_id)
     if host is not None:
