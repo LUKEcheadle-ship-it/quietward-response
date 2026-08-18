@@ -29,6 +29,8 @@ def _canonical_payload(
     incident_id: str | None,
     previous_hash: str,
 ) -> bytes:
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
     value = {
         "audit_id": audit_id,
         "timestamp": timestamp.astimezone(timezone.utc).isoformat(),
@@ -46,6 +48,43 @@ def _canonical_payload(
 
 def _hash_entry(**kwargs: Any) -> str:
     return hashlib.sha256(_canonical_payload(**kwargs)).hexdigest()
+
+
+def _ordered_records(session: Session) -> list[AuditRecord]:
+    return list(
+        session.scalars(
+            select(AuditRecord).order_by(AuditRecord.timestamp.asc(), AuditRecord.audit_id.asc())
+        )
+    )
+
+
+def backfill_legacy_audit_chain(session: Session) -> int:
+    """Hash Phase 1 rows once when every existing row is still unhashed.
+
+    A partially hashed database is intentionally not rewritten; verification will
+    report it as broken instead of hiding a potentially suspicious condition.
+    """
+    records = _ordered_records(session)
+    if not records or any(record.entry_hash for record in records):
+        return 0
+    previous_hash = GENESIS_HASH
+    for record in records:
+        record.previous_hash = previous_hash
+        record.entry_hash = _hash_entry(
+            audit_id=record.audit_id,
+            timestamp=record.timestamp,
+            actor_type=record.actor_type,
+            actor_id=record.actor_id,
+            action=record.action,
+            resource_type=record.resource_type,
+            resource_id=record.resource_id,
+            details=record.details or {},
+            incident_id=record.incident_id,
+            previous_hash=previous_hash,
+        )
+        previous_hash = record.entry_hash
+    session.flush()
+    return len(records)
 
 
 def record_audit(
@@ -114,11 +153,7 @@ def record_audit(
 
 
 def verify_audit_chain(session: Session) -> dict[str, Any]:
-    records = list(
-        session.scalars(
-            select(AuditRecord).order_by(AuditRecord.timestamp.asc(), AuditRecord.audit_id.asc())
-        )
-    )
+    records = _ordered_records(session)
     expected_previous = GENESIS_HASH
     errors: list[dict[str, str]] = []
     for record in records:
