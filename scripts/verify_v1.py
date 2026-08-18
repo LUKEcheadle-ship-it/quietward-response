@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -49,6 +50,22 @@ def _ensure_python() -> str:
         cwd=ROOT,
     )
     return python
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _assert_frontend_port_available() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", 3001))
+        except OSError as exc:
+            raise RuntimeError(
+                "frontend port 3001 is already in use; stop the existing service before release qualification"
+            ) from exc
 
 
 def _assert_phase2_schema(database: Path) -> None:
@@ -166,6 +183,31 @@ def _verify_action_surface(python: str) -> None:
     _run([python, "-c", code], cwd=BACKEND)
 
 
+def _verify_public_quick_start(python: str, temporary: Path) -> None:
+    _assert_frontend_port_available()
+    port = _free_port()
+    database = temporary / "quick-start.db"
+    env = os.environ.copy()
+    env.update(
+        {
+            "QWR_ENVIRONMENT": "development",
+            "QWR_DATABASE_URL": f"sqlite:///{database.as_posix()}",
+            "QWR_API_HOST": "127.0.0.1",
+            "QWR_API_PORT": str(port),
+            "QWR_CORS_ORIGINS": '["http://localhost:3001","http://127.0.0.1:3001"]',
+            "QWR_ENROLLMENT_TOKEN": "v1-quick-start-smoke-enrollment-token",
+            "QWR_SEED_DEMO": "false",
+            "NEXT_PUBLIC_API_URL": f"http://localhost:{port}",
+        }
+    )
+    _run(
+        [python, str(ROOT / "scripts" / "bootstrap_local.py"), "--smoke"],
+        cwd=ROOT,
+        env=env,
+    )
+    _assert_phase2_schema(database)
+
+
 def _verify_quietward(quietward_repo: Path, python: str) -> None:
     if not (quietward_repo / "src" / "quietward").is_dir():
         raise RuntimeError(f"not a QuietWard checkout: {quietward_repo}")
@@ -220,16 +262,21 @@ def main() -> int:
         _verify_fresh_migration(python, temp_path)
         _verify_phase1_upgrade(python, temp_path)
 
-    npm = shutil.which("npm")
-    if npm is None:
-        raise RuntimeError("npm is required for the v1 frontend release gate")
-    # Always reproduce the frontend dependency tree from package-lock.json rather
-    # than trusting whatever happens to be in an existing node_modules directory.
-    _run([npm, "ci"], cwd=FRONTEND)
-    _run([npm, "run", "typecheck"], cwd=FRONTEND)
-    _run([npm, "run", "build"], cwd=FRONTEND)
-    if not args.skip_npm_audit:
-        _run([npm, "audit", "--audit-level=high"], cwd=FRONTEND)
+        npm = shutil.which("npm")
+        if npm is None:
+            raise RuntimeError("npm is required for the v1 frontend release gate")
+        # Always reproduce the frontend dependency tree from package-lock.json rather
+        # than trusting whatever happens to be in an existing node_modules directory.
+        _run([npm, "ci"], cwd=FRONTEND)
+        _run([npm, "run", "typecheck"], cwd=FRONTEND)
+        _run([npm, "run", "build"], cwd=FRONTEND)
+        if not args.skip_npm_audit:
+            _run([npm, "audit", "--audit-level=high"], cwd=FRONTEND)
+
+        # Exercise the exact cross-platform public first-run launcher against an
+        # isolated database and non-default API port. It must start both surfaces,
+        # pass readiness checks, then terminate cleanly.
+        _verify_public_quick_start(python, temp_path)
 
     if args.quietward_repo is not None:
         _verify_quietward(args.quietward_repo.resolve(), python)
@@ -239,6 +286,7 @@ def main() -> int:
         print("Companion QuietWard suite: NOT RUN (pass --quietward-repo PATH to include it)")
     if args.skip_npm_audit:
         print("npm audit: SKIPPED (this run is not a final release qualification)")
+    print("Public quick-start smoke: PASS")
     print("The live two-repository HTTP demo remains a separate acceptance check.")
     return 0
 
