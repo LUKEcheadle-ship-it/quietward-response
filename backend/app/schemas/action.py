@@ -25,7 +25,8 @@ class ActionCreate(BaseModel):
     target_host_id: str = Field(min_length=1, max_length=128)
     action_type: str = Field(min_length=1, max_length=128)
     parameters: dict[str, Any] = Field(default_factory=dict)
-    expires_in_seconds: int = Field(default=600, ge=30, le=3600)
+    # None means use the server's QWR_ACTION_DEFAULT_TTL_SECONDS setting.
+    expires_in_seconds: int | None = Field(default=None, ge=30, le=3600)
 
 
 class ActionRead(BaseModel):
