@@ -35,6 +35,7 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - non-development rejection of unauthenticated generic sensor sources
 - single-use authenticated nonces even when later business validation rejects the request
 - bounded analyst identity headers before database persistence
+- executable actions must be enabled controlled recommendations on the specific incident, with the same binding rechecked before dispatch
 - private local SQLite and endpoint integration state files where POSIX modes are supported
 - request serialization for single-process v1 audit-chain consistency
 - QuietWard `info` severity compatibility normalization to canonical `informational`
