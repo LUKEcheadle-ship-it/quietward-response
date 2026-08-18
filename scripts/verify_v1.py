@@ -41,6 +41,9 @@ def _assert_phase2_schema(database: Path) -> None:
             )
         }
         required_tables = {
+            "hosts",
+            "incidents",
+            "events",
             "agents",
             "agent_nonces",
             "approvals",
@@ -63,48 +66,71 @@ def _assert_phase2_schema(database: Path) -> None:
             raise RuntimeError(f"unexpected Alembic version: {version!r}")
 
 
-def _verify_fresh_migration(python: str, temporary: Path) -> None:
-    database = temporary / "fresh.db"
+def _migration_env(database: Path) -> dict[str, str]:
     env = os.environ.copy()
     env["QWR_DATABASE_URL"] = f"sqlite:///{database.as_posix()}"
+    env["QWR_ENVIRONMENT"] = "development"
+    env["QWR_ENROLLMENT_TOKEN"] = "v1-verification-enrollment-token"
+    return env
+
+
+def _verify_fresh_migration(python: str, temporary: Path) -> None:
+    database = temporary / "fresh.db"
+    env = _migration_env(database)
     _run([python, "-m", "alembic", "upgrade", "head"], cwd=BACKEND, env=env)
     _assert_phase2_schema(database)
 
 
-def _create_legacy_phase1_database(path: Path) -> None:
-    # This is intentionally the old Phase 1 audit shape. Other Phase 1 tables are
-    # allowed to be absent here because 0002 uses current metadata to create any
-    # missing tables while separately upgrading the existing audit table.
-    with sqlite3.connect(path) as connection:
-        connection.executescript(
+def _insert_phase1_audit_row(database: Path) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute(
             """
-            CREATE TABLE alembic_version (
-                version_num VARCHAR(32) NOT NULL PRIMARY KEY
-            );
-            INSERT INTO alembic_version(version_num) VALUES ('0001_phase1');
-
-            CREATE TABLE audit_records (
-                audit_id VARCHAR(36) NOT NULL PRIMARY KEY,
-                timestamp DATETIME NOT NULL,
-                actor_type VARCHAR(64) NOT NULL,
-                actor_id VARCHAR(128) NOT NULL,
-                action VARCHAR(128) NOT NULL,
-                resource_type VARCHAR(64) NOT NULL,
-                resource_id VARCHAR(128) NOT NULL,
-                details JSON NOT NULL,
-                incident_id VARCHAR(36)
-            );
-            """
+            INSERT INTO audit_records(
+                audit_id, timestamp, actor_type, actor_id, action,
+                resource_type, resource_id, details, incident_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                "00000000-0000-0000-0000-000000000001",
+                "2026-08-18 12:00:00.000000",
+                "sensor",
+                "legacy-phase1",
+                "event_received",
+                "event",
+                "legacy-event",
+                "{}",
+            ),
         )
+        connection.commit()
 
 
 def _verify_phase1_upgrade(python: str, temporary: Path) -> None:
     database = temporary / "legacy-phase1.db"
-    _create_legacy_phase1_database(database)
-    env = os.environ.copy()
-    env["QWR_DATABASE_URL"] = f"sqlite:///{database.as_posix()}"
+    env = _migration_env(database)
+
+    # Build a genuine database from the frozen Phase 1 migration, add one legacy
+    # unhashed audit row, then apply v1. This verifies the real upgrade path.
+    _run(
+        [python, "-m", "alembic", "upgrade", "0001_phase1"],
+        cwd=BACKEND,
+        env=env,
+    )
+    _insert_phase1_audit_row(database)
     _run([python, "-m", "alembic", "upgrade", "head"], cwd=BACKEND, env=env)
     _assert_phase2_schema(database)
+
+    # Application startup backfills a fully legacy/unhashed chain exactly once.
+    code = (
+        "from app.database.session import Database; "
+        "from app.services.audit_service import backfill_legacy_audit_chain, verify_audit_chain; "
+        f"db=Database('sqlite:///{database.as_posix()}'); "
+        "s=db.session_factory(); "
+        "count=backfill_legacy_audit_chain(s); s.commit(); "
+        "result=verify_audit_chain(s); s.close(); db.dispose(); "
+        "assert count == 1, count; assert result['valid'], result; "
+        "print('legacy audit backfill:', result['head_hash'])"
+    )
+    _run([python, "-c", code], cwd=BACKEND, env=env)
 
 
 def _verify_action_surface(python: str) -> None:
