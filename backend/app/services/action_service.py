@@ -56,6 +56,92 @@ def action_to_dict(action: ActionRecord) -> dict[str, Any]:
     }
 
 
+def _cancel_undispatched_action(
+    session: Session,
+    action: ActionRecord,
+    *,
+    reason: str,
+    actor_id: str,
+) -> bool:
+    """Invalidate a pending/approved action so stale approval cannot revive later."""
+    if action.status not in {"pending", "approved"}:
+        return False
+    action.status = "cancelled"
+    action.policy_allowed = False
+    action.policy_reasons = [reason]
+    if action.approval_id:
+        approval = session.get(ApprovalRecord, action.approval_id)
+        if approval is not None and approval.status in {"pending", "approved"}:
+            approval.status = "cancelled"
+    record_audit(
+        session,
+        actor_type="system",
+        actor_id=actor_id,
+        action="response_action_cancelled",
+        resource_type="action",
+        resource_id=action.action_id,
+        incident_id=action.incident_id,
+        details={"reason": reason},
+    )
+    return True
+
+
+def cancel_undispatched_actions_for_incident(
+    session: Session,
+    incident_id: str,
+    *,
+    reason: str = INCIDENT_STATUS_REASON,
+) -> int:
+    actions = list(
+        session.scalars(
+            select(ActionRecord).where(
+                ActionRecord.incident_id == incident_id,
+                ActionRecord.status.in_(["pending", "approved"]),
+            )
+        )
+    )
+    cancelled = 0
+    for action in actions:
+        cancelled += int(
+            _cancel_undispatched_action(
+                session,
+                action,
+                reason=reason,
+                actor_id="incident-state",
+            )
+        )
+    session.flush()
+    return cancelled
+
+
+def cancel_undispatched_actions_for_agent(
+    session: Session,
+    agent_id: str,
+    *,
+    reason: str = "target agent is disabled",
+) -> int:
+    actions = list(
+        session.scalars(
+            select(ActionRecord).where(
+                ActionRecord.target_agent_id == agent_id,
+                ActionRecord.status.in_(["pending", "approved"]),
+            )
+        )
+    )
+    cancelled = 0
+    for action in actions:
+        cancelled += int(
+            _cancel_undispatched_action(
+                session,
+                action,
+                reason=reason,
+                actor_id="agent-revocation",
+            )
+        )
+    session.flush()
+    return cancelled
+
+
 def create_action(
     session: Session,
     *,
@@ -206,6 +292,13 @@ def decide_action(
             incident_id=action.incident_id,
             details={"allowed": allowed, "reasons": reasons},
         )
+        if not allowed:
+            _cancel_undispatched_action(
+                session,
+                action,
+                reason="; ".join(reasons) or "policy no longer allows action",
+                actor_id="approval-policy",
+            )
     session.flush()
     return action
 
@@ -259,6 +352,13 @@ def pending_actions_for_agent(session: Session, agent: AgentRecord) -> list[Acti
         action.policy_allowed = allowed
         action.policy_reasons = reasons
         if not allowed:
+            if action.status == "approved":
+                _cancel_undispatched_action(
+                    session,
+                    action,
+                    reason="; ".join(reasons) or "policy no longer allows action",
+                    actor_id="action-dispatch",
+                )
             continue
         if action.status == "approved":
             action.status = "dispatching"
