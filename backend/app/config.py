@@ -21,7 +21,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./quietward-response.db"
     api_host: str = "127.0.0.1"
     api_port: int = 8002
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3001"])
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ]
+    )
     correlation_window_seconds: int = Field(default=300, ge=30, le=3600)
     log_level: str = "INFO"
 
