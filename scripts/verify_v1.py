@@ -198,6 +198,8 @@ def main() -> int:
     npm = shutil.which("npm")
     if npm is None:
         raise RuntimeError("npm is required for the v1 frontend release gate")
+    if not (FRONTEND / "node_modules").is_dir():
+        _run([npm, "ci"], cwd=FRONTEND)
     _run([npm, "run", "typecheck"], cwd=FRONTEND)
     _run([npm, "run", "build"], cwd=FRONTEND)
     if not args.skip_npm_audit:
