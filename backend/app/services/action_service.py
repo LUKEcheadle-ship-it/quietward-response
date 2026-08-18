@@ -174,11 +174,14 @@ def create_action(
     if not incident_enables_action(incident, payload.action_type):
         raise ActionError(RECOMMENDATION_BINDING_REASON)
 
+    # A host may have more than one enrolled credential during rotation. Do not
+    # allow parallel action IDs to target the same host/capability through different
+    # agents; one active lifecycle per incident + host + action type is enough.
     existing = session.scalars(
         select(ActionRecord)
         .where(
             ActionRecord.incident_id == incident_id,
-            ActionRecord.target_agent_id == payload.target_agent_id,
+            ActionRecord.target_host_id == payload.target_host_id,
             ActionRecord.action_type == payload.action_type,
             ActionRecord.status.in_(ACTIVE_ACTION_STATUSES),
         )
@@ -187,7 +190,7 @@ def create_action(
     ).first()
     if existing is not None:
         raise ActionError(
-            "an active action of this type already exists for this incident and agent"
+            "an active action of this type already exists for this incident and host"
         )
 
     ttl_seconds = payload.expires_in_seconds
