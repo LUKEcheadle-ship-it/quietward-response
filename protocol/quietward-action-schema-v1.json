@@ -27,7 +27,7 @@
         "requested_by": {"type": "string", "minLength": 1, "maxLength": 128},
         "approval_id": {"type": "string", "format": "uuid"},
         "expires_at": {"type": "string", "format": "date-time"},
-        "status": {"enum": ["approved", "dispatching"]},
+        "status": {"enum": ["approved", "dispatching", "executing"]},
         "policy_allowed": {"type": ["boolean", "null"]},
         "policy_reasons": {"type": "array", "items": {"type": "string"}}
       }
