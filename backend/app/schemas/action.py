@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ActionStatus = Literal[
     "pending",
@@ -79,6 +79,18 @@ class ActionResultCreate(BaseModel):
         if value is not None and (value.tzinfo is None or value.utcoffset() is None):
             raise ValueError("timestamps must include a timezone")
         return value
+
+    @model_validator(mode="after")
+    def validate_lifecycle_timestamps(self) -> "ActionResultCreate":
+        if self.status == "executing" and self.completed_at is not None:
+            raise ValueError("executing result cannot include completed_at")
+        if (
+            self.started_at is not None
+            and self.completed_at is not None
+            and self.completed_at < self.started_at
+        ):
+            raise ValueError("completed_at cannot be earlier than started_at")
+        return self
 
 
 class PolicyDecisionRead(BaseModel):
