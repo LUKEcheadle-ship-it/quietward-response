@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database.models import EventRecord
 from app.database.session import get_db
 from app.schemas.event import EventCreate, EventRead, IngestionResult
+from app.services.agent_auth import verify_agent_request
 from app.services.incident_service import event_to_dict
 from app.services.ingestion import DuplicateEventError, ingest_event
 
@@ -16,11 +17,27 @@ router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
 
 @router.post("", response_model=IngestionResult, status_code=status.HTTP_201_CREATED)
-def receive_event(
+async def receive_event(
     payload: EventCreate,
     request: Request,
     db: Session = Depends(get_db),
 ) -> IngestionResult:
+    if (
+        request.app.state.settings.require_agent_auth_for_quietward_events
+        and payload.source.strip().lower() == "quietward"
+    ):
+        raw = await request.body()
+        agent = verify_agent_request(
+            db,
+            request,
+            raw,
+            replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+        )
+        if agent.host_id != payload.host_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "agent_host_mismatch"},
+            )
     try:
         event, incident_id, reasons = ingest_event(
             db,
