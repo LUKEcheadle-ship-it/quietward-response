@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
+VENV = ROOT / ".venv"
 
 
 def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
@@ -21,15 +22,33 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
-def _python() -> str:
+def _venv_python() -> Path:
     candidates = [
-        ROOT / ".venv" / "Scripts" / "python.exe",
-        ROOT / ".venv" / "bin" / "python",
+        VENV / "Scripts" / "python.exe",
+        VENV / "bin" / "python",
     ]
     for candidate in candidates:
         if candidate.exists():
-            return str(candidate)
-    return sys.executable
+            return candidate
+    raise RuntimeError("v1 virtual environment was not created correctly")
+
+
+def _ensure_python() -> str:
+    if sys.version_info < (3, 12):
+        raise RuntimeError(
+            f"Python 3.12+ is required to bootstrap the v1 gate; got {sys.version.split()[0]}"
+        )
+    if not VENV.exists():
+        _run([sys.executable, "-m", "venv", str(VENV)], cwd=ROOT)
+    python = str(_venv_python())
+    # Always reconcile declared requirements before qualification. This makes the
+    # gate usable from a fresh checkout and picks up dependency-bound fixes made
+    # after a prior local venv was created.
+    _run(
+        [python, "-m", "pip", "install", "-q", "-r", str(BACKEND / "requirements.txt")],
+        cwd=ROOT,
+    )
+    return python
 
 
 def _assert_phase2_schema(database: Path) -> None:
@@ -147,13 +166,12 @@ def _verify_action_surface(python: str) -> None:
     _run([python, "-c", code], cwd=BACKEND)
 
 
-def _verify_quietward(quietward_repo: Path) -> None:
+def _verify_quietward(quietward_repo: Path, python: str) -> None:
     if not (quietward_repo / "src" / "quietward").is_dir():
         raise RuntimeError(f"not a QuietWard checkout: {quietward_repo}")
     env = os.environ.copy()
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = str(quietward_repo / "src") + (os.pathsep + existing if existing else "")
-    python = sys.executable
     _run(
         [python, "-m", "compileall", "-q", "src", "tests", "scripts/quietward_response_demo.py"],
         cwd=quietward_repo,
@@ -182,7 +200,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    python = _python()
+    python = _ensure_python()
     print(f"QuietWard Response root: {ROOT}")
     print(f"Python: {python}")
 
@@ -206,7 +224,7 @@ def main() -> int:
         _run([npm, "audit", "--audit-level=high"], cwd=FRONTEND)
 
     if args.quietward_repo is not None:
-        _verify_quietward(args.quietward_repo.resolve())
+        _verify_quietward(args.quietward_repo.resolve(), python)
 
     print("\nV1 STATIC/LOCAL RELEASE GATE: PASS")
     if args.quietward_repo is None:
