@@ -15,7 +15,7 @@ class ActionDefinition:
     implementation_version: str
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
-        # Phase 2 deliberately exposes no arbitrary target/service/path parameter.
+        # v1 deliberately exposes no arbitrary target/service/path parameter.
         if parameters:
             return ["this action accepts no parameters"]
         return []
@@ -23,7 +23,7 @@ class ActionDefinition:
 
 RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
     action_type="restart_quietward_demo_service",
-    description="Restart the dedicated QuietWard Response demo service only.",
+    description="Reset only the dedicated QuietWard Response JSON demo fixture to its healthy state.",
     risk_level="low",
     approval_required=True,
     supported_os=("linux", "windows", "darwin", "unknown"),
