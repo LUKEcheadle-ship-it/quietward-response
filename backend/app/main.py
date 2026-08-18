@@ -14,6 +14,7 @@ from app.api import actions, agents, audit, events, health, hosts, incidents, ov
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.logging import configure_logging
+from app.request_serialization import SerializedRequestMiddleware
 from app.services.audit_service import backfill_legacy_audit_chain, record_audit
 
 
@@ -64,6 +65,9 @@ def create_app(
             "X-QWR-Signature",
         ],
     )
+    # v1 uses one API process/worker and serializes request transactions so the
+    # single linear audit chain cannot fork under concurrent HTTP requests.
+    application.add_middleware(SerializedRequestMiddleware)
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(
