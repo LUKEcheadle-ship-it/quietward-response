@@ -20,9 +20,11 @@ Include the affected revision, a minimal reproduction, impact, and any suggested
 - Local SQLite data and QuietWard response-state files use private-file permissions where the operating system supports POSIX modes.
 - Response actions are separately versioned, typed, allowlisted, approval-gated, policy-checked, and revalidated by QuietWard.
 - Executable action creation is additionally bound to an enabled controlled recommendation on the specific incident, and policy rechecks that binding before dispatch.
+- Only active incident states (`new`, `investigating`, or `contained`) can create or dispatch response actions; `resolved` and `dismissed` incidents fail closed.
 - Analyst identity headers are bounded before persistence; v1 still treats analyst identity itself as local-development grade rather than production RBAC.
 - Agent polling is outbound from QuietWard; no inbound endpoint command listener is introduced.
 - The only executable v1 action is `restart_quietward_demo_service`. It accepts no parameters and modifies only the dedicated QuietWard JSON demo fixture; it does not control a real service.
+- QuietWard fails closed on unreadable/corrupt response outbox, action-ledger, or demo-fixture state and a full bounded outbox does not silently discard older queued evidence.
 - There is no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, firewall modification, file deletion/quarantine, or host isolation capability.
 - Audit records are hash-chained and verifiable for tamper evidence. This is not equivalent to immutable external retention.
 - The known development enrollment token is rejected when `QWR_ENVIRONMENT` is not `development`. Replace it even in development before enrolling a real endpoint.
