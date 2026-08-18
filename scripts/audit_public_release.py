@@ -33,9 +33,14 @@ HIGH_CONFIDENCE_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("OpenAI-style secret", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
 )
 
+# Build user-machine checks from fragments so this audit file does not literally
+# contain the private path it is trying to detect and therefore match itself.
 PRIVATE_MACHINE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("private homelab path", re.compile(r"/home/homelab/", re.IGNORECASE)),
-    ("private Windows profile path", re.compile(r"[A-Za-z]:\\Users\\lukec\\", re.IGNORECASE)),
+    ("private homelab path", re.compile(r"/home/" + r"homelab/", re.IGNORECASE)),
+    (
+        "private Windows profile path",
+        re.compile(r"[A-Za-z]:\\Users\\" + r"lukec\\", re.IGNORECASE),
+    ),
 )
 
 
