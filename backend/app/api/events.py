@@ -10,6 +10,7 @@ from app.database.models import EventRecord
 from app.database.session import get_db
 from app.schemas.event import EventCreate, EventRead, IngestionResult
 from app.services.agent_auth import verify_agent_request
+from app.services.audit_service import record_audit
 from app.services.incident_service import event_to_dict
 from app.services.ingestion import (
     DuplicateEventError,
@@ -18,6 +19,27 @@ from app.services.ingestion import (
 )
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
+
+
+def _audit_rejection(
+    db: Session,
+    *,
+    actor_type: str,
+    actor_id: str,
+    payload: EventCreate,
+    reason: str,
+    details: dict[str, object] | None = None,
+) -> None:
+    record_audit(
+        db,
+        actor_type=actor_type,
+        actor_id=actor_id[:128],
+        action="event_rejected",
+        resource_type="event",
+        resource_id=str(payload.event_id),
+        details={"reason": reason, **(details or {})},
+    )
+    db.commit()
 
 
 @router.post("", response_model=IngestionResult, status_code=status.HTTP_201_CREATED)
@@ -38,6 +60,17 @@ async def receive_event(
             replay_window_seconds=settings.agent_replay_window_seconds,
         )
         if agent.host_id != payload.host_id:
+            _audit_rejection(
+                db,
+                actor_type="agent",
+                actor_id=agent.agent_id,
+                payload=payload,
+                reason="agent_host_mismatch",
+                details={
+                    "enrolled_host_id": agent.host_id,
+                    "claimed_host_id": payload.host_id,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "agent_host_mismatch"},
@@ -46,6 +79,13 @@ async def receive_event(
         # Sensor-neutral synthetic adapters are convenient for local demos, but they
         # are not authenticated identities. Fail closed outside development until a
         # source has its own authenticated adapter/trust contract.
+        _audit_rejection(
+            db,
+            actor_type="unauthenticated_sensor",
+            actor_id=source or "unknown",
+            payload=payload,
+            reason="unauthenticated_sensor_source",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "unauthenticated_sensor_source"},
