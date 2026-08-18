@@ -13,10 +13,20 @@ from app.services.correlation import correlate_event
 
 
 class DuplicateEventError(ValueError):
-    pass
+    """The same event ID and accepted payload were already persisted."""
 
 
-def _record_duplicate(session: Session, *, event_id: str, source: str) -> None:
+class EventIdConflictError(ValueError):
+    """An existing event ID was reused with different event content."""
+
+
+def _record_event_rejection(
+    session: Session,
+    *,
+    event_id: str,
+    source: str,
+    reason: str,
+) -> None:
     record_audit(
         session,
         actor_type="sensor",
@@ -24,13 +34,47 @@ def _record_duplicate(session: Session, *, event_id: str, source: str) -> None:
         action="event_rejected",
         resource_type="event",
         resource_id=event_id,
-        details={"reason": "duplicate_event_id"},
+        details={"reason": reason},
     )
     session.commit()
 
 
+def _incoming_payload(event: EventCreate) -> dict[str, Any]:
+    # Pydantic has already normalized compatibility aliases (for example QuietWard
+    # `info` -> canonical `informational`), so this representation is stable across
+    # wire-compatible retries.
+    return event.model_dump(mode="json")
+
+
+def _raise_duplicate_or_conflict(
+    session: Session,
+    *,
+    existing: EventRecord,
+    event: EventCreate,
+) -> None:
+    incoming = _incoming_payload(event)
+    if (existing.payload or {}) == incoming:
+        reason = "duplicate_event_id"
+        _record_event_rejection(
+            session,
+            event_id=existing.event_id,
+            source=event.source,
+            reason=reason,
+        )
+        raise DuplicateEventError(existing.event_id)
+
+    reason = "event_id_conflict"
+    _record_event_rejection(
+        session,
+        event_id=existing.event_id,
+        source=event.source,
+        reason=reason,
+    )
+    raise EventIdConflictError(existing.event_id)
+
+
 def normalize_event(event: EventCreate) -> dict[str, Any]:
-    payload = event.model_dump(mode="json")
+    payload = _incoming_payload(event)
     payload["event_type"] = event.event_type.strip().lower().replace(" ", "_")
     payload["category"] = (
         event.category.strip().lower().replace(" ", "_") if event.category else None
@@ -47,9 +91,9 @@ def ingest_event(
     correlation_window_seconds: int,
 ) -> tuple[EventRecord, str, list[str]]:
     event_id = str(event.event_id)
-    if session.get(EventRecord, event_id):
-        _record_duplicate(session, event_id=event_id, source=event.source)
-        raise DuplicateEventError(event_id)
+    existing = session.get(EventRecord, event_id)
+    if existing is not None:
+        _raise_duplicate_or_conflict(session, existing=existing, event=event)
 
     normalized = normalize_event(event)
     host = session.get(HostRecord, event.host_id)
@@ -95,7 +139,7 @@ def ingest_event(
         severity=event.severity.value,
         confidence=event.confidence,
         summary=str(normalized["summary"]),
-        payload=event.model_dump(mode="json"),
+        payload=_incoming_payload(event),
         normalized=normalized,
     )
     session.add(record)
@@ -103,9 +147,9 @@ def ingest_event(
         session.flush()
     except IntegrityError:
         session.rollback()
-        if session.get(EventRecord, event_id) is not None:
-            _record_duplicate(session, event_id=event_id, source=event.source)
-            raise DuplicateEventError(event_id) from None
+        existing = session.get(EventRecord, event_id)
+        if existing is not None:
+            _raise_duplicate_or_conflict(session, existing=existing, event=event)
         raise
     record_audit(
         session,
