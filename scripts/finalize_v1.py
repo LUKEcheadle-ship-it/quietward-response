@@ -23,6 +23,14 @@ def _git(repo: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _fetch_release_refs(repo: Path) -> None:
+    subprocess.run(
+        ["git", "fetch", "origin", "--prune", "--tags"],
+        cwd=repo,
+        check=True,
+    )
+
+
 def _verify_checkout(repo: Path, *, expected_branch: str, expected_repo_name: str) -> str:
     if not (repo / ".git").exists():
         raise RuntimeError(f"not a git checkout: {repo}")
@@ -38,7 +46,29 @@ def _verify_checkout(repo: Path, *, expected_branch: str, expected_repo_name: st
     tracked_env = _git(repo, "ls-files", ".env")
     if tracked_env:
         raise RuntimeError(f"{repo.name}: .env must not be tracked")
-    return _git(repo, "rev-parse", "HEAD")
+
+    # Qualification must apply to the exact code currently pushed to GitHub, not a
+    # stale or unpushed local branch. Fetching also gives the publication audit all
+    # currently reachable remote branch/tag history to inspect.
+    _fetch_release_refs(repo)
+    local_head = _git(repo, "rev-parse", "HEAD")
+    remote_head = _git(repo, "rev-parse", f"origin/{expected_branch}")
+    if local_head != remote_head:
+        raise RuntimeError(
+            f"{repo.name}: local HEAD {local_head} does not match origin/{expected_branch} {remote_head}"
+        )
+
+    # The release branch must contain the current default main branch; otherwise a
+    # merge could accidentally omit a newer fix already present on main.
+    contains_main = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "origin/main", "HEAD"],
+        cwd=repo,
+    ).returncode
+    if contains_main != 0:
+        raise RuntimeError(
+            f"{repo.name}: {expected_branch} does not contain current origin/main"
+        )
+    return local_head
 
 
 def main() -> int:
@@ -85,7 +115,8 @@ def main() -> int:
     print(f"response_head={response_head}")
     print(f"quietward_head={quietward_head}")
     print("npm audit was required and was not skipped.")
-    print("Remaining release step: perform the documented UI smoke check, then promote rc1 to 1.0.0 and merge the staged PRs.")
+    print("Both local release branches matched their current GitHub refs and contained origin/main.")
+    print("Remaining release step: perform the documented UI smoke check, then promote rc1 to 1.0.0 and rerun the complete gate before merge/tag.")
     return 0
 
 
