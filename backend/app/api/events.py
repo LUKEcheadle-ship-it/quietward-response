@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
@@ -74,6 +74,30 @@ async def receive_event(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "agent_host_mismatch"},
+            )
+
+        # Queued/offline observations may legitimately be old, but a future-dated
+        # event can poison host last-seen and incident chronology. Bound only the
+        # future side using the same server-clock tolerance as request replay auth.
+        maximum_event_time = datetime.now(timezone.utc) + timedelta(
+            seconds=settings.agent_replay_window_seconds
+        )
+        event_time = payload.timestamp.astimezone(timezone.utc)
+        if event_time > maximum_event_time:
+            _audit_rejection(
+                db,
+                actor_type="agent",
+                actor_id=agent.agent_id,
+                payload=payload,
+                reason="event_timestamp_too_far_in_future",
+                details={
+                    "event_timestamp": event_time.isoformat(),
+                    "maximum_event_timestamp": maximum_event_time.isoformat(),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "event_timestamp_too_far_in_future"},
             )
     elif source != "quietward" and settings.environment.strip().lower() != "development":
         # Sensor-neutral synthetic adapters are convenient for local demos, but they
