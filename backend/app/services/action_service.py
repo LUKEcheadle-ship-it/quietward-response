@@ -24,7 +24,6 @@ class ActionError(ValueError):
 
 
 ACTIVE_ACTION_STATUSES = ("pending", "approved", "dispatching", "executing")
-EXPIRABLE_ACTION_STATUSES = ("pending", "approved", "dispatching")
 
 
 def _utcnow() -> datetime:
@@ -35,13 +34,7 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def _is_effectively_expired(action: ActionRecord, *, now: datetime | None = None) -> bool:
-    current = now or _utcnow()
-    return action.status in EXPIRABLE_ACTION_STATUSES and _as_utc(action.expires_at) <= current
-
-
 def action_to_dict(action: ActionRecord) -> dict[str, Any]:
-    effectively_expired = _is_effectively_expired(action)
     return {
         "schema_version": action.schema_version,
         "action_id": action.action_id,
@@ -54,9 +47,9 @@ def action_to_dict(action: ActionRecord) -> dict[str, Any]:
         "requested_by": action.requested_by,
         "approval_id": action.approval_id,
         "expires_at": action.expires_at,
-        "status": "expired" if effectively_expired else action.status,
-        "policy_allowed": False if effectively_expired else action.policy_allowed,
-        "policy_reasons": ["action request has expired"] if effectively_expired else (action.policy_reasons or []),
+        "status": action.status,
+        "policy_allowed": action.policy_allowed,
+        "policy_reasons": action.policy_reasons or [],
         "dispatched_at": action.dispatched_at,
         "started_at": action.started_at,
         "completed_at": action.completed_at,
@@ -66,35 +59,6 @@ def action_to_dict(action: ActionRecord) -> dict[str, Any]:
     }
 
 
-def _expire_action_if_needed(
-    session: Session,
-    action: ActionRecord,
-    *,
-    now: datetime,
-    actor_id: str,
-) -> bool:
-    if not _is_effectively_expired(action, now=now):
-        return False
-    action.status = "expired"
-    action.policy_allowed = False
-    action.policy_reasons = ["action request has expired"]
-    if action.approval_id:
-        approval = session.get(ApprovalRecord, action.approval_id)
-        if approval is not None and approval.status in {"pending", "approved"}:
-            approval.status = "expired"
-    record_audit(
-        session,
-        actor_type="system",
-        actor_id=actor_id,
-        action="response_action_expired",
-        resource_type="action",
-        resource_id=action.action_id,
-        incident_id=action.incident_id,
-        details={"reason": "action request has expired"},
-    )
-    return True
-
-
 def _cancel_undispatched_action(
     session: Session,
     action: ActionRecord,
@@ -102,6 +66,7 @@ def _cancel_undispatched_action(
     reason: str,
     actor_id: str,
 ) -> bool:
+    """Invalidate a pending/approved action so stale approval cannot revive later."""
     if action.status not in {"pending", "approved"}:
         return False
     action.status = "cancelled"
@@ -120,6 +85,37 @@ def _cancel_undispatched_action(
         resource_id=action.action_id,
         incident_id=action.incident_id,
         details={"reason": reason},
+    )
+    return True
+
+
+def _expire_action_if_needed(
+    session: Session,
+    action: ActionRecord,
+    *,
+    now: datetime,
+    actor_id: str,
+) -> bool:
+    if action.status not in {"pending", "approved", "dispatching"}:
+        return False
+    if _as_utc(action.expires_at) > now:
+        return False
+    action.status = "expired"
+    action.policy_allowed = False
+    action.policy_reasons = ["action request has expired"]
+    if action.approval_id:
+        approval = session.get(ApprovalRecord, action.approval_id)
+        if approval is not None and approval.status in {"pending", "approved"}:
+            approval.status = "expired"
+    record_audit(
+        session,
+        actor_type="system",
+        actor_id=actor_id,
+        action="response_action_expired",
+        resource_type="action",
+        resource_id=action.action_id,
+        incident_id=action.incident_id,
+        details={"reason": "action request has expired"},
     )
     return True
 
@@ -180,6 +176,34 @@ def cancel_undispatched_actions_for_agent(
     return cancelled
 
 
+def _expire_matching_actions_before_create(
+    session: Session,
+    *,
+    incident_id: str,
+    target_host_id: str,
+    action_type: str,
+    now: datetime,
+) -> None:
+    candidates = list(
+        session.scalars(
+            select(ActionRecord).where(
+                ActionRecord.incident_id == incident_id,
+                ActionRecord.target_host_id == target_host_id,
+                ActionRecord.action_type == action_type,
+                ActionRecord.status.in_(["pending", "approved", "dispatching"]),
+            )
+        )
+    )
+    for action in candidates:
+        _expire_action_if_needed(
+            session,
+            action,
+            now=now,
+            actor_id="action-create",
+        )
+    session.flush()
+
+
 def create_action(
     session: Session,
     *,
@@ -210,24 +234,29 @@ def create_action(
         raise ActionError(RECOMMENDATION_BINDING_REASON)
 
     now = _utcnow()
-    existing_actions = list(
-        session.scalars(
-            select(ActionRecord)
-            .where(
-                ActionRecord.incident_id == incident_id,
-                ActionRecord.target_host_id == payload.target_host_id,
-                ActionRecord.action_type == payload.action_type,
-                ActionRecord.status.in_(ACTIVE_ACTION_STATUSES),
-            )
-            .order_by(ActionRecord.requested_at.desc())
-        )
+    _expire_matching_actions_before_create(
+        session,
+        incident_id=incident_id,
+        target_host_id=payload.target_host_id,
+        action_type=payload.action_type,
+        now=now,
     )
-    active = []
-    for existing in existing_actions:
-        if _expire_action_if_needed(session, existing, now=now, actor_id="action-create"):
-            continue
-        active.append(existing)
-    if active:
+
+    # A host may have more than one enrolled credential during rotation. Do not
+    # allow parallel action IDs to target the same host/capability through different
+    # agents; one active lifecycle per incident + host + action type is enough.
+    existing = session.scalars(
+        select(ActionRecord)
+        .where(
+            ActionRecord.incident_id == incident_id,
+            ActionRecord.target_host_id == payload.target_host_id,
+            ActionRecord.action_type == payload.action_type,
+            ActionRecord.status.in_(ACTIVE_ACTION_STATUSES),
+        )
+        .order_by(ActionRecord.requested_at.desc())
+        .limit(1)
+    ).first()
+    if existing is not None:
         raise ActionError(
             "an active action of this type already exists for this incident and host"
         )
@@ -293,13 +322,29 @@ def decide_action(
     action = session.get(ActionRecord, action_id)
     if action is None:
         raise ActionError("action does not exist")
+    now = _utcnow()
+    if _expire_action_if_needed(session, action, now=now, actor_id="approval-policy"):
+        return action
     if action.status not in {"pending", "approved"}:
         raise ActionError(f"action cannot be decided from status {action.status}")
     approval = session.get(ApprovalRecord, action.approval_id) if action.approval_id else None
     if approval is None:
         raise ActionError("approval record is missing")
-    now = _utcnow()
-    if _expire_action_if_needed(session, action, now=now, actor_id="approval-policy"):
+    if _as_utc(approval.expires_at) <= now:
+        approval.status = "expired"
+        action.status = "expired"
+        action.policy_allowed = False
+        action.policy_reasons = ["approval has expired"]
+        record_audit(
+            session,
+            actor_type="system",
+            actor_id="approval-policy",
+            action="response_action_expired",
+            resource_type="action",
+            resource_id=action.action_id,
+            incident_id=action.incident_id,
+            details={"approval_id": approval.approval_id, "reason": "approval has expired"},
+        )
         session.flush()
         return action
 
@@ -350,13 +395,25 @@ def decide_action(
 
 
 def list_incident_actions(session: Session, incident_id: str) -> list[ActionRecord]:
-    return list(
+    now = _utcnow()
+    actions = list(
         session.scalars(
             select(ActionRecord)
             .where(ActionRecord.incident_id == incident_id)
             .order_by(ActionRecord.requested_at.desc())
         )
     )
+    changed = False
+    for action in actions:
+        changed = _expire_action_if_needed(
+            session,
+            action,
+            now=now,
+            actor_id="action-list",
+        ) or changed
+    if changed:
+        session.commit()
+    return actions
 
 
 def pending_actions_for_agent(session: Session, agent: AgentRecord) -> list[ActionRecord]:
@@ -438,12 +495,19 @@ def apply_action_result(
         raise ActionError(f"result is not valid from action status {action.status}")
 
     action.status = payload.status
-    if payload.started_at is not None:
-        action.started_at = payload.started_at
-    elif payload.status == "executing" and action.started_at is None:
-        action.started_at = _utcnow()
+
+    # `started_at` is an execution fact established by the first accepted endpoint
+    # result. A later terminal retry must not rewrite it merely because the client
+    # generated a new HTTP/result timestamp while reporting completion.
+    if action.started_at is None:
+        action.started_at = payload.started_at or _utcnow()
+
     if payload.status in {"succeeded", "failed"}:
-        action.completed_at = payload.completed_at or _utcnow()
+        completed_at = payload.completed_at or _utcnow()
+        if action.started_at is not None and _as_utc(completed_at) < _as_utc(action.started_at):
+            raise ActionError("completion time cannot be earlier than stored execution start")
+        action.completed_at = completed_at
+
     action.result = payload.result
     action.error = payload.error
     action.evidence = payload.evidence
