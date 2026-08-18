@@ -79,6 +79,9 @@ def _verify_fresh_migration(python: str, temporary: Path) -> None:
     env = _migration_env(database)
     _run([python, "-m", "alembic", "upgrade", "head"], cwd=BACKEND, env=env)
     _assert_phase2_schema(database)
+    # Fail if current ORM metadata would require another migration. This protects
+    # the release from model/schema drift after the frozen v1 migrations.
+    _run([python, "-m", "alembic", "check"], cwd=BACKEND, env=env)
 
 
 def _insert_phase1_audit_row(database: Path) -> None:
