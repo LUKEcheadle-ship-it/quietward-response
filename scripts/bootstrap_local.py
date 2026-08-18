@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import secrets
@@ -71,14 +72,17 @@ def _check_node(node: str) -> None:
         raise RuntimeError(f"Node.js 22 or newer is required; found {text}")
 
 
-def _env_lines() -> list[str]:
-    if not ENV_FILE.exists():
-        shutil.copyfile(ENV_EXAMPLE, ENV_FILE)
-        try:
-            ENV_FILE.chmod(0o600)
-        except OSError:
-            pass
-        print("Created .env from .env.example.")
+def _env_lines(*, persist: bool) -> list[str]:
+    if ENV_FILE.exists():
+        return ENV_FILE.read_text(encoding="utf-8").splitlines()
+    if not persist:
+        return ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
+    shutil.copyfile(ENV_EXAMPLE, ENV_FILE)
+    try:
+        ENV_FILE.chmod(0o600)
+    except OSError:
+        pass
+    print("Created .env from .env.example.")
     return ENV_FILE.read_text(encoding="utf-8").splitlines()
 
 
@@ -109,21 +113,28 @@ def _write_env_value(lines: list[str], name: str, value: str) -> list[str]:
     return output
 
 
-def _prepare_env() -> list[str]:
-    lines = _env_lines()
+def _prepare_env(*, persist: bool) -> list[str]:
+    lines = _env_lines(persist=persist)
+    environment_token = os.environ.get("QWR_ENROLLMENT_TOKEN", "").strip()
+    if environment_token:
+        if len(environment_token) < 24:
+            raise RuntimeError("QWR_ENROLLMENT_TOKEN must be at least 24 characters")
+        return lines
+
     token = _env_value(lines, "QWR_ENROLLMENT_TOKEN")
     if not token or token == DEFAULT_ENROLLMENT_TOKEN:
-        lines = _write_env_value(
-            lines,
-            "QWR_ENROLLMENT_TOKEN",
-            secrets.token_urlsafe(32),
-        )
-        ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        try:
-            ENV_FILE.chmod(0o600)
-        except OSError:
-            pass
-        print("Generated a private local enrollment token in .env.")
+        generated = secrets.token_urlsafe(32)
+        if persist:
+            lines = _write_env_value(lines, "QWR_ENROLLMENT_TOKEN", generated)
+            ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            try:
+                ENV_FILE.chmod(0o600)
+            except OSError:
+                pass
+            print("Generated a private local enrollment token in .env.")
+        else:
+            # Smoke qualification should not leave an untracked .env behind.
+            os.environ["QWR_ENROLLMENT_TOKEN"] = generated
     return lines
 
 
@@ -203,11 +214,19 @@ def _terminate(process: subprocess.Popen[object]) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Start QuietWard Response locally")
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Start both product surfaces, verify readiness, then exit without persisting a new .env.",
+    )
+    args = parser.parse_args()
+
     _ensure_python()
     npm = _tool("npm")
     node = _tool("node")
     _check_node(node)
-    lines = _prepare_env()
+    lines = _prepare_env(persist=not args.smoke)
     python = _ensure_backend()
     host, port = _runtime_settings(python)
 
@@ -255,8 +274,12 @@ def main() -> int:
         print("Frontend: http://localhost:3001")
         print(f"API:      http://localhost:{port}")
         print(f"API docs: http://localhost:{port}/docs")
-        print("Press Ctrl+C to stop both services.")
 
+        if args.smoke:
+            print("PUBLIC QUICK-START SMOKE: PASS")
+            return 0
+
+        print("Press Ctrl+C to stop both services.")
         while True:
             backend_code = backend.poll()
             frontend_code = frontend.poll()
