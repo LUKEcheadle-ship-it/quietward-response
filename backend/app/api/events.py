@@ -11,7 +11,11 @@ from app.database.session import get_db
 from app.schemas.event import EventCreate, EventRead, IngestionResult
 from app.services.agent_auth import verify_agent_request
 from app.services.incident_service import event_to_dict
-from app.services.ingestion import DuplicateEventError, ingest_event
+from app.services.ingestion import (
+    DuplicateEventError,
+    EventIdConflictError,
+    ingest_event,
+)
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
@@ -57,6 +61,11 @@ async def receive_event(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "duplicate_event_id", "event_id": str(exc)},
+        ) from exc
+    except EventIdConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "event_id_conflict", "event_id": str(exc)},
         ) from exc
     return IngestionResult(
         accepted=True,
