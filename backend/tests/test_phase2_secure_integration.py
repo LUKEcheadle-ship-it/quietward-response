@@ -7,7 +7,12 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from app.database.models import ActionRecord, ApprovalRecord, AuditRecord
+from app.database.models import (
+    ActionRecord,
+    ApprovalRecord,
+    AuditRecord,
+    IncidentRecord,
+)
 from app.services.agent_auth import sign_request
 
 
@@ -53,7 +58,11 @@ def _signed_headers(
     }
 
 
-def _quietward_event(host_id: str = "host-alpha", *, event_type: str = "process_start") -> dict:
+def _quietward_event(
+    host_id: str = "host-alpha",
+    *,
+    event_type: str = "process_start",
+) -> dict:
     return {
         "schema_version": "1.0",
         "event_id": str(uuid4()),
@@ -72,7 +81,23 @@ def _quietward_event(host_id: str = "host-alpha", *, event_type: str = "process_
     }
 
 
-def _post_signed_json(client, enrollment: dict, target: str, payload: dict, *, nonce: str | None = None):
+def _demo_event(event_factory, host_id: str) -> dict:
+    return event_factory(
+        host_id=host_id,
+        event_type="quietward_demo_service_unhealthy",
+        category="operational",
+        summary="Dedicated QuietWard Response demo fixture is unhealthy",
+    )
+
+
+def _post_signed_json(
+    client,
+    enrollment: dict,
+    target: str,
+    payload: dict,
+    *,
+    nonce: str | None = None,
+):
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     headers = _signed_headers(
         enrollment,
@@ -85,7 +110,10 @@ def _post_signed_json(client, enrollment: dict, target: str, payload: dict, *, n
 
 
 def _create_approved_action(client, event_factory, enrollment: dict) -> tuple[str, dict]:
-    event = client.post("/api/v1/events", json=event_factory(host_id=enrollment["host_id"]))
+    event = client.post(
+        "/api/v1/events",
+        json=_demo_event(event_factory, enrollment["host_id"]),
+    )
     assert event.status_code == 201
     incident_id = event.json()["incident_id"]
     created = client.post(
@@ -180,7 +208,10 @@ def test_replay_nonce_and_stale_timestamp_rejected(client) -> None:
     assert stale.json()["detail"]["code"] == "stale_request"
 
 
-def test_unsigned_quietward_event_rejected_but_sensor_neutral_demo_remains_compatible(client, event_factory) -> None:
+def test_unsigned_quietward_event_rejected_but_sensor_neutral_demo_remains_compatible(
+    client,
+    event_factory,
+) -> None:
     quietward = client.post("/api/v1/events", json=_quietward_event())
     assert quietward.status_code == 401
 
@@ -188,8 +219,38 @@ def test_unsigned_quietward_event_rejected_but_sensor_neutral_demo_remains_compa
     assert phase1_compatible.status_code == 201
 
 
-def test_action_requires_registry_approval_policy_and_correct_agent(client, event_factory) -> None:
-    event = client.post("/api/v1/events", json=event_factory(host_id="host-alpha"))
+def test_controlled_action_must_be_enabled_recommendation_for_incident(
+    client,
+    event_factory,
+) -> None:
+    generic = client.post(
+        "/api/v1/events",
+        json=event_factory(host_id="host-alpha", event_type="process_observed"),
+    )
+    assert generic.status_code == 201
+    enrollment = _enroll(client, host_id="host-alpha")
+
+    rejected = client.post(
+        f"/api/v1/incidents/{generic.json()['incident_id']}/actions",
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": "host-alpha",
+            "action_type": "restart_quietward_demo_service",
+            "parameters": {},
+        },
+    )
+    assert rejected.status_code == 409
+    assert "enabled recommendation" in rejected.text
+
+
+def test_action_requires_registry_approval_policy_and_correct_agent(
+    client,
+    event_factory,
+) -> None:
+    event = client.post(
+        "/api/v1/events",
+        json=_demo_event(event_factory, "host-alpha"),
+    )
     assert event.status_code == 201
     incident_id = event.json()["incident_id"]
     enrollment = _enroll(client, host_id="host-alpha")
@@ -230,7 +291,7 @@ def test_action_requires_registry_approval_policy_and_correct_agent(client, even
     approved = client.post(
         f"/api/v1/actions/{action['action_id']}/approve",
         headers={"X-Actor-ID": "analyst-test"},
-        json={"reason": "controlled Phase 2 test"},
+        json={"reason": "controlled v1 test"},
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"
@@ -244,7 +305,37 @@ def test_action_requires_registry_approval_policy_and_correct_agent(client, even
     assert delivered.json()[0]["status"] == "dispatching"
 
 
-def test_executing_action_is_redelivered_to_same_agent_for_recovery(client, event_factory) -> None:
+def test_policy_rechecks_incident_recommendation_before_dispatch(
+    client,
+    event_factory,
+) -> None:
+    enrollment = _enroll(client, host_id="host-alpha")
+    incident_id, action = _create_approved_action(client, event_factory, enrollment)
+
+    with client.app.state.database.session_factory() as session:
+        incident = session.get(IncidentRecord, incident_id)
+        assert incident is not None
+        incident.recommended_actions = []
+        session.commit()
+
+    pending_target = f"/api/v1/agents/{enrollment['agent_id']}/actions/pending"
+    response = client.get(
+        pending_target,
+        headers=_signed_headers(enrollment, method="GET", target=pending_target),
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+    actions = client.get(f"/api/v1/incidents/{incident_id}/actions").json()
+    stored = next(item for item in actions if item["action_id"] == action["action_id"])
+    assert stored["policy_allowed"] is False
+    assert "action is not an enabled recommendation for incident" in stored["policy_reasons"]
+
+
+def test_executing_action_is_redelivered_to_same_agent_for_recovery(
+    client,
+    event_factory,
+) -> None:
     enrollment = _enroll(client, host_id="host-alpha")
     _, action = _create_approved_action(client, event_factory, enrollment)
     pending_target = f"/api/v1/agents/{enrollment['agent_id']}/actions/pending"
@@ -286,9 +377,12 @@ def test_executing_action_is_redelivered_to_same_agent_for_recovery(client, even
 
 def test_expired_approval_is_persisted_as_expired(client, event_factory) -> None:
     enrollment = _enroll(client, host_id="host-alpha")
-    event = client.post("/api/v1/events", json=event_factory(host_id="host-alpha"))
+    event = client.post(
+        "/api/v1/events",
+        json=_demo_event(event_factory, "host-alpha"),
+    )
     incident_id = event.json()["incident_id"]
-    created = client.post(
+    created_response = client.post(
         f"/api/v1/incidents/{incident_id}/actions",
         json={
             "target_agent_id": enrollment["agent_id"],
@@ -296,7 +390,9 @@ def test_expired_approval_is_persisted_as_expired(client, event_factory) -> None
             "action_type": "restart_quietward_demo_service",
             "parameters": {},
         },
-    ).json()
+    )
+    assert created_response.status_code == 201, created_response.text
+    created = created_response.json()
 
     with client.app.state.database.session_factory() as session:
         action = session.get(ActionRecord, created["action_id"])
@@ -323,13 +419,20 @@ def test_expired_approval_is_persisted_as_expired(client, event_factory) -> None
         assert stored.status == "expired"
 
 
-def test_action_result_lifecycle_and_duplicate_terminal_result(client, event_factory) -> None:
-    event = client.post("/api/v1/events", json=event_factory(host_id="host-alpha"))
+def test_action_result_lifecycle_and_duplicate_terminal_result(
+    client,
+    event_factory,
+) -> None:
+    event = client.post(
+        "/api/v1/events",
+        json=_demo_event(event_factory, "host-alpha"),
+    )
+    assert event.status_code == 201
     incident_id = event.json()["incident_id"]
     enrollment = _enroll(client, host_id="host-alpha")
     other = _enroll(client, host_id="host-other")
 
-    created = client.post(
+    created_response = client.post(
         f"/api/v1/incidents/{incident_id}/actions",
         json={
             "target_agent_id": enrollment["agent_id"],
@@ -337,11 +440,14 @@ def test_action_result_lifecycle_and_duplicate_terminal_result(client, event_fac
             "action_type": "restart_quietward_demo_service",
             "parameters": {},
         },
-    ).json()
-    client.post(
+    )
+    assert created_response.status_code == 201, created_response.text
+    created = created_response.json()
+    approved = client.post(
         f"/api/v1/actions/{created['action_id']}/approve",
         json={"reason": "test"},
     )
+    assert approved.status_code == 200
     pending_target = f"/api/v1/agents/{enrollment['agent_id']}/actions/pending"
     client.get(
         pending_target,
@@ -428,7 +534,14 @@ def test_audit_chain_verifies_and_detects_tampering(client, event_factory) -> No
     assert valid.json()["entries_checked"] > 0
 
     with client.app.state.database.session_factory() as session:
-        rows = list(session.scalars(select(AuditRecord).order_by(AuditRecord.timestamp.asc(), AuditRecord.audit_id.asc())))
+        rows = list(
+            session.scalars(
+                select(AuditRecord).order_by(
+                    AuditRecord.timestamp.asc(),
+                    AuditRecord.audit_id.asc(),
+                )
+            )
+        )
         assert len(rows) > 1
         for previous, current in zip(rows, rows[1:]):
             previous_time = previous.timestamp
@@ -446,4 +559,7 @@ def test_audit_chain_verifies_and_detects_tampering(client, event_factory) -> No
     invalid = client.get("/api/v1/audit/verify")
     assert invalid.status_code == 200
     assert invalid.json()["valid"] is False
-    assert any(item["error"] == "entry_hash_mismatch" for item in invalid.json()["errors"])
+    assert any(
+        item["error"] == "entry_hash_mismatch"
+        for item in invalid.json()["errors"]
+    )
