@@ -26,6 +26,7 @@ fi
 
 "${VENV_PYTHON}" -m pip install -q -r "${ROOT}/backend/requirements.txt"
 cd "${ROOT}/backend"
+"${VENV_PYTHON}" -m alembic upgrade head
 exec "${VENV_PYTHON}" -m uvicorn app.main:app \
   --host "${QWR_API_HOST:-127.0.0.1}" \
   --port "${QWR_API_PORT:-8002}"
