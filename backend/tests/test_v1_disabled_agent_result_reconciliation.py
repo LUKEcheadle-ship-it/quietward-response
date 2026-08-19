@@ -115,15 +115,17 @@ def test_disabled_agent_can_finish_only_already_executing_action(client, event_f
     assert disabled.status_code == 200, disabled.text
     assert disabled.json()["enabled"] is False
 
-    # Revocation prevents new polling immediately.
-    denied_poll = client.get(
+    # Revocation never returns new work, but it retains a reconciliation-only poll
+    # for the action that was already acknowledged as executing.
+    recovery_poll = client.get(
         pending_target,
         headers=_signed_headers(agent, method="GET", target=pending_target),
     )
-    assert denied_poll.status_code == 401
-    assert denied_poll.json()["detail"]["code"] == "unknown_or_disabled_agent"
+    assert recovery_poll.status_code == 200, recovery_poll.text
+    assert [item["action_id"] for item in recovery_poll.json()] == [action["action_id"]]
+    assert recovery_poll.json()[0]["status"] == "executing"
 
-    # But the already executing lifecycle can still report its exact terminal result.
+    # The already executing lifecycle can report its exact terminal result.
     completed_at = datetime.now(timezone.utc).isoformat()
     final_payload = {
         **executing_payload,
@@ -139,6 +141,14 @@ def test_disabled_agent_can_finish_only_already_executing_action(client, event_f
     duplicate = _post_signed_json(client, agent, result_target, final_payload)
     assert duplicate.status_code == 200, duplicate.text
     assert duplicate.json()["status"] == "succeeded"
+
+    # Once terminal state is recorded, reconciliation polling is empty.
+    after_terminal = client.get(
+        pending_target,
+        headers=_signed_headers(agent, method="GET", target=pending_target),
+    )
+    assert after_terminal.status_code == 200
+    assert after_terminal.json() == []
 
 
 def test_disabled_agent_cannot_revive_cancelled_dispatch(client, event_factory) -> None:
@@ -183,6 +193,15 @@ def test_disabled_agent_cannot_revive_cancelled_dispatch(client, event_factory) 
         json={"enabled": False},
     )
     assert disabled.status_code == 200
+
+    # The dispatch was cancelled before executing acknowledgement, so the disabled
+    # agent's reconciliation-only poll must not return it.
+    disabled_poll = client.get(
+        pending_target,
+        headers=_signed_headers(agent, method="GET", target=pending_target),
+    )
+    assert disabled_poll.status_code == 200
+    assert disabled_poll.json() == []
 
     now = datetime.now(timezone.utc).isoformat()
     result_target = f"/api/v1/actions/{created['action_id']}/result"
