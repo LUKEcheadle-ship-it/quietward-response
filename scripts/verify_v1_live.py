@@ -63,7 +63,10 @@ def _wait_for_health(api_url: str, process: subprocess.Popen[Any]) -> None:
     deadline = time.time() + 20
     while time.time() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"API exited early with code {process.returncode}")
+            output = process.stdout.read() if process.stdout is not None else ""
+            raise RuntimeError(
+                f"API exited early with code {process.returncode}: {output[-4000:]}"
+            )
         try:
             health = _json_request(api_url + "/health")
             if health.get("status") == "ok":
@@ -145,11 +148,14 @@ def main() -> int:
                 python,
                 "-m",
                 "uvicorn",
-                "app.main:app",
+                "app.main:runtime_app",
+                "--factory",
                 "--host",
                 "127.0.0.1",
                 "--port",
                 str(port),
+                "--workers",
+                "1",
             ],
             cwd=BACKEND,
             env=env,
