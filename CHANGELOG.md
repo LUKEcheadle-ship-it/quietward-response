@@ -30,23 +30,27 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 ### Hardened
 
 - frozen Alembic revisions instead of importing mutable current ORM metadata
+- normal API startup relies on Alembic instead of silently creating missing schema from mutable ORM metadata
+- API startup verifies the existing audit chain and fails closed if tamper evidence is already broken
 - consistent runtime/migration `.env` database selection
 - combined launcher honors repository `.env` API-port selection
-- frontend launcher receives the repository API URL/port instead of silently falling back after an API-port override
+- frontend launcher and enrollment helper follow repository API URL/port overrides instead of silently falling back to port 8002
 - combined launcher now fails if either backend or frontend exits or never becomes reachable
 - reproducible qualification bootstraps the Python venv/requirements and rebuilds frontend dependencies from `package-lock.json` with `npm ci`
-- finalizer verifies the expected Response/QuietWard branches, origins, clean tracked state, and untracked `.env` boundary before qualification
+- release-gate npm execution is cross-platform, including Windows `npm.cmd` launch semantics
+- finalizer verifies the exact expected GitHub owner/repository, Response/QuietWard branches, clean tracked state, and untracked `.env` boundary before qualification
 - final release qualification cannot silently skip npm audit
-- non-development rejection of the known development enrollment token
-- non-development enforcement of QuietWard agent authentication
-- non-development rejection of unauthenticated generic sensor sources
+- the known development enrollment token is accepted only on a loopback development bind
+- QuietWard event authentication may be disabled only on a loopback development bind
+- wildcard CORS is rejected on non-loopback API binds
+- unauthenticated generic sensor sources remain development-only
 - single-use authenticated nonces even when later business validation rejects the request
 - bounded analyst identity headers before database persistence
 - authenticated QuietWard events and ActionResults reject timestamps too far in the future while still allowing legitimate queued older telemetry
 - executable actions must be enabled controlled recommendations on the specific incident, with the same binding rechecked before dispatch
 - only one active action lifecycle is allowed per incident + host + action type, including during agent credential rotation
-- resolved or dismissed incidents reject new response actions and cancel pending/approved lifecycles so stale approvals cannot revive later
-- disabling an agent cancels pending/approved actions so re-enabling the credential cannot revive prior approval state
+- resolved or dismissed incidents reject new response actions and cancel pending/approved/pre-execution-dispatching lifecycles so stale approvals cannot revive later
+- disabling an agent cancels pending/approved/pre-execution-dispatching actions so re-enabling the credential cannot revive prior approval state
 - expired pending/approved/dispatching actions are surfaced as expired immediately and persisted as expired before a replacement action is created
 - private local SQLite and endpoint integration state files where POSIX modes are supported
 - request serialization for single-process v1 audit-chain consistency
@@ -56,6 +60,8 @@ Release-candidate implementation of the first end-to-end controlled-response sys
 - controlled recommendation metadata preserved through FastAPI response serialization
 - dedicated demo incidents keep their response recommendations focused on the demo fixture rather than unrelated operational/disk guidance
 - QuietWard endpoint response state fails closed on corrupt outbox/ledger/demo data and no longer silently discards older queued events when the bounded outbox fills
+- Docker Compose waits for backend health before starting the frontend service
+- release version promotion stamps the actual promotion date instead of a hard-coded development date
 
 ### Safety boundary
 
