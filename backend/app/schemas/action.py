@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -50,6 +50,23 @@ class ActionRead(BaseModel):
     result: dict[str, Any] | None
     error: str | None
     evidence: dict[str, Any] | None
+
+    @field_validator(
+        "requested_at",
+        "expires_at",
+        "dispatched_at",
+        "started_at",
+        "completed_at",
+    )
+    @classmethod
+    def normalize_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        # SQLite drops timezone metadata even for DateTime(timezone=True). Treat
+        # persisted naive values as UTC because every write path stores UTC time.
+        if value.tzinfo is None or value.utcoffset() is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class ApprovalDecision(BaseModel):
