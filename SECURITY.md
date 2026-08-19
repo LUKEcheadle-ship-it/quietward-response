@@ -1,6 +1,6 @@
 # Security policy
 
-QuietWard Response is pre-release security software. The v1 release candidate is designed for local or explicitly trusted-network incident investigation and controlled-response testing; it is not an Internet-facing production service.
+QuietWard Response v1 is local/trusted-network security software for incident investigation and controlled-response testing; it is not an Internet-facing production service.
 
 ## Reporting a vulnerability
 
