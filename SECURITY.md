@@ -22,7 +22,7 @@ Include the affected revision, a minimal reproduction, impact, and any suggested
 - Executable action creation is additionally bound to an enabled controlled recommendation on the specific incident, and policy rechecks that binding before dispatch.
 - Only active incident states (`new`, `investigating`, or `contained`) can create or dispatch response actions; `resolved` and `dismissed` incidents fail closed.
 - Pending, approved, and pre-execution `dispatching` actions are revoked when their target agent is disabled or their incident is resolved/dismissed. Once an endpoint has acknowledged `executing`, recovery/results remain available for audit correctness.
-- Disabling an agent immediately blocks new QuietWard telemetry and action polling. A disabled credential is accepted only on the action-result endpoint so an action already in `executing` (or an identical terminal-result retry) can be reconciled; lifecycle and target binding prevent it from reviving a cancelled/pre-execution action.
+- Disabling an agent immediately blocks new QuietWard telemetry and new action delivery. A disabled credential may perform reconciliation-only polling and result submission for an action already in `executing`; lifecycle and target binding prevent it from receiving or reviving cancelled/pre-execution work.
 - Analyst identity headers are bounded before persistence; v1 still treats analyst identity itself as local-development grade rather than production RBAC.
 - Agent polling is outbound from QuietWard; no inbound endpoint command listener is introduced.
 - The only executable v1 action is `restart_quietward_demo_service`. It accepts no parameters and modifies only the dedicated QuietWard JSON demo fixture; it does not control a real service.
