@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -202,13 +203,24 @@ def _wait_http(url: str, process: subprocess.Popen[object], label: str, timeout:
     raise RuntimeError(f"{label} did not become reachable within {int(timeout)} seconds{detail}")
 
 
+def _popen_group_options() -> dict[str, object]:
+    """Start each product surface in its own process group/session.
+
+    Next.js may create worker children. Isolating each surface lets shutdown remove
+    the complete tree instead of leaving a child holding port 3001 after smoke or
+    normal Ctrl+C shutdown.
+    """
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def _terminate(process: subprocess.Popen[object] | None) -> None:
-    if process is None or process.poll() is not None:
+    if process is None:
         return
     if os.name == "nt":
-        # npm runs through cmd.exe on Windows. Kill the entire process tree so a
-        # smoke/normal shutdown cannot leave an orphaned Next.js node process on
-        # port 3001. This is also safe for the direct Python backend process.
+        if process.poll() is not None:
+            return
         subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
             stdout=subprocess.DEVNULL,
@@ -221,11 +233,20 @@ def _terminate(process: subprocess.Popen[object] | None) -> None:
             process.kill()
             process.wait(timeout=5)
         return
-    process.terminate()
+
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         process.wait(timeout=5)
 
 
@@ -249,9 +270,14 @@ def main() -> int:
     if not (FRONTEND / "node_modules").is_dir():
         subprocess.run(_npm_command(npm, "ci"), cwd=FRONTEND, check=True)
 
+    next_cli = FRONTEND / "node_modules" / "next" / "dist" / "bin" / "next"
+    if not next_cli.is_file():
+        raise RuntimeError("Next.js CLI was not installed correctly")
+
     frontend_env = os.environ.copy()
     frontend_env["NEXT_PUBLIC_API_URL"] = _frontend_api_url(lines, port)
     frontend_env["NEXT_TELEMETRY_DISABLED"] = "1"
+    group_options = _popen_group_options()
 
     backend: subprocess.Popen[object] | None = None
     frontend: subprocess.Popen[object] | None = None
@@ -271,12 +297,17 @@ def main() -> int:
                 "1",
             ],
             cwd=BACKEND,
+            **group_options,
         )
         try:
+            # Launch Next directly through Node instead of through an npm parent
+            # process. Together with process-group termination this makes shutdown
+            # deterministic on both smoke and normal first-run paths.
             frontend = subprocess.Popen(
-                _npm_command(npm, "run", "dev"),
+                [node, str(next_cli), "dev", "-H", "127.0.0.1", "-p", "3001"],
                 cwd=FRONTEND,
                 env=frontend_env,
+                **group_options,
             )
         except Exception:
             _terminate(backend)
