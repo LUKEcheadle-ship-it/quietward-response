@@ -6,10 +6,13 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_RESPONSE_BRANCH = "feature/phase2-secure-integration"
 EXPECTED_QUIETWARD_BRANCH = "feature/response-platform-integration"
+EXPECTED_RESPONSE_REPO = "LUKEcheadle-ship-it/quietward-response"
+EXPECTED_QUIETWARD_REPO = "LUKEcheadle-ship-it/quietward"
 SUPPORTED_RESPONSE_VERSIONS = {"1.0.0rc1", "1.0.0"}
 
 
@@ -33,8 +36,22 @@ def _fetch_release_refs(repo: Path) -> None:
     )
 
 
-def _remote_repo_name(remote: str) -> str:
-    return remote.rstrip("/").removesuffix(".git").rsplit("/", 1)[-1]
+def _remote_repo_slug(remote: str) -> str:
+    """Normalize supported GitHub HTTPS/SSH remotes to owner/repository."""
+    value = remote.strip().rstrip("/")
+    path = ""
+    if value.startswith("git@github.com:"):
+        path = value.split(":", 1)[1]
+    else:
+        parsed = urlparse(value)
+        if parsed.hostname != "github.com":
+            raise RuntimeError(f"release origin must be hosted on github.com: {remote}")
+        path = parsed.path.lstrip("/")
+    path = path.removesuffix(".git").strip("/")
+    pieces = path.split("/")
+    if len(pieces) != 2 or not all(pieces):
+        raise RuntimeError(f"could not resolve GitHub owner/repository from origin: {remote}")
+    return f"{pieces[0]}/{pieces[1]}"
 
 
 def _response_version() -> str:
@@ -45,15 +62,18 @@ def _response_version() -> str:
     return match.group(1)
 
 
-def _verify_checkout(repo: Path, *, expected_branch: str, expected_repo_name: str) -> str:
+def _verify_checkout(repo: Path, *, expected_branch: str, expected_repo: str) -> str:
     if not (repo / ".git").exists():
         raise RuntimeError(f"not a git checkout: {repo}")
     branch = _git(repo, "branch", "--show-current")
     if branch != expected_branch:
         raise RuntimeError(f"{repo.name}: expected branch {expected_branch!r}, found {branch!r}")
     remote = _git(repo, "remote", "get-url", "origin")
-    if _remote_repo_name(remote) != expected_repo_name:
-        raise RuntimeError(f"{repo.name}: origin is not the expected {expected_repo_name} repository: {remote}")
+    actual_repo = _remote_repo_slug(remote)
+    if actual_repo.lower() != expected_repo.lower():
+        raise RuntimeError(
+            f"{repo.name}: origin is {actual_repo!r}, expected {expected_repo!r}"
+        )
     dirty = _git(repo, "status", "--porcelain", "--untracked-files=no")
     if dirty:
         raise RuntimeError(f"{repo.name}: tracked working tree changes must be committed before release verification:\n{dirty}")
@@ -97,12 +117,12 @@ def main() -> int:
     response_head = _verify_checkout(
         ROOT,
         expected_branch=EXPECTED_RESPONSE_BRANCH,
-        expected_repo_name="quietward-response",
+        expected_repo=EXPECTED_RESPONSE_REPO,
     )
     quietward_head = _verify_checkout(
         quietward,
         expected_branch=EXPECTED_QUIETWARD_BRANCH,
-        expected_repo_name="quietward",
+        expected_repo=EXPECTED_QUIETWARD_REPO,
     )
 
     subprocess.run(
@@ -131,7 +151,7 @@ def main() -> int:
     print(f"response_head={response_head}")
     print(f"quietward_head={quietward_head}")
     print("npm audit was required and was not skipped.")
-    print("Both local release branches matched their current GitHub refs and contained origin/main.")
+    print("Both local release branches matched their exact GitHub repositories/refs and contained origin/main.")
     if version == "1.0.0rc1":
         print("Next: perform the UI smoke check, then run scripts/promote_v1.py, commit/push those version-only changes, and rerun this complete gate.")
     else:
