@@ -73,12 +73,7 @@ def _validate_disabled_agent_reconciliation(
     action_id: str,
     payload: ActionResultCreate,
 ) -> None:
-    """Constrain the only authenticated operation retained after agent disable.
-
-    A disabled credential may finish/retry an action that Response already accepted
-    as executing/terminal. It may not use the result endpoint as a general signed API
-    surface or acknowledge a dispatch that was cancelled by revocation.
-    """
+    """Constrain the only result operation retained after agent disable."""
     if enabled:
         return
     action = db.get(ActionRecord, action_id)
@@ -180,15 +175,22 @@ async def pending_agent_actions(
     db: Session = Depends(get_db),
 ) -> list[dict[str, object]]:
     raw = await request.body()
+    # A disabled agent cannot receive new work: revocation cancels its pending,
+    # approved, and dispatching lifecycles. We still authenticate reconciliation
+    # polls so an action already acknowledged as `executing` can be returned and its
+    # durable endpoint ledger can finish/retry the terminal result.
     agent = verify_agent_request(
         db,
         request,
         raw,
         replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+        allow_disabled=True,
     )
     if agent.agent_id != agent_id:
         raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
     actions = pending_actions_for_agent(db, agent)
+    if not agent.enabled:
+        actions = [item for item in actions if item.status == "executing"]
     db.commit()
     return [action_to_dict(item) for item in actions]
 
@@ -202,9 +204,9 @@ async def action_result(
 ) -> dict[str, object]:
     raw = await request.body()
     replay_window_seconds = request.app.state.settings.agent_replay_window_seconds
-    # Revocation stops new telemetry and polling immediately, but a credential that
-    # was disabled after an action reached `executing` must still be able to report
-    # or idempotently retry that tightly bound action result.
+    # Revocation stops new telemetry and new action delivery immediately, but a
+    # credential disabled after an action reached `executing` may finish/retry that
+    # tightly bound action result.
     agent = verify_agent_request(
         db,
         request,
