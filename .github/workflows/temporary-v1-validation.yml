@@ -1,0 +1,48 @@
+name: Temporary v1 release validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/phase2-secure-integration]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout QuietWard Response feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-secure-integration
+          path: response
+          fetch-depth: 0
+
+      - name: Checkout companion QuietWard integration branch
+        uses: actions/checkout@v4
+        with:
+          repository: LUKEcheadle-ship-it/quietward
+          ref: feature/response-platform-integration
+          path: quietward
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: response/backend/requirements.txt
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: response/frontend/package-lock.json
+
+      - name: Run complete v1 automated release gate
+        working-directory: response
+        run: python scripts/finalize_v1.py --quietward-repo ../quietward
