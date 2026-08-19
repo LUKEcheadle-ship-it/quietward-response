@@ -93,4 +93,18 @@ Set QWR_SEED_DEMO=true before startup only when you want the three synthetic dem
 Press Ctrl+C to stop both services.
 EOF
 
-wait
+# Keep the wrapper alive only while both product surfaces are healthy processes.
+# Plain `wait` can sit forever if one child dies while the other keeps running.
+while true; do
+  if ! kill -0 "${BACKEND_PID}" 2>/dev/null; then
+    wait "${BACKEND_PID}" || true
+    echo "Backend exited unexpectedly; stopping QuietWard Response." >&2
+    exit 1
+  fi
+  if ! kill -0 "${FRONTEND_PID}" 2>/dev/null; then
+    wait "${FRONTEND_PID}" || true
+    echo "Frontend exited unexpectedly; stopping QuietWard Response." >&2
+    exit 1
+  fi
+  sleep 1
+done
