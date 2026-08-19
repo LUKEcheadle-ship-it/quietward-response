@@ -195,7 +195,7 @@ export function ResponseActions({
                   <select
                     value={agent?.agent_id ?? ""}
                     onChange={(event) => setSelectedAgentIds((current) => ({ ...current, [actionType]: event.target.value }))}
-                    disabled={Boolean(activeAction) || busy !== null}
+                    disabled={busy !== null}
                     className="mt-2 block w-full rounded-lg border border-line bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {eligibleAgents.map((candidate) => <option key={candidate.agent_id} value={candidate.agent_id}>{candidate.display_name} · {candidate.host_id}</option>)}
