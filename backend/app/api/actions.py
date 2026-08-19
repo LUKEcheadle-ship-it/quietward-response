@@ -35,6 +35,27 @@ def _actor_id(value: str) -> str:
     return resolved[:128]
 
 
+def _require_pending_decision(db: Session, action_id: str) -> None:
+    """Make analyst approval/rejection a single-shot public decision.
+
+    The action service also protects lifecycle transitions, but the HTTP boundary
+    must never let a later analyst overwrite who approved an already-approved
+    action or turn an approval into a rejection. Future cancellation/revocation is
+    represented by its own lifecycle transition instead of rewriting history.
+    """
+    action = db.get(ActionRecord, action_id)
+    if action is None:
+        return  # decide_action returns the canonical unknown-action conflict.
+    if action.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "action_decision_already_recorded",
+                "message": f"action cannot be decided from status {action.status}",
+            },
+        )
+
+
 def _validate_result_clock(payload: ActionResultCreate, *, replay_window_seconds: int) -> None:
     maximum = datetime.now(timezone.utc) + timedelta(seconds=replay_window_seconds)
     for field_name in ("started_at", "completed_at"):
@@ -133,6 +154,7 @@ def approve_action(
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    _require_pending_decision(db, action_id)
     try:
         action = decide_action(
             db,
@@ -154,6 +176,7 @@ def reject_action(
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    _require_pending_decision(db, action_id)
     try:
         action = decide_action(
             db,
