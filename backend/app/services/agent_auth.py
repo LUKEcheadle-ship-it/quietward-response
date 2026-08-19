@@ -102,6 +102,7 @@ def verify_agent_request(
     body: bytes,
     *,
     replay_window_seconds: int,
+    allow_disabled: bool = False,
 ) -> AgentRecord:
     agent_id = request.headers.get(HEADER_AGENT_ID)
     timestamp_text = request.headers.get(HEADER_TIMESTAMP)
@@ -112,7 +113,9 @@ def verify_agent_request(
         raise _auth_error("missing_agent_auth", "agent authentication headers are required")
 
     agent = session.get(AgentRecord, agent_id)
-    if agent is None or not agent.enabled:
+    if agent is None:
+        raise _auth_error("unknown_or_disabled_agent", "agent is unknown or disabled")
+    if not agent.enabled and not allow_disabled:
         raise _auth_error("unknown_or_disabled_agent", "agent is unknown or disabled")
     if not hmac.compare_digest(agent.key_id, key_id):
         raise _auth_error("invalid_key_id", "credential key identifier does not match")
