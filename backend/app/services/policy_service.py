@@ -108,8 +108,18 @@ def evaluate_action_policy(
             if approval is None or approval.action_id != action.action_id:
                 reasons.append("approval record is invalid")
             else:
+                # Bind the approval to the exact action/incident/request lifecycle,
+                # not just to a status string. These fields are redundant by design
+                # so policy can detect accidental/corrupt cross-linking before dispatch.
+                if approval.incident_id != action.incident_id:
+                    reasons.append("approval incident does not match action incident")
+                if approval.requested_by != action.requested_by:
+                    reasons.append("approval requester does not match action requester")
                 if approval.status != "approved":
                     reasons.append("approval is not approved")
+                else:
+                    if not approval.approved_by or approval.approved_at is None:
+                        reasons.append("approval decision metadata is incomplete")
                 if _utc(approval.expires_at) <= _utc(now):
                     reasons.append("approval has expired")
 
