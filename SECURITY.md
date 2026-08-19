@@ -12,7 +12,7 @@ Include the affected revision, a minimal reproduction, impact, and any suggested
 
 - The API defaults to `127.0.0.1` and CORS permits only configured origins.
 - Event envelopes are strictly validated and duplicate UUIDs are idempotent/audited.
-- QuietWard events are authenticated with enrolled per-agent HMAC credentials by default; outside development this requirement cannot be disabled by configuration.
+- QuietWard events are authenticated with enrolled per-agent HMAC credentials by default. Disabling this authentication is permitted only for loopback development.
 - Unauthenticated generic/synthetic sensor sources are development-only and fail closed outside development.
 - Signed agent requests bind method, target, timestamp, nonce, and exact body digest; persisted nonces provide replay resistance.
 - Valid authenticated nonces are committed before later business validation so a rejected signed request cannot replay the same nonce.
@@ -21,13 +21,14 @@ Include the affected revision, a minimal reproduction, impact, and any suggested
 - Response actions are separately versioned, typed, allowlisted, approval-gated, policy-checked, and revalidated by QuietWard.
 - Executable action creation is additionally bound to an enabled controlled recommendation on the specific incident, and policy rechecks that binding before dispatch.
 - Only active incident states (`new`, `investigating`, or `contained`) can create or dispatch response actions; `resolved` and `dismissed` incidents fail closed.
+- Pending, approved, and pre-execution `dispatching` actions are revoked when their target agent is disabled or their incident is resolved/dismissed. Once an endpoint has acknowledged `executing`, recovery/results remain available for audit correctness.
 - Analyst identity headers are bounded before persistence; v1 still treats analyst identity itself as local-development grade rather than production RBAC.
 - Agent polling is outbound from QuietWard; no inbound endpoint command listener is introduced.
 - The only executable v1 action is `restart_quietward_demo_service`. It accepts no parameters and modifies only the dedicated QuietWard JSON demo fixture; it does not control a real service.
 - QuietWard fails closed on unreadable/corrupt response outbox, action-ledger, or demo-fixture state and a full bounded outbox does not silently discard older queued evidence.
 - There is no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, firewall modification, file deletion/quarantine, or host isolation capability.
 - Audit records are hash-chained and verifiable for tamper evidence. This is not equivalent to immutable external retention.
-- The known development enrollment token is rejected when `QWR_ENVIRONMENT` is not `development`. Replace it even in development before enrolling a real endpoint.
+- The known development enrollment token is allowed only on a loopback development bind. Any non-loopback bind must use a replacement token, and wildcard CORS is rejected on non-loopback binds.
 - v1 is intentionally single-process/single-worker; multiple API workers are unsupported until audit-chain append coordination moves into an atomic database mechanism.
 
 ## Deployment limitations
