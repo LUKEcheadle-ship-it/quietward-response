@@ -96,7 +96,7 @@ async def receive_event(
                 },
             )
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={"code": "event_timestamp_too_far_in_future"},
             )
     elif source != "quietward" and settings.environment.strip().lower() != "development":
