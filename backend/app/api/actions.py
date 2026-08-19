@@ -50,13 +50,7 @@ def _validate_result_clock(payload: ActionResultCreate, *, replay_window_seconds
 
 
 def _validate_result_transition(db: Session, action_id: str, payload: ActionResultCreate) -> None:
-    """Require the endpoint to acknowledge execution before reporting a terminal result.
-
-    This keeps the persisted lifecycle truthful: an approved action becomes
-    `dispatching` when polled, then the endpoint must report `executing`, and only
-    then may it report `succeeded` or `failed`. The QuietWard client already follows
-    this sequence; this guard prevents a compromised/buggy client from skipping it.
-    """
+    """Require the endpoint to acknowledge execution before reporting a terminal result."""
     action = db.get(ActionRecord, action_id)
     if action is None:
         return  # apply_action_result returns the canonical unknown-action conflict.
@@ -66,6 +60,41 @@ def _validate_result_transition(db: Session, action_id: str, payload: ActionResu
             detail={
                 "code": "action_requires_executing_state",
                 "message": "endpoint must report executing before a terminal action result",
+            },
+        )
+
+
+def _validate_disabled_agent_reconciliation(
+    db: Session,
+    *,
+    agent_id: str,
+    agent_host_id: str,
+    enabled: bool,
+    action_id: str,
+    payload: ActionResultCreate,
+) -> None:
+    """Constrain the only authenticated operation retained after agent disable.
+
+    A disabled credential may finish/retry an action that Response already accepted
+    as executing/terminal. It may not use the result endpoint as a general signed API
+    surface or acknowledge a dispatch that was cancelled by revocation.
+    """
+    if enabled:
+        return
+    action = db.get(ActionRecord, action_id)
+    if (
+        action is None
+        or action.target_agent_id != agent_id
+        or action.target_host_id != agent_host_id
+        or payload.agent_id != agent_id
+        or payload.host_id != agent_host_id
+        or action.status not in {"executing", "succeeded", "failed"}
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "disabled_agent_result_not_reconcilable",
+                "message": "disabled agent may only reconcile an already executing or terminal action",
             },
         )
 
@@ -175,8 +204,7 @@ async def action_result(
     replay_window_seconds = request.app.state.settings.agent_replay_window_seconds
     # Revocation stops new telemetry and polling immediately, but a credential that
     # was disabled after an action reached `executing` must still be able to report
-    # or idempotently retry that tightly bound action result. Lifecycle/ownership
-    # validation below prevents a disabled credential from creating new work.
+    # or idempotently retry that tightly bound action result.
     agent = verify_agent_request(
         db,
         request,
@@ -186,6 +214,14 @@ async def action_result(
     )
     if payload.action_id != action_id:
         raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
+    _validate_disabled_agent_reconciliation(
+        db,
+        agent_id=agent.agent_id,
+        agent_host_id=agent.host_id,
+        enabled=agent.enabled,
+        action_id=action_id,
+        payload=payload,
+    )
     _validate_result_clock(payload, replay_window_seconds=replay_window_seconds)
     _validate_result_transition(db, action_id, payload)
     try:
