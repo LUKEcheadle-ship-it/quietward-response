@@ -205,6 +205,22 @@ def _wait_http(url: str, process: subprocess.Popen[object], label: str, timeout:
 def _terminate(process: subprocess.Popen[object] | None) -> None:
     if process is None or process.poll() is not None:
         return
+    if os.name == "nt":
+        # npm runs through cmd.exe on Windows. Kill the entire process tree so a
+        # smoke/normal shutdown cannot leave an orphaned Next.js node process on
+        # port 3001. This is also safe for the direct Python backend process.
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        return
     process.terminate()
     try:
         process.wait(timeout=5)
