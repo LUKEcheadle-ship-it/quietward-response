@@ -1,12 +1,13 @@
 name: Temporary v1 qualification
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/phase2-secure-integration
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   qualify:
@@ -35,22 +36,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Promote release candidate to v1.0.0
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python scripts/promote_v1.py --check
-          python scripts/promote_v1.py
-          git add backend/app/__init__.py frontend/package.json frontend/package-lock.json scripts/seed_demo.py README.md CHANGELOG.md SECURITY.md
-          git commit -m "Release QuietWard Response v1.0.0"
-          git push origin HEAD:feature/phase2-secure-integration
-
       - name: Run complete final v1 automated gates
         env:
           CI: 'true'
-        run: |
-          set -o pipefail
-          python scripts/finalize_v1.py --quietward-repo ../quietward 2>&1 | tee /tmp/qwr-finalizer.log
+        run: python scripts/finalize_v1.py --quietward-repo ../quietward
 
       - name: Smoke every shipped UI route against a live stack
         env:
@@ -86,7 +75,6 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8002/health >/dev/null
           curl --fail --silent http://127.0.0.1:3001/ >/dev/null
-
           .venv/bin/python scripts/seed_demo.py --api-url http://127.0.0.1:8002
 
           for route in / /agents /events /hosts /incidents; do
@@ -105,32 +93,4 @@ PY
           curl --fail --silent "http://127.0.0.1:3001/incidents/${INCIDENT_ID}" >/dev/null
           curl --fail --silent "http://127.0.0.1:8002/api/v1/incidents/${INCIDENT_ID}" >/dev/null
           curl --fail --silent http://127.0.0.1:8002/api/v1/audit/verify | python -c "import json,sys; value=json.load(sys.stdin); assert value['valid'] is True, value"
-          echo "V1 UI ROUTE SMOKE: PASS" | tee -a /tmp/qwr-ui-smoke.log
-
-      - name: Save qualification failure details
-        if: failure()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          {
-            echo "# QuietWard Response v1 qualification failure"
-            echo
-            echo "Temporary runner qualification failed at GitHub Actions run ${GITHUB_RUN_ID}."
-            echo
-            echo '```text'
-            if [ -f /tmp/qwr-finalizer.log ]; then tail -n 180 /tmp/qwr-finalizer.log; fi
-            if [ -f /tmp/qwr-ui-smoke.log ]; then tail -n 120 /tmp/qwr-ui-smoke.log; fi
-            echo '```'
-          } > docs/V1_QUALIFICATION_FAILURE.md
-          git add docs/V1_QUALIFICATION_FAILURE.md
-          git commit -m "Record v1 qualification failure" || true
-          git push origin HEAD:feature/phase2-secure-integration || true
-
-      - name: Remove temporary qualification workflow after success
-        if: success()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/v1-temporary-qualification.yml
-          git commit -m "Remove temporary v1 qualification workflow"
-          git push origin HEAD:feature/phase2-secure-integration
+          echo "V1 UI ROUTE SMOKE: PASS"
