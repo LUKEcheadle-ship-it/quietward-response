@@ -19,9 +19,11 @@ v1 remains local/trusted-network development software. Public Internet exposure 
 - A capability in the global action registry is not enough to execute it: the specific incident must currently expose that action as an enabled controlled recommendation and the incident must still be active (`new`, `investigating`, or `contained`).
 - Execution requires stored human approval and a deterministic policy decision before agent polling can retrieve a new action.
 - Only one active lifecycle of a given action type may exist for the same incident and host, even if the host has multiple enrolled credentials during rotation.
-- Closing an incident or disabling an agent cancels pending/approved actions and also invalidates a `dispatching` lifecycle that has not yet produced an endpoint `executing` acknowledgement. Once execution is acknowledged, v1 preserves the recovery path rather than pretending an in-flight endpoint change can be recalled.
+- Closing an incident or disabling an agent cancels pending/approved actions and also invalidates a `dispatching` lifecycle that has not yet produced an endpoint `executing` acknowledgement. Once execution is acknowledged, v1 preserves the tightly bound result/recovery path rather than pretending an in-flight endpoint change can be recalled.
+- Disabling an agent blocks new telemetry and polling. The disabled credential may authenticate only to the result endpoint, where stored action ownership/lifecycle checks permit completion or identical retry of an action already in `executing`/terminal state and reject cancelled/pre-execution work.
 - Agents initiate outbound polling; QuietWard does not expose a remote command listener.
-- Audit records are hash-chained for tamper evidence. This detects many modifications but does not make a locally controlled database immutable.
+- Audit records are hash-chained for tamper evidence. The API verifies the chain at startup and refuses to serve if pre-existing tamper evidence is broken. This still does not make a locally controlled database immutable.
+- Normal runtime schema ownership belongs to frozen Alembic migrations rather than `create_all`; direct schema creation is retained only for isolated tests/embedded development callers.
 - Local SQLite data and QuietWard response-state files are written with private-file permissions where POSIX permission semantics are available.
 - QuietWard treats corrupt response outbox/ledger/demo state as an integration error rather than silently resetting security-relevant state. Its bounded outbox refuses overflow rather than dropping older queued evidence.
 
@@ -37,7 +39,7 @@ Residual risk: a compromised legitimate QuietWard agent can still sign false tel
 
 Possession of the derived HMAC key or original enrollment secret permits an attacker to impersonate that agent within the replay window. The current design limits the credential to one enrolled agent/host and supports disabling the agent record, but automated rotation/revocation is not yet implemented.
 
-Disabling an agent immediately prevents new authenticated requests from that credential. It cancels pending/approved actions and invalidates any server-side `dispatching` lifecycle that has not yet been acknowledged as `executing`. Re-enabling the agent does not revive those cancelled approval lifecycles.
+Disabling an agent immediately prevents new telemetry and action polling from that credential. It cancels pending/approved actions and invalidates any server-side `dispatching` lifecycle that has not yet been acknowledged as `executing`. Re-enabling the agent does not revive those cancelled approval lifecycles. A narrow exception allows a disabled credential to sign result reconciliation for an action that already reached `executing` (or an identical terminal-result retry); the result endpoint still enforces the stored action ID, target agent, target host, and lifecycle, so the exception cannot create or revive work.
 
 Mitigations for deployment: store endpoint secrets with OS-protected secret storage, use TLS, rotate keys, revoke suspected agents, and avoid copying credentials into logs or source control.
 
@@ -61,7 +63,7 @@ A new action is returned only after approval and policy evaluation. The policy r
 
 Action results are accepted only over an authenticated agent request. The `agent_id`, `host_id`, URL action ID, and stored action target must all agree. Results for unknown actions or another agent/host are rejected. A completed action cannot be changed to another terminal status.
 
-The persisted lifecycle requires a `dispatching -> executing -> succeeded|failed` sequence. A terminal result cannot skip the endpoint execution acknowledgement. A repeated terminal result is accepted only when status, structured result, error, and evidence match what Response already stored; a conflicting duplicate terminal result is rejected.
+The persisted lifecycle requires a `dispatching -> executing -> succeeded|failed` sequence. A terminal result cannot skip the endpoint execution acknowledgement. A repeated terminal result is accepted only when status, structured result, error, and evidence match what Response already stored; a conflicting duplicate terminal result is rejected. Disabled-agent result reconciliation is limited by the same stored ownership/lifecycle checks.
 
 ### Duplicate or stale action execution
 
@@ -106,6 +108,8 @@ Production deployment still requires TLS, authenticated analyst sessions/RBAC, r
 ### Audit-log tampering
 
 v1 hash-chains audit entries using canonicalized record contents plus the previous entry hash. `/api/v1/audit/verify` recalculates the chain and reports mismatches. New audit timestamps are kept strictly monotonic so clock equality or small backwards movement cannot reorder appended records during verification. Legacy Phase 1 rows can be backfilled once when all existing rows are unhashed; partially hashed history is not silently rewritten.
+
+Application startup verifies the resulting chain before serving requests and fails closed when existing tamper evidence is invalid. This detects accidental/unsophisticated record tampering earlier, but it still cannot prove immutable history against an administrator who can rewrite the entire database and chain consistently.
 
 The v1 API is intentionally single-process/single-worker and serializes HTTP request transactions inside that process so concurrent requests cannot independently append from the same chain head. Multiple API workers against one database are outside the qualified v1 runtime shape.
 
