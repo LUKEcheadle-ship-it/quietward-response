@@ -33,7 +33,8 @@ cd "${ROOT}/backend"
 API_HOST="$("${VENV_PYTHON}" -c 'from app.config import get_settings; print(get_settings().api_host)')"
 API_PORT="$("${VENV_PYTHON}" -c 'from app.config import get_settings; print(get_settings().api_port)')"
 
-exec "${VENV_PYTHON}" -m uvicorn app.main:app \
+exec "${VENV_PYTHON}" -m uvicorn app.main:runtime_app \
+  --factory \
   --host "${API_HOST}" \
   --port "${API_PORT}" \
   --workers 1
