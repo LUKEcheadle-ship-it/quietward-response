@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - main
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: write
@@ -40,33 +40,15 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Promote release candidate if needed
+      - name: Confirm final release metadata
         run: |
           set -euo pipefail
-          VERSION="$(python - <<'PY'
-import re
-from pathlib import Path
-text = Path('backend/app/__init__.py').read_text(encoding='utf-8')
-match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
-assert match
-print(match.group(1))
+          python scripts/promote_v1.py --check
+          python - <<'PY'
+from app import __version__
+assert __version__ == '1.0.0', __version__
+print('QuietWard Response version:', __version__)
 PY
-)"
-          if [ "$VERSION" = "1.0.0rc1" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            python scripts/promote_v1.py --check
-            python scripts/promote_v1.py
-            if [ -f .github/workflows/v1-temporary-qualification.yml ]; then git rm .github/workflows/v1-temporary-qualification.yml; fi
-            if [ -f docs/.v1-qualification-trigger ]; then git rm docs/.v1-qualification-trigger; fi
-            git add backend/app/__init__.py frontend/package.json frontend/package-lock.json scripts/seed_demo.py README.md CHANGELOG.md SECURITY.md
-            git commit -m "Release QuietWard Response v1.0.0"
-            git push origin HEAD:feature/phase2-secure-integration
-            echo "Promoted and pushed v1.0.0; the synchronize event will restart this workflow on the final commit."
-            exit 0
-          fi
-          test "$VERSION" = "1.0.0"
-          echo "Final v1.0.0 metadata already present."
 
       - name: Run complete final v1 automated gates
         env:
