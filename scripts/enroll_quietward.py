@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,21 +22,57 @@ def _env_file_value(name: str) -> str | None:
         return None
     prefix = name + "="
     for line in reversed(lines):
-        if line.startswith(prefix):
-            value = line[len(prefix):].strip()
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith(prefix):
+            value = stripped[len(prefix):].strip()
             return value or None
     return None
 
 
+def _validated_api_url(value: str) -> str:
+    resolved = value.strip().rstrip("/")
+    parsed = urlparse(resolved)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Response API URL must be an absolute http:// or https:// URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Response API URL must not contain credentials, query parameters, or a fragment")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("Response API URL must not include an API path")
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("Response API URL contains an invalid port") from exc
+    return resolved
+
+
+def _resolve_port() -> int:
+    text = os.environ.get("QWR_API_PORT") or _env_file_value("QWR_API_PORT") or "8002"
+    if not text.isdigit() or not 1 <= int(text) <= 65535:
+        raise ValueError("QWR_API_PORT must be a valid TCP port")
+    return int(text)
+
+
 def _resolve_api_url(explicit: str | None) -> str:
     if explicit:
-        return explicit.rstrip("/")
-    configured = os.environ.get("NEXT_PUBLIC_API_URL") or _env_file_value("NEXT_PUBLIC_API_URL")
+        return _validated_api_url(explicit)
+
+    explicit_environment = os.environ.get("NEXT_PUBLIC_API_URL", "").strip()
+    if explicit_environment:
+        return _validated_api_url(explicit_environment)
+
+    port = _resolve_port()
+    configured = (_env_file_value("NEXT_PUBLIC_API_URL") or "").strip()
+    # Keep enrollment aligned with the public bootstrap: if only QWR_API_PORT was
+    # changed from the example defaults, do not silently keep calling port 8002.
+    if port != 8002 and configured.rstrip("/") in {
+        "http://localhost:8002",
+        "http://127.0.0.1:8002",
+    }:
+        configured = ""
     if configured:
-        return configured.rstrip("/")
-    port = os.environ.get("QWR_API_PORT") or _env_file_value("QWR_API_PORT") or "8002"
-    if not port.isdigit() or not 1 <= int(port) <= 65535:
-        raise ValueError("QWR_API_PORT must be a valid TCP port")
+        return _validated_api_url(configured)
     return f"http://127.0.0.1:{port}"
 
 
@@ -50,7 +87,7 @@ def main() -> int:
 
     token = args.token or os.environ.get("QWR_ENROLLMENT_TOKEN") or _env_file_value("QWR_ENROLLMENT_TOKEN")
     if not token:
-        print("Enrollment token not found. Run scripts/bootstrap_local.sh or set QWR_ENROLLMENT_TOKEN.")
+        print("Enrollment token not found. Run scripts/bootstrap_local.py or set QWR_ENROLLMENT_TOKEN.")
         return 2
     try:
         api_url = _resolve_api_url(args.api_url)
