@@ -12,7 +12,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - name: Checkout QuietWard Response feature branch
         uses: actions/checkout@v4
@@ -46,3 +46,149 @@ jobs:
       - name: Run complete v1 automated release gate
         working-directory: response
         run: python scripts/finalize_v1.py --quietward-repo ../quietward
+
+      - name: Install temporary browser for UI smoke
+        working-directory: response/frontend
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install chromium
+
+      - name: Run live browser UI smoke
+        working-directory: response
+        env:
+          QWR_ENVIRONMENT: development
+          QWR_DATABASE_URL: sqlite:///./ui-smoke.db
+          QWR_API_HOST: 127.0.0.1
+          QWR_API_PORT: '8002'
+          QWR_ENROLLMENT_TOKEN: v1-ui-smoke-enrollment-token-20260819
+          QWR_SEED_DEMO: 'false'
+          NEXT_PUBLIC_API_URL: http://localhost:8002
+        run: |
+          set -euo pipefail
+          rm -f .env backend/ui-smoke.db backend/ui-smoke.db-shm backend/ui-smoke.db-wal
+          python scripts/bootstrap_local.py > /tmp/qwr-ui-smoke.log 2>&1 &
+          STACK_PID=$!
+          cleanup() {
+            kill "$STACK_PID" 2>/dev/null || true
+            wait "$STACK_PID" 2>/dev/null || true
+            rm -f .env backend/ui-smoke.db backend/ui-smoke.db-shm backend/ui-smoke.db-wal
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 90); do
+            if ! kill -0 "$STACK_PID" 2>/dev/null; then
+              cat /tmp/qwr-ui-smoke.log
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:8002/health >/dev/null && curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8002/health >/dev/null
+          curl --fail --silent http://127.0.0.1:3001/ >/dev/null
+
+          .venv/bin/python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          from uuid import uuid4
+
+          api = "http://127.0.0.1:8002"
+          host = "quietward-ui-smoke-host"
+
+          event = {
+              "schema_version": "1.0",
+              "event_id": str(uuid4()),
+              "source": "ui-smoke",
+              "source_version": "1.0",
+              "host_id": host,
+              "host_name": host,
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "event_type": "quietward_demo_service_unhealthy",
+              "category": "operational",
+              "severity": "medium",
+              "confidence": 1.0,
+              "summary": "Dedicated demo fixture is unhealthy",
+              "evidence": {"demo_fixture": True},
+              "metadata": {"operating_system": "Linux", "demo_only": True},
+          }
+          req = Request(
+              api + "/api/v1/events",
+              data=json.dumps(event).encode(),
+              method="POST",
+              headers={"Content-Type": "application/json"},
+          )
+          with urlopen(req, timeout=10) as response:
+              incident_id = json.load(response)["incident_id"]
+
+          enrollment = {
+              "host_id": host,
+              "display_name": "UI smoke QuietWard agent",
+              "agent_version": "ui-smoke",
+          }
+          req = Request(
+              api + "/api/v1/agents/enroll",
+              data=json.dumps(enrollment).encode(),
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "X-QWR-Enrollment-Token": "v1-ui-smoke-enrollment-token-20260819",
+              },
+          )
+          with urlopen(req, timeout=10) as response:
+              enrolled = json.load(response)
+          assert enrolled["host_id"] == host
+          Path("/tmp/qwr-ui-incident-id").write_text(incident_id, encoding="utf-8")
+          PY
+
+          export INCIDENT_ID="$(cat /tmp/qwr-ui-incident-id)"
+          cd frontend
+          node --input-type=module <<'JS'
+          import { chromium } from 'playwright';
+
+          const incidentId = process.env.INCIDENT_ID;
+          if (!incidentId) throw new Error('missing incident id');
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage();
+          const pageErrors = [];
+          const badResponses = [];
+          page.on('pageerror', (error) => pageErrors.push(error.message));
+          page.on('response', (response) => {
+            if (response.status() >= 400 && !response.url().endsWith('/favicon.ico')) {
+              badResponses.push(`${response.status()} ${response.url()}`);
+            }
+          });
+
+          const base = 'http://127.0.0.1:3001';
+          for (const route of ['/', '/incidents', '/hosts', '/agents', '/events']) {
+            const response = await page.goto(base + route, { waitUntil: 'networkidle' });
+            if (!response || !response.ok()) throw new Error(`route failed: ${route}`);
+          }
+
+          await page.goto(`${base}/incidents/${incidentId}`, { waitUntil: 'networkidle' });
+          await page.getByText('Controlled remediation').waitFor();
+          await page.getByText('UI smoke QuietWard agent').waitFor();
+          await page.getByRole('button', { name: 'Prepare controlled action' }).click();
+          await page.getByText('Awaiting approval', { exact: true }).waitFor();
+          await page.getByRole('button', { name: 'Approve' }).click();
+          await page.getByText('Approved', { exact: true }).waitFor();
+
+          const statusSelect = page.locator('label').filter({ hasText: 'Status' }).locator('select');
+          await statusSelect.selectOption('resolved');
+          await page.getByText('Cancelled', { exact: true }).waitFor();
+          await page.getByText('Incident is closed — response actions disabled').waitFor();
+
+          await page.goto(`${base}/agents`, { waitUntil: 'networkidle' });
+          await page.getByText('UI smoke QuietWard agent').waitFor();
+          await page.getByRole('button', { name: 'Disable' }).waitFor();
+
+          if (pageErrors.length) throw new Error(`browser page errors: ${pageErrors.join(' | ')}`);
+          if (badResponses.length) throw new Error(`browser HTTP errors: ${badResponses.join(' | ')}`);
+          await browser.close();
+          console.log('QUIETWARD_RESPONSE_V1_BROWSER_UI_SMOKE: PASS');
+          JS
+
+          curl --fail --silent http://127.0.0.1:8002/api/v1/audit/verify | python -c "import json,sys; value=json.load(sys.stdin); assert value['valid'] is True, value"
+          echo "QUIETWARD_RESPONSE_V1_UI_SMOKE: PASS"
