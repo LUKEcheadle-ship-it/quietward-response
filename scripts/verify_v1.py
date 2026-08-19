@@ -52,6 +52,14 @@ def _ensure_python() -> str:
     return python
 
 
+def _npm_command(npm: str, *args: str) -> list[str]:
+    # npm is normally exposed as npm.cmd on Windows. Keep the release gate using
+    # the same cross-platform launch semantics as the public bootstrap path.
+    if os.name == "nt" and Path(npm).suffix.lower() in {".cmd", ".bat"}:
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", "npm", *args]
+    return [npm, *args]
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -267,11 +275,11 @@ def main() -> int:
             raise RuntimeError("npm is required for the v1 frontend release gate")
         # Always reproduce the frontend dependency tree from package-lock.json rather
         # than trusting whatever happens to be in an existing node_modules directory.
-        _run([npm, "ci"], cwd=FRONTEND)
-        _run([npm, "run", "typecheck"], cwd=FRONTEND)
-        _run([npm, "run", "build"], cwd=FRONTEND)
+        _run(_npm_command(npm, "ci"), cwd=FRONTEND)
+        _run(_npm_command(npm, "run", "typecheck"), cwd=FRONTEND)
+        _run(_npm_command(npm, "run", "build"), cwd=FRONTEND)
         if not args.skip_npm_audit:
-            _run([npm, "audit", "--audit-level=high"], cwd=FRONTEND)
+            _run(_npm_command(npm, "audit", "--audit-level=high"), cwd=FRONTEND)
 
         # Exercise the exact cross-platform public first-run launcher against an
         # isolated database and non-default API port. It must start both surfaces,
