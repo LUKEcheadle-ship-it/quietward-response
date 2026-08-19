@@ -1,0 +1,116 @@
+name: QuietWard Response v1 final release
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: write
+
+jobs:
+  qualify:
+    if: github.event.pull_request.head.ref == 'feature/phase2-secure-integration'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout QuietWard Response release branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/phase2-secure-integration
+          fetch-depth: 0
+
+      - name: Checkout QuietWard integration branch
+        run: git clone --branch feature/response-platform-integration https://github.com/LUKEcheadle-ship-it/quietward.git ../quietward
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Confirm final release metadata
+        run: |
+          set -euo pipefail
+          python scripts/promote_v1.py --check
+          PYTHONPATH=backend python - <<'PY'
+from app import __version__
+assert __version__ == '1.0.0', __version__
+print('QuietWard Response version:', __version__)
+PY
+
+      - name: Remove this temporary workflow from the release branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v1-final-release-temp.yml
+          git commit -m "Remove temporary v1 final release workflow"
+          git push origin HEAD:feature/phase2-secure-integration
+
+      - name: Run complete final v1 automated gates
+        env:
+          CI: 'true'
+        run: python scripts/finalize_v1.py --quietward-repo ../quietward
+
+      - name: Smoke every shipped UI route against a live stack
+        env:
+          QWR_ENVIRONMENT: development
+          QWR_DATABASE_URL: sqlite:///./ui-smoke.db
+          QWR_API_HOST: 127.0.0.1
+          QWR_API_PORT: '8002'
+          QWR_ENROLLMENT_TOKEN: v1-ui-smoke-enrollment-token-20260819
+          QWR_SEED_DEMO: 'false'
+          NEXT_PUBLIC_API_URL: http://localhost:8002
+        run: |
+          set -euo pipefail
+          rm -f .env backend/ui-smoke.db backend/ui-smoke.db-shm backend/ui-smoke.db-wal
+          python scripts/bootstrap_local.py > /tmp/qwr-ui-smoke.log 2>&1 &
+          STACK_PID=$!
+          cleanup() {
+            kill "$STACK_PID" 2>/dev/null || true
+            wait "$STACK_PID" 2>/dev/null || true
+            rm -f .env backend/ui-smoke.db backend/ui-smoke.db-shm backend/ui-smoke.db-wal
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 90); do
+            if ! kill -0 "$STACK_PID" 2>/dev/null; then
+              cat /tmp/qwr-ui-smoke.log
+              echo "Stack exited during UI smoke" >&2
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:8002/health >/dev/null && curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent http://127.0.0.1:8002/health >/dev/null
+          curl --fail --silent http://127.0.0.1:3001/ >/dev/null
+          .venv/bin/python scripts/seed_demo.py --api-url http://127.0.0.1:8002
+
+          for route in / /agents /events /hosts /incidents; do
+            curl --fail --silent "http://127.0.0.1:3001${route}" >/dev/null
+          done
+
+          INCIDENT_ID="$(python - <<'PY'
+import json
+from urllib.request import urlopen
+with urlopen('http://127.0.0.1:8002/api/v1/incidents', timeout=10) as response:
+    incidents = json.load(response)
+assert incidents, 'demo seeding created no incidents'
+print(incidents[0]['incident_id'])
+PY
+)"
+          curl --fail --silent "http://127.0.0.1:3001/incidents/${INCIDENT_ID}" >/dev/null
+          curl --fail --silent "http://127.0.0.1:8002/api/v1/incidents/${INCIDENT_ID}" >/dev/null
+          curl --fail --silent http://127.0.0.1:8002/api/v1/audit/verify | python -c "import json,sys; value=json.load(sys.stdin); assert value['valid'] is True, value"
+          echo "QUIETWARD_RESPONSE_V1_FINAL_UI_SMOKE: PASS"
