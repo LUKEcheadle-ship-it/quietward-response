@@ -214,6 +214,9 @@ def _verify_public_quick_start(python: str, temporary: Path) -> None:
         env=env,
     )
     _assert_phase2_schema(database)
+    # A successful smoke must also leave the machine clean. This catches launcher
+    # regressions where an npm/Next child survives and keeps the public UI port open.
+    _assert_frontend_port_available()
 
 
 def _verify_quietward(quietward_repo: Path, python: str) -> None:
@@ -283,7 +286,7 @@ def main() -> int:
 
         # Exercise the exact cross-platform public first-run launcher against an
         # isolated database and non-default API port. It must start both surfaces,
-        # pass readiness checks, then terminate cleanly.
+        # pass readiness checks, then terminate cleanly and release the UI port.
         _verify_public_quick_start(python, temp_path)
 
     if args.quietward_repo is not None:
@@ -295,6 +298,7 @@ def main() -> int:
     if args.skip_npm_audit:
         print("npm audit: SKIPPED (this run is not a final release qualification)")
     print("Public quick-start smoke: PASS")
+    print("Public quick-start cleanup: PASS (frontend port released)")
     print("The live two-repository HTTP demo remains a separate acceptance check.")
     return 0
 
