@@ -31,7 +31,7 @@ def build_demo_events(
             "schema_version": "1.0",
             "event_id": str(uuid5(NAMESPACE_URL, f"quietward-response-demo:{batch}:{scenario}:{offset}")),
             "source": "quietward-demo",
-            "source_version": "1.0.0rc1",
+            "source_version": "1.0.0",
             "host_id": host_id,
             "host_name": host_id,
             "timestamp": (base + timedelta(seconds=offset)).isoformat(),
