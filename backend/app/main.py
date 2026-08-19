@@ -31,9 +31,9 @@ def create_app(
     """Build the API application.
 
     Tests and explicitly embedded development callers may request direct SQLAlchemy
-    schema creation. The normal exported runtime app disables it and relies on the
-    documented Alembic migration step, preventing application startup from silently
-    masking migration drift.
+    schema creation. Normal launchers call `runtime_app()` and rely on the documented
+    Alembic migration step, preventing application startup from silently masking
+    migration drift.
     """
     resolved = settings or get_settings()
     if database_url:
@@ -146,7 +146,6 @@ def create_app(
     return application
 
 
-# Public/native/container launch paths run Alembic before importing this app into
-# Uvicorn. Keep runtime schema ownership in migrations; tests call create_app()
-# directly and retain direct schema creation for isolated temporary databases.
-app = create_app(create_schema=False)
+def runtime_app() -> FastAPI:
+    """Uvicorn application factory for the migrated runtime schema."""
+    return create_app(create_schema=False)
