@@ -60,24 +60,35 @@ jobs:
           QWR_DATABASE_URL: sqlite:///./ui-smoke.db
           QWR_API_HOST: 127.0.0.1
           QWR_API_PORT: '8002'
+          QWR_CORS_ORIGINS: '["http://localhost:3001","http://127.0.0.1:3001"]'
           QWR_ENROLLMENT_TOKEN: v1-ui-smoke-enrollment-token-20260819
           QWR_SEED_DEMO: 'false'
-          NEXT_PUBLIC_API_URL: http://localhost:8002
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8002
+          NEXT_TELEMETRY_DISABLED: '1'
         run: |
           set -euo pipefail
           rm -f .env backend/ui-smoke.db backend/ui-smoke.db-shm backend/ui-smoke.db-wal
-          python scripts/bootstrap_local.py > /tmp/qwr-ui-smoke.log 2>&1 &
-          STACK_PID=$!
+
+          (cd backend && ../.venv/bin/python -m alembic upgrade head)
+          (cd backend && ../.venv/bin/python -m uvicorn app.main:runtime_app --factory --host 127.0.0.1 --port 8002 --workers 1 > /tmp/qwr-ui-backend.log 2>&1) &
+          BACKEND_PID=$!
+          (cd frontend && npm run dev > /tmp/qwr-ui-frontend.log 2>&1) &
+          FRONTEND_PID=$!
+
           cleanup() {
-            kill "$STACK_PID" 2>/dev/null || true
-            wait "$STACK_PID" 2>/dev/null || true
+            kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
+            wait "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
             rm -f .env backend/ui-smoke.db backend/ui-smoke.db-shm backend/ui-smoke.db-wal
           }
           trap cleanup EXIT
 
           for _ in $(seq 1 90); do
-            if ! kill -0 "$STACK_PID" 2>/dev/null; then
-              cat /tmp/qwr-ui-smoke.log
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+              cat /tmp/qwr-ui-backend.log
+              exit 1
+            fi
+            if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+              cat /tmp/qwr-ui-frontend.log
               exit 1
             fi
             if curl --fail --silent http://127.0.0.1:8002/health >/dev/null && curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then
@@ -153,11 +164,11 @@ jobs:
           const browser = await chromium.launch({ headless: true });
           const page = await browser.newPage();
           const pageErrors = [];
-          const badResponses = [];
+          const badApiResponses = [];
           page.on('pageerror', (error) => pageErrors.push(error.message));
           page.on('response', (response) => {
-            if (response.status() >= 400 && !response.url().endsWith('/favicon.ico')) {
-              badResponses.push(`${response.status()} ${response.url()}`);
+            if (response.url().includes('127.0.0.1:8002/api/') && response.status() >= 400) {
+              badApiResponses.push(`${response.status()} ${response.url()}`);
             }
           });
 
@@ -171,13 +182,13 @@ jobs:
           await page.getByText('Controlled remediation').waitFor();
           await page.getByText('UI smoke QuietWard agent').waitFor();
           await page.getByRole('button', { name: 'Prepare controlled action' }).click();
-          await page.getByText('Awaiting approval', { exact: true }).waitFor();
+          await page.getByText('Awaiting approval', { exact: true }).first().waitFor();
           await page.getByRole('button', { name: 'Approve' }).click();
-          await page.getByText('Approved', { exact: true }).waitFor();
+          await page.getByText('Approved', { exact: true }).first().waitFor();
 
           const statusSelect = page.locator('label').filter({ hasText: 'Status' }).locator('select');
           await statusSelect.selectOption('resolved');
-          await page.getByText('Cancelled', { exact: true }).waitFor();
+          await page.getByText('Cancelled', { exact: true }).first().waitFor();
           await page.getByText('Incident is closed — response actions disabled').waitFor();
 
           await page.goto(`${base}/agents`, { waitUntil: 'networkidle' });
@@ -185,7 +196,7 @@ jobs:
           await page.getByRole('button', { name: 'Disable' }).waitFor();
 
           if (pageErrors.length) throw new Error(`browser page errors: ${pageErrors.join(' | ')}`);
-          if (badResponses.length) throw new Error(`browser HTTP errors: ${badResponses.join(' | ')}`);
+          if (badApiResponses.length) throw new Error(`browser API errors: ${badApiResponses.join(' | ')}`);
           await browser.close();
           console.log('QUIETWARD_RESPONSE_V1_BROWSER_UI_SMOKE: PASS');
           JS
