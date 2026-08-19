@@ -57,7 +57,7 @@ def _validate_result_clock(payload: ActionResultCreate, *, replay_window_seconds
         value = getattr(payload, field_name)
         if value is not None and value.astimezone(timezone.utc) > maximum:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "code": "action_result_timestamp_too_far_in_future",
                     "field": field_name,
