@@ -19,6 +19,7 @@ from app.services.action_service import (
     pending_actions_for_agent,
 )
 from app.services.agent_auth import verify_agent_request
+from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/api/v1", tags=["response-actions"])
 
@@ -36,13 +37,7 @@ def _actor_id(value: str) -> str:
 
 
 def _require_pending_decision(db: Session, action_id: str) -> None:
-    """Make analyst approval/rejection a single-shot public decision.
-
-    The action service also protects lifecycle transitions, but the HTTP boundary
-    must never let a later analyst overwrite who approved an already-approved
-    action or turn an approval into a rejection. Future cancellation/revocation is
-    represented by its own lifecycle transition instead of rewriting history.
-    """
+    """Make analyst approval/rejection a single-shot public decision."""
     action = db.get(ActionRecord, action_id)
     if action is None:
         return  # decide_action returns the canonical unknown-action conflict.
@@ -113,6 +108,36 @@ def _validate_disabled_agent_reconciliation(
                 "message": "disabled agent may only reconcile an already executing or terminal action",
             },
         )
+
+
+def _rejection_code(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if isinstance(code, str) and code:
+            return code[:128]
+    return "action_result_rejected"
+
+
+def _audit_result_rejection(
+    db: Session,
+    *,
+    agent_id: str,
+    action_id: str,
+    code: str,
+) -> None:
+    action = db.get(ActionRecord, action_id)
+    record_audit(
+        db,
+        actor_type="agent",
+        actor_id=agent_id[:128],
+        action="response_action_result_rejected",
+        resource_type="action",
+        resource_id=action_id[:128],
+        incident_id=action.incident_id if action is not None else None,
+        details={"code": code[:128]},
+    )
+    db.commit()
 
 
 @router.get("/actions/registry")
@@ -227,9 +252,6 @@ async def action_result(
 ) -> dict[str, object]:
     raw = await request.body()
     replay_window_seconds = request.app.state.settings.agent_replay_window_seconds
-    # Revocation stops new telemetry and new action delivery immediately, but a
-    # credential disabled after an action reached `executing` may finish/retry that
-    # tightly bound action result.
     agent = verify_agent_request(
         db,
         request,
@@ -237,21 +259,38 @@ async def action_result(
         replay_window_seconds=replay_window_seconds,
         allow_disabled=True,
     )
-    if payload.action_id != action_id:
-        raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
-    _validate_disabled_agent_reconciliation(
-        db,
-        agent_id=agent.agent_id,
-        agent_host_id=agent.host_id,
-        enabled=agent.enabled,
-        action_id=action_id,
-        payload=payload,
-    )
-    _validate_result_clock(payload, replay_window_seconds=replay_window_seconds)
-    _validate_result_transition(db, action_id, payload)
+
+    try:
+        if payload.action_id != action_id:
+            raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
+        _validate_disabled_agent_reconciliation(
+            db,
+            agent_id=agent.agent_id,
+            agent_host_id=agent.host_id,
+            enabled=agent.enabled,
+            action_id=action_id,
+            payload=payload,
+        )
+        _validate_result_clock(payload, replay_window_seconds=replay_window_seconds)
+        _validate_result_transition(db, action_id, payload)
+    except HTTPException as exc:
+        _audit_result_rejection(
+            db,
+            agent_id=agent.agent_id,
+            action_id=action_id,
+            code=_rejection_code(exc),
+        )
+        raise
+
     try:
         action = apply_action_result(db, agent=agent, payload=payload)
     except ActionError as exc:
+        _audit_result_rejection(
+            db,
+            agent_id=agent.agent_id,
+            action_id=action_id,
+            code="action_conflict",
+        )
         raise _action_error(exc) from exc
     db.commit()
     return action_to_dict(action)
