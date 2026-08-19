@@ -1,9 +1,10 @@
 name: Temporary v1 qualification
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/phase2-secure-integration
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
