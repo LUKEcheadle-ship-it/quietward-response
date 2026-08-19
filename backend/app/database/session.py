@@ -32,15 +32,18 @@ class Database:
             autoflush=False,
         )
 
-    def create_all(self) -> None:
-        Base.metadata.create_all(self.engine)
-        # SQLite contains enrolled-agent HMAC key material and incident evidence.
-        # Keep the local database private where POSIX permission semantics exist.
+    def harden_local_file_permissions(self) -> None:
+        """Keep the local SQLite evidence/credential store private where supported."""
         if self.sqlite_path is not None and self.sqlite_path.exists():
             try:
                 self.sqlite_path.chmod(0o600)
             except OSError:
                 pass
+
+    def create_all(self) -> None:
+        """Create test/development schema directly; release startup uses Alembic."""
+        Base.metadata.create_all(self.engine)
+        self.harden_local_file_permissions()
 
     def dispose(self) -> None:
         self.engine.dispose()
