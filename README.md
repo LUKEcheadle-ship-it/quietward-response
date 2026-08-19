@@ -4,7 +4,7 @@ QuietWard Response is an event-driven incident investigation and controlled-resp
 
 The v1 line adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. There is still **no arbitrary command execution** and no general host-remediation surface.
 
-> **Release status:** the current development branch is `1.0.0rc1` until the documented automated and UI acceptance gates are executed successfully. The source is intentionally not labeled `1.0.0` before those gates pass.
+> **Release status:** `v1.0.0` is the first public controlled-response release. It remains intentionally narrow: authenticated telemetry, deterministic investigation/approval/policy, and one demo-fixture-only executable action.
 
 ## Relationship with QuietWard
 
@@ -186,7 +186,7 @@ Events claiming `source=quietward` require authenticated agent delivery when `QW
 
 ## v1 verification
 
-The complete release-candidate gate is:
+The complete release gate is:
 
 ```text
 python scripts/finalize_v1.py --quietward-repo ../quietward
@@ -199,7 +199,7 @@ python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves, the version-promotion step, and the final UI smoke check.
+See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the final UI smoke check.
 
 ## Safety status
 
