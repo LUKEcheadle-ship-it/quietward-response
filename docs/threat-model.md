@@ -18,9 +18,10 @@ v1 remains local/trusted-network development software. Public Internet exposure 
 - The only executable v1 action is `restart_quietward_demo_service`, which changes only a dedicated QuietWard-owned JSON demo fixture. It does **not** control an operating-system service.
 - A capability in the global action registry is not enough to execute it: the specific incident must currently expose that action as an enabled controlled recommendation and the incident must still be active (`new`, `investigating`, or `contained`).
 - Execution requires stored human approval and a deterministic policy decision before agent polling can retrieve a new action.
+- Analyst approval/rejection is single-shot at the API boundary; a later request cannot overwrite the original approver or turn an approval into a rejection. Cancellation/revocation uses explicit lifecycle states instead of rewriting the decision record.
 - Only one active lifecycle of a given action type may exist for the same incident and host, even if the host has multiple enrolled credentials during rotation.
 - Closing an incident or disabling an agent cancels pending/approved actions and also invalidates a `dispatching` lifecycle that has not yet produced an endpoint `executing` acknowledgement. Once execution is acknowledged, v1 preserves the tightly bound result/recovery path rather than pretending an in-flight endpoint change can be recalled.
-- Disabling an agent blocks new telemetry and polling. The disabled credential may authenticate only to the result endpoint, where stored action ownership/lifecycle checks permit completion or identical retry of an action already in `executing`/terminal state and reject cancelled/pre-execution work.
+- Disabling an agent blocks new telemetry and new action delivery. The credential retains only reconciliation access: its pending-action poll may return its own already-`executing` actions, and result submission is accepted only for matching `executing`/terminal lifecycles. Cancelled or pre-execution work cannot be revived.
 - Agents initiate outbound polling; QuietWard does not expose a remote command listener.
 - Audit records are hash-chained for tamper evidence. The API verifies the chain at startup and refuses to serve if pre-existing tamper evidence is broken. This still does not make a locally controlled database immutable.
 - Normal runtime schema ownership belongs to frozen Alembic migrations rather than `create_all`; direct schema creation is retained only for isolated tests/embedded development callers.
@@ -39,7 +40,7 @@ Residual risk: a compromised legitimate QuietWard agent can still sign false tel
 
 Possession of the derived HMAC key or original enrollment secret permits an attacker to impersonate that agent within the replay window. The current design limits the credential to one enrolled agent/host and supports disabling the agent record, but automated rotation/revocation is not yet implemented.
 
-Disabling an agent immediately prevents new telemetry and action polling from that credential. It cancels pending/approved actions and invalidates any server-side `dispatching` lifecycle that has not yet been acknowledged as `executing`. Re-enabling the agent does not revive those cancelled approval lifecycles. A narrow exception allows a disabled credential to sign result reconciliation for an action that already reached `executing` (or an identical terminal-result retry); the result endpoint still enforces the stored action ID, target agent, target host, and lifecycle, so the exception cannot create or revive work.
+Disabling an agent immediately prevents new telemetry and new action delivery from that credential. It cancels pending/approved actions and invalidates any server-side `dispatching` lifecycle that has not yet been acknowledged as `executing`. Re-enabling the agent does not revive those cancelled approval lifecycles. A narrow reconciliation exception allows the disabled credential to poll only for its own already-`executing` actions and to sign a matching terminal result or identical terminal-result retry. Stored action ID, target agent, target host, and lifecycle checks prevent that exception from creating or reviving work.
 
 Mitigations for deployment: store endpoint secrets with OS-protected secret storage, use TLS, rotate keys, revoke suspected agents, and avoid copying credentials into logs or source control.
 
@@ -57,7 +58,7 @@ Residual risk: nonce persistence is database-backed and designed for local scale
 
 The HMAC includes a SHA-256 digest of the exact request body plus method and target path/query. Changing the event, result, requested resource, or endpoint invalidates the signature. Action requests are never supplied by the endpoint itself; the server returns only persisted typed actions addressed to that agent.
 
-A new action is returned only after approval and policy evaluation. The policy revalidates the target, incident state, current controlled recommendation, expiry, and approval at dispatch time. QuietWard then independently validates the complete typed action again. An action already in `executing` may be returned again to the same authenticated endpoint strictly for crash/retry reconciliation.
+A new action is returned only after approval and policy evaluation. The policy revalidates the target, incident state, current controlled recommendation, exact approval/action/request binding, expiry, and approval at dispatch time. QuietWard then independently validates the complete typed action again. An action already in `executing` may be returned again to the same authenticated endpoint strictly for crash/retry reconciliation.
 
 ### Forged ActionResult
 
@@ -79,7 +80,7 @@ This gives the single v1 demo action explicit crash/retry idempotency. Future hi
 
 ### Approval bypass
 
-The server refuses action creation or dispatch when the action is unregistered, parameters are invalid, the action is not an enabled controlled recommendation for the incident, the incident is closed, target agent/host do not match the incident, the action or approval is expired, the agent is disabled, or the approval is not approved. Expired/cancelled state is persisted rather than rolled back. The agent separately rejects unknown fields/types, non-empty parameters, stale expiry, missing policy allowance, wrong host, and wrong agent.
+The server refuses action creation or dispatch when the action is unregistered, parameters are invalid, the action is not an enabled controlled recommendation for the incident, the incident is closed, target agent/host do not match the incident, the action or approval is expired, the agent is disabled, the approval is not approved, or redundant approval/action lifecycle identity fields do not match. Expired/cancelled state is persisted rather than rolled back. The agent separately rejects unknown fields/types, non-empty parameters, stale expiry, missing policy allowance, wrong host, and wrong agent.
 
 Current limitation: local analyst identity is represented by `X-Actor-ID` and is not yet backed by OIDC/RBAC. The identifier is bounded before persistence, but v1 proves the approval state machine and security boundary, not production analyst authentication.
 
