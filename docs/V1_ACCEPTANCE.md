@@ -1,6 +1,6 @@
 # QuietWard Response v1 acceptance
 
-QuietWard Response v1 is release-ready only after the Response and companion QuietWard branches pass deterministic verification, publication audits, the live two-repository loop, and the manual UI smoke check.
+QuietWard Response v1 is release-ready only after the Response and companion QuietWard branches pass deterministic verification, publication audits, the live two-repository loop, and the UI route smoke check.
 
 ## Required release wrapper
 
@@ -76,30 +76,26 @@ The live gate starts an isolated local Response API on a migrated temporary data
 11. a second poll does not re-execute the action; and
 12. the complete audit chain verifies after the lifecycle.
 
-## Manual UI smoke check
+## UI route smoke check
 
-After the automated gates pass, start the normal stack and verify that Overview, Incidents, Agents, Hosts, and Events render without browser console errors. On the live-demo incident, confirm that the Response Actions card displays the lifecycle from awaiting approval through succeeded, shows the selected target agent, and exposes the structured result.
+The final release qualification also launches the normal local stack, seeds safe synthetic data, and requests every shipped application route:
 
-Also verify that:
+- `/`
+- `/agents`
+- `/events`
+- `/hosts`
+- `/incidents`
+- `/incidents/{real_seeded_incident_id}`
 
-- a resolved/dismissed incident cannot prepare or approve a new action;
-- an expired action is not shown as approvable;
-- a disabled agent is not offered as an execution target;
-- a lifecycle cancelled while still `dispatching` cannot be revived by a disabled agent result;
-- an action already acknowledged as `executing` can still reconcile its final signed result if the agent is disabled during execution; and
-- backend policy/conflict errors are shown as useful messages rather than only HTTP status codes.
+It also verifies backend health, the seeded incident API, and the audit verification endpoint while both surfaces are live. A visual browser review is still useful for future UX changes, but v1 release qualification does not depend on an unrecorded manual claim.
+
+The backend/UI behavior is additionally regression-tested so that resolved/dismissed incidents cannot create new actions, expired approvals are not actionable, disabled agents are not eligible for new work, pre-execution dispatch cancellation cannot be revived, and an already-executing action can reconcile its exact terminal result after credential disablement.
 
 ## Version promotion
 
-The first clean acceptance run is performed while Response is still `1.0.0rc1`. After that run and the UI smoke check pass:
+The RC was qualified before promotion. Product/API release metadata is now `1.0.0` and the final commit must pass the complete wrapper and UI route smoke again before merge.
 
-```bash
-python scripts/promote_v1.py
-```
-
-The promotion helper deterministically updates the backend version, frontend package/package-lock version, demo source version, README release status, security/release wording, and changelog to `1.0.0`, using the actual promotion date.
-
-Review and commit/push those version-only changes, then rerun the **complete** `finalize_v1.py` wrapper and UI smoke check. Only the final `1.0.0` commit that passes again is eligible for merge, tag, repository-publication, or GitHub Release creation.
+`scripts/promote_v1.py --check` validates either the RC promotion markers or the already-final `1.0.0` release metadata. The Next.js package is marked `private`; its `0.1.0` package/package-lock value is internal implementation metadata and is intentionally independent from the public product/API version.
 
 ## Supported v1 runtime shape
 
