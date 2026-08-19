@@ -173,11 +173,16 @@ async def action_result(
 ) -> dict[str, object]:
     raw = await request.body()
     replay_window_seconds = request.app.state.settings.agent_replay_window_seconds
+    # Revocation stops new telemetry and polling immediately, but a credential that
+    # was disabled after an action reached `executing` must still be able to report
+    # or idempotently retry that tightly bound action result. Lifecycle/ownership
+    # validation below prevents a disabled credential from creating new work.
     agent = verify_agent_request(
         db,
         request,
         raw,
         replay_window_seconds=replay_window_seconds,
+        allow_disabled=True,
     )
     if payload.action_id != action_id:
         raise HTTPException(status_code=422, detail={"code": "action_path_mismatch"})
