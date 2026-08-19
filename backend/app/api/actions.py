@@ -223,10 +223,6 @@ async def pending_agent_actions(
     db: Session = Depends(get_db),
 ) -> list[dict[str, object]]:
     raw = await request.body()
-    # A disabled agent cannot receive new work: revocation cancels its pending,
-    # approved, and dispatching lifecycles. We still authenticate reconciliation
-    # polls so an action already acknowledged as `executing` can be returned and its
-    # durable endpoint ledger can finish/retry the terminal result.
     agent = verify_agent_request(
         db,
         request,
@@ -285,6 +281,10 @@ async def action_result(
     try:
         action = apply_action_result(db, agent=agent, payload=payload)
     except ActionError as exc:
+        # apply_action_result can perform tentative in-session lifecycle changes
+        # before detecting a later timestamp/content conflict. Discard all of those
+        # changes before committing the rejection audit record.
+        db.rollback()
         _audit_result_rejection(
             db,
             agent_id=agent.agent_id,
