@@ -38,7 +38,7 @@ export default function OverviewPage() {
               ["Active incidents", data.active_incidents, "text-white"],
               ["Critical", data.critical_incidents, "text-rose-300"],
               ["High", data.high_incidents, "text-orange-300"],
-              ["Hosts reporting", data.hosts_reporting, "text-cyan"],
+              ["Known hosts", data.hosts_reporting, "text-cyan"],
               ["Events · 24h", data.events_last_24h, "text-emerald-300"]
             ].map(([label, value, color]) => (
               <div key={String(label)} className="panel">
