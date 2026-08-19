@@ -13,19 +13,26 @@ QuietWard Response and QuietWard are separate projects. Changes here must not ve
 
 ## v1 release verification
 
-Run the repository release gate with a checkout of the companion QuietWard integration branch:
+The required release wrapper, with the companion QuietWard integration checkout available, is:
+
+```bash
+python scripts/finalize_v1.py --quietward-repo ../quietward
+```
+
+That wrapper verifies the exact expected GitHub repositories/feature branches and remote parity, then runs publication audits, the full backend suite, migration/upgrade/drift checks, frontend clean install/typecheck/build/high-severity audit, public quick-start smoke, the complete QuietWard suite, and the real two-repository HMAC event/approval/action/result loop.
+
+The underlying deterministic/live gates remain available separately for debugging:
 
 ```bash
 python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-The first command covers backend tests, migrations, protocol/action-surface checks, frontend typecheck/build/audit, and the QuietWard suite. The second proves the actual local HMAC event and approval-gated action loop over HTTP.
-
 For frontend-only work, the minimum checks remain:
 
 ```bash
 cd frontend
+npm ci
 npm run typecheck
 npm run build
 npm audit --audit-level=high
