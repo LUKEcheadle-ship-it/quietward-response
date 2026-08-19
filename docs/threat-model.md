@@ -99,7 +99,7 @@ A compromised endpoint can forge signed telemetry and ActionResults using its lo
 
 ### API compromise
 
-Safe defaults include loopback binding, narrow CORS, strict Pydantic envelopes, parameterized SQLAlchemy queries, no raw shell surface, environment-only secrets, typed action schemas, and agent-initiated polling. Non-development configuration rejects the known development enrollment token, rejects unauthenticated generic sensor sources, and refuses configuration that disables QuietWard agent authentication.
+Safe defaults include loopback binding, narrow CORS, strict Pydantic envelopes, parameterized SQLAlchemy queries, no raw shell surface, environment-only secrets, typed action schemas, and agent-initiated polling. The known development enrollment token and any configuration that disables QuietWard event authentication are accepted only on a loopback development bind; a non-loopback bind must use a replacement enrollment token, keep agent authentication enabled, and cannot use wildcard CORS. Unauthenticated generic sensor sources remain development-only.
 
 Production deployment still requires TLS, authenticated analyst sessions/RBAC, rate limits, security headers, key rotation, CSRF strategy where applicable, and deployment hardening.
 
