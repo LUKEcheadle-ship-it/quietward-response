@@ -36,6 +36,8 @@ First public release of the end-to-end controlled-response system.
 - combined launcher honors repository `.env` API-port selection
 - frontend launcher and enrollment helper follow repository API URL/port overrides instead of silently falling back to port 8002
 - combined launcher fails if either backend or frontend exits or never becomes reachable
+- native bootstrap isolates and terminates product process groups, and the Unix frontend launcher executes Next directly, so shutdown releases the UI port instead of leaving an orphan server
+- the release gate now verifies that public quick-start smoke leaves frontend port 3001 available after shutdown
 - reproducible qualification bootstraps the Python venv/requirements and rebuilds frontend dependencies from `package-lock.json` with `npm ci`
 - release-gate npm execution is cross-platform, including Windows `npm.cmd` launch semantics
 - finalizer verifies the exact expected GitHub owner/repository, Response/QuietWard branches, clean tracked state, and untracked `.env` boundary before qualification
