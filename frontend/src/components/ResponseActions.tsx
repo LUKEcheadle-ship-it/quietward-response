@@ -103,17 +103,6 @@ export function ResponseActions({
   const eligibleAgents = agents.filter((agent) => agent.enabled && incident.affected_hosts.includes(agent.host_id));
   const incidentAllowsResponse = ACTIONABLE_INCIDENT_STATUSES.has(incident.status);
 
-  function activeActionFor(recommendation: RecommendedAction): ResponseAction | undefined {
-    if (!recommendation.registry_action_type) return undefined;
-    void clock;
-    return actions.find(
-      (action) =>
-        action.action_type === recommendation.registry_action_type &&
-        ACTIVE_ACTION_STATUSES.has(action.status) &&
-        !locallyExpired(action),
-    );
-  }
-
   function selectedAgentFor(recommendation: RecommendedAction): Agent | undefined {
     const actionType = recommendation.registry_action_type;
     if (!actionType) return undefined;
@@ -121,10 +110,28 @@ export function ResponseActions({
     return eligibleAgents.find((agent) => agent.agent_id === selectedId) ?? eligibleAgents[0];
   }
 
+  function activeActionFor(
+    recommendation: RecommendedAction,
+    targetAgent: Agent | undefined,
+  ): ResponseAction | undefined {
+    if (!recommendation.registry_action_type || !targetAgent) return undefined;
+    void clock;
+    // Server uniqueness is incident + host + action type, not the whole incident.
+    // Keep the console equally precise so an active action on host A does not
+    // incorrectly prevent the same controlled action being prepared for host B.
+    return actions.find(
+      (action) =>
+        action.action_type === recommendation.registry_action_type &&
+        action.target_host_id === targetAgent.host_id &&
+        ACTIVE_ACTION_STATUSES.has(action.status) &&
+        !locallyExpired(action),
+    );
+  }
+
   async function prepare(recommendation: RecommendedAction) {
     const agent = selectedAgentFor(recommendation);
     if (!agent || !recommendation.registry_action_type || !incidentAllowsResponse) return;
-    if (activeActionFor(recommendation)) return;
+    if (activeActionFor(recommendation, agent)) return;
     setBusy(`prepare:${recommendation.registry_action_type}`);
     try {
       await apiFetch<ResponseAction>(`/api/v1/incidents/${incident.incident_id}/actions`, {
@@ -179,7 +186,7 @@ export function ResponseActions({
         <div className="mt-5 space-y-3">
           {controlledRecommendations.map((recommendation) => {
             const agent = selectedAgentFor(recommendation);
-            const activeAction = activeActionFor(recommendation);
+            const activeAction = activeActionFor(recommendation, agent);
             const actionType = recommendation.registry_action_type!;
             return <div key={actionType} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-medium text-white">{recommendation.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{recommendation.description}</p></div><span className="text-[10px] uppercase tracking-wider text-amber-200">Approval required</span></div>
@@ -200,7 +207,7 @@ export function ResponseActions({
               {!incidentAllowsResponse ? (
                 <span className="mt-3 inline-block rounded border border-slate-500/20 bg-slate-500/10 px-3 py-1.5 text-xs text-slate-400">Incident is closed — response actions disabled</span>
               ) : activeAction ? (
-                <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">Active action: {humanStatus(effectiveStatus(activeAction))}</span>
+                <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">Active action on {activeAction.target_host_id}: {humanStatus(effectiveStatus(activeAction))}</span>
               ) : (
                 <button disabled={!agent || busy !== null} onClick={() => void prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">Prepare controlled action</button>
               )}
