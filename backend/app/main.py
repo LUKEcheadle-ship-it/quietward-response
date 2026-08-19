@@ -15,7 +15,11 @@ from app.config import Settings, get_settings
 from app.database.session import Database
 from app.logging import configure_logging
 from app.request_serialization import SerializedRequestMiddleware
-from app.services.audit_service import backfill_legacy_audit_chain, record_audit
+from app.services.audit_service import (
+    backfill_legacy_audit_chain,
+    record_audit,
+    verify_audit_chain,
+)
 
 
 def create_app(
@@ -48,6 +52,11 @@ def create_app(
         with database.session_factory() as session:
             if backfill_legacy_audit_chain(session):
                 session.commit()
+            audit_state = verify_audit_chain(session)
+            if audit_state["valid"] is not True:
+                raise RuntimeError(
+                    "audit chain verification failed at startup; refusing to serve requests"
+                )
         yield
         database.dispose()
 
