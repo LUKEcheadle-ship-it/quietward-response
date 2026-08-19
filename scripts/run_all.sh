@@ -40,7 +40,17 @@ cleanup() {
   kill "${BACKEND_PID}" "${FRONTEND_PID}" 2>/dev/null || true
   wait "${BACKEND_PID}" "${FRONTEND_PID}" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+
+on_signal() {
+  echo
+  echo "Stopping QuietWard Response..."
+  cleanup
+  trap - EXIT
+  exit 0
+}
+
+trap cleanup EXIT
+trap on_signal INT TERM
 
 for _ in $(seq 1 60); do
   if ! kill -0 "${BACKEND_PID}" 2>/dev/null; then
