@@ -9,7 +9,6 @@ from app.database.models import AuditRecord, EventRecord, IncidentRecord, utcnow
 from app.schemas.incident import IncidentPatch
 from app.services.action_service import cancel_undispatched_actions_for_incident
 from app.services.audit_service import record_audit
-from app.services.preexecution_guard import cancel_dispatching_actions_for_incident
 from app.services.timeline import timeline_for
 
 
@@ -116,19 +115,12 @@ def update_incident(
             incident_id=incident.incident_id,
         )
         if incident.status in {"resolved", "dismissed"}:
-            reason = f"incident moved to {incident.status}"
+            # Cancels pending, approved, and dispatching lifecycles. An action that
+            # has already reached `executing` remains recoverable/auditable.
             cancel_undispatched_actions_for_incident(
                 session,
                 incident.incident_id,
-                reason=reason,
-            )
-            # A dispatch can have been returned by a prior agent poll but not yet
-            # acknowledged as executing. Revoke that pre-execution lifecycle too;
-            # once `executing` is recorded, recovery remains available.
-            cancel_dispatching_actions_for_incident(
-                session,
-                incident.incident_id,
-                reason=reason,
+                reason=f"incident moved to {incident.status}",
             )
     if patch.severity is not None and patch.severity.value != incident.severity:
         previous = incident.severity
