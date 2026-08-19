@@ -22,8 +22,7 @@ jobs:
 
       - name: Checkout QuietWard integration branch
         run: |
-          git clone --branch feature/response-platform-integration --single-branch https://github.com/LUKEcheadle-ship-it/quietward.git ../quietward
-          git -C ../quietward fetch origin main --prune
+          git clone --branch feature/response-platform-integration https://github.com/LUKEcheadle-ship-it/quietward.git ../quietward
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
