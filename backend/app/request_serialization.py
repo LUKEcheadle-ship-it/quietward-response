@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 
 class SerializedRequestMiddleware(BaseHTTPMiddleware):
-    """Serialize v1 API requests within one server process.
+    """Serialize v1 API requests and apply shared response hardening.
 
     Several v1 operations append to a single hash-chained audit log as part of the
     same database transaction as the business change. Serializing requests keeps
@@ -19,9 +19,10 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
     scaled deployment must replace this process-local guard with a database-backed
     atomic chain-head/append mechanism before adding multiple API workers.
 
-    API responses may contain endpoint identities or incident evidence, so v1 also
-    marks every `/api/v1` response non-cacheable. The one-time enrollment response
-    keeps its explicit `Pragma: no-cache` header in addition to this shared policy.
+    API responses may contain endpoint identities or incident evidence, so v1 marks
+    every `/api/v1` response non-cacheable. Basic browser hardening headers are also
+    applied without pretending the API itself terminates TLS. The one-time enrollment
+    response keeps its explicit `Pragma: no-cache` header in addition to this policy.
     """
 
     def __init__(self, app) -> None:  # type intentionally follows Starlette middleware API
@@ -35,6 +36,11 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         async with self._lock:
             response = await call_next(request)
+
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if request.url.path.startswith("/api/v1"):
             response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
