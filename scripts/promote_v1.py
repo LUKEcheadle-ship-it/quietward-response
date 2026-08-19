@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,14 @@ def _replace_once(path: Path, old: str, new: str) -> None:
     if count != 1:
         raise RuntimeError(f"{path.relative_to(ROOT)}: expected exactly one release marker, found {count}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def _replace_regex_once(path: Path, pattern: str, replacement: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+    if count != 1:
+        raise RuntimeError(f"{path.relative_to(ROOT)}: expected exactly one release marker, found {count}")
+    path.write_text(updated, encoding="utf-8")
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -78,6 +87,8 @@ def main() -> int:
             f"expected backend version {RC_BACKEND_VERSION!r} before promotion"
         )
 
+    release_date = date.today().isoformat()
+
     _replace_once(
         BACKEND_VERSION_FILE,
         '# Runtime/API version for the v1 release candidate. Promote to 1.0.0 only after\n# both automated v1 acceptance gates pass on a real checkout.\n__version__ = "1.0.0rc1"',
@@ -99,10 +110,10 @@ def main() -> int:
         'QuietWard Response is pre-release security software. The v1 release candidate is designed for local or explicitly trusted-network incident investigation and controlled-response testing; it is not an Internet-facing production service.',
         'QuietWard Response v1 is local/trusted-network security software for incident investigation and controlled-response testing; it is not an Internet-facing production service.',
     )
-    _replace_once(
+    _replace_regex_once(
         CHANGELOG,
-        '## 1.0.0-rc.1 — 2026-08-18',
-        '## 1.0.0 — 2026-08-18',
+        r'^## 1\.0\.0-rc\.1 — \d{4}-\d{2}-\d{2}$',
+        f'## 1.0.0 — {release_date}',
     )
     _replace_once(
         CHANGELOG,
@@ -124,6 +135,7 @@ def main() -> int:
     print("QUIETWARD RESPONSE VERSION PROMOTION: PREPARED")
     print("backend=1.0.0")
     print("frontend=1.0.0")
+    print(f"release_date={release_date}")
     print("public security/release docs=1.0.0")
     print("Next: review these deterministic version-only changes, commit them, then rerun scripts/finalize_v1.py before merge/tag/publication.")
     return 0
