@@ -66,8 +66,14 @@ def _cancel_undispatched_action(
     reason: str,
     actor_id: str,
 ) -> bool:
-    """Invalidate a pending/approved action so stale approval cannot revive later."""
-    if action.status not in {"pending", "approved"}:
+    """Invalidate an action until endpoint execution is acknowledged.
+
+    `dispatching` means Response returned the action to an agent, but the endpoint
+    has not yet acknowledged execution. Revocation/incident closure must still be
+    able to cancel this state; QuietWard posts `executing` before changing local
+    state, so a cancelled dispatch will fail that acknowledgement and remain safe.
+    """
+    if action.status not in {"pending", "approved", "dispatching"}:
         return False
     action.status = "cancelled"
     action.policy_allowed = False
@@ -130,7 +136,7 @@ def cancel_undispatched_actions_for_incident(
         session.scalars(
             select(ActionRecord).where(
                 ActionRecord.incident_id == incident_id,
-                ActionRecord.status.in_(["pending", "approved"]),
+                ActionRecord.status.in_(["pending", "approved", "dispatching"]),
             )
         )
     )
@@ -158,7 +164,7 @@ def cancel_undispatched_actions_for_agent(
         session.scalars(
             select(ActionRecord).where(
                 ActionRecord.target_agent_id == agent_id,
-                ActionRecord.status.in_(["pending", "approved"]),
+                ActionRecord.status.in_(["pending", "approved", "dispatching"]),
             )
         )
     )
@@ -439,7 +445,7 @@ def pending_actions_for_agent(session: Session, agent: AgentRecord) -> list[Acti
         action.policy_allowed = allowed
         action.policy_reasons = reasons
         if not allowed:
-            if action.status == "approved":
+            if action.status in {"approved", "dispatching"}:
                 _cancel_undispatched_action(
                     session,
                     action,
