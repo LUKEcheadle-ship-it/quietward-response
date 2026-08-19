@@ -3,7 +3,7 @@
 QuietWard Response keeps observation and response messages in separate versioned contracts.
 
 - `quietward-event-schema-v1.json` — sensor observations and evidence
-- `quietward-action-schema-v1.json` — approved typed ActionRequest and authenticated ActionResult messages
+- `quietward-action-schema-v1.json` — policy-approved typed ActionRequest and authenticated ActionResult messages
 
 Neither repository imports the other. Compatibility is defined by these serialized contracts.
 
@@ -46,13 +46,15 @@ NONCE
 SHA256(EXACT_BODY_BYTES)
 ```
 
-The server checks the enrolled agent/key ID, body signature, timestamp skew, nonce uniqueness, enabled state, and host binding. Used nonces are persisted for replay resistance.
+The server checks the enrolled agent/key ID, body signature, timestamp skew, nonce uniqueness, enabled state, and host binding. Used nonces are persisted for replay resistance. Valid nonces remain consumed even if later business validation rejects the request.
 
 HMAC is not a replacement for TLS. Non-loopback deployment must protect credentials and transport confidentiality.
 
 ## Action protocol v1
 
 The action protocol is deliberately narrower than the event protocol. It carries typed capabilities, never command strings.
+
+The server-side analyst lifecycle may be `pending` or `approved`, but those states are **not** delivered to the endpoint as ActionRequest messages. An endpoint receives only a policy-allowed action after Response has transitioned it to `dispatching`, or an `executing` action returned strictly for reconciliation/recovery. Accordingly, the v1 ActionRequest schema requires `policy_allowed: true` and permits only `dispatching` or `executing`.
 
 `ActionRequest` identifies:
 
@@ -62,7 +64,8 @@ The action protocol is deliberately narrower than the event protocol. It carries
 - validated typed parameters
 - requester and approval ID
 - request and expiry timestamps
-- lifecycle state
+- dispatch/recovery lifecycle state
+- deterministic policy decision and reasons
 
 `ActionResult` identifies:
 
@@ -93,15 +96,15 @@ There is no protocol form for:
 - firewall rules
 - host isolation
 
-Unknown action types or non-empty parameters fail closed both on the server and endpoint.
+Unknown action types, non-empty parameters, unexpected fields, unapproved policy state, wrong target identity, or expired new dispatches fail closed on the endpoint.
 
 ## Action lifecycle
 
 ```text
 pending
-  ↓ analyst approval
+  ↓ single-shot analyst approval
 approved
-  ↓ policy evaluation + agent poll
+  ↓ policy recheck + agent poll
 dispatching
   ↓ endpoint acknowledgement
 executing
@@ -111,4 +114,12 @@ succeeded | failed
 
 Other terminal paths are `rejected`, `expired`, and `cancelled`.
 
-An `executing` action may be returned again to the same authenticated endpoint after a restart so the endpoint can reconcile an interrupted delivery. QuietWard persists execution intent before changing local state, keeps a durable terminal-result ledger, and marks the dedicated demo fixture with the action ID and prior result. Those two local records close the important crash windows: a repeated action ID returns the previously applied result instead of changing the fixture twice. Response also rejects a duplicate terminal result when its stored result/evidence does not match.
+Approval/rejection is single-shot at the analyst API boundary. Cancellation and revocation use separate lifecycle transitions rather than rewriting the original approval record.
+
+A `dispatching` action can still be cancelled if its incident closes or its target agent is disabled before the endpoint acknowledges `executing`. Once `executing` is stored, the lifecycle remains available for tightly bound recovery/result reconciliation.
+
+An `executing` action may be returned again to the same authenticated endpoint after a restart so the endpoint can reconcile an interrupted delivery. QuietWard persists execution intent before changing local state, keeps a durable terminal-result ledger, and marks the dedicated demo fixture with the action ID and prior result. Those local records close the important crash windows: a repeated action ID returns the previously applied result instead of changing the fixture twice. Response also rejects a duplicate terminal result when its stored result/evidence does not match.
+
+If an agent is disabled after execution acknowledgement, it receives no new work. Its authenticated poll may return only its own already-`executing` action for reconciliation, and result submission remains limited to matching `executing`/terminal lifecycles. Cancelled or pre-execution actions cannot be revived by the disabled credential.
+
+Authenticated result submissions that fail post-authentication lifecycle/ownership validation are recorded as rejected action-result audit events without logging credential material.
