@@ -43,22 +43,26 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        if create_schema:
-            database.create_all()
-        else:
-            # Normal launchers and containers run Alembic before starting Uvicorn.
-            # Still harden the resulting SQLite file after migration created it.
-            database.harden_local_file_permissions()
-        with database.session_factory() as session:
-            if backfill_legacy_audit_chain(session):
-                session.commit()
-            audit_state = verify_audit_chain(session)
-            if audit_state["valid"] is not True:
-                raise RuntimeError(
-                    "audit chain verification failed at startup; refusing to serve requests"
-                )
-        yield
-        database.dispose()
+        try:
+            if create_schema:
+                database.create_all()
+            else:
+                # Normal launchers and containers run Alembic before starting Uvicorn.
+                # Still harden the resulting SQLite file after migration created it.
+                database.harden_local_file_permissions()
+            with database.session_factory() as session:
+                if backfill_legacy_audit_chain(session):
+                    session.commit()
+                audit_state = verify_audit_chain(session)
+                if audit_state["valid"] is not True:
+                    raise RuntimeError(
+                        "audit chain verification failed at startup; refusing to serve requests"
+                    )
+            yield
+        finally:
+            # Also dispose when startup validation itself fails so Windows/local
+            # SQLite files are not left locked by a partially started service.
+            database.dispose()
 
     application = FastAPI(
         title="QuietWard Response API",
