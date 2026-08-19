@@ -22,7 +22,15 @@ def create_app(
     *,
     database_url: str | None = None,
     settings: Settings | None = None,
+    create_schema: bool = True,
 ) -> FastAPI:
+    """Build the API application.
+
+    Tests and explicitly embedded development callers may request direct SQLAlchemy
+    schema creation. The normal exported runtime app disables it and relies on the
+    documented Alembic migration step, preventing application startup from silently
+    masking migration drift.
+    """
     resolved = settings or get_settings()
     if database_url:
         resolved = resolved.model_copy(update={"database_url": database_url})
@@ -31,7 +39,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        database.create_all()
+        if create_schema:
+            database.create_all()
+        else:
+            # Normal launchers and containers run Alembic before starting Uvicorn.
+            # Still harden the resulting SQLite file after migration created it.
+            database.harden_local_file_permissions()
         with database.session_factory() as session:
             if backfill_legacy_audit_chain(session):
                 session.commit()
@@ -120,4 +133,7 @@ def create_app(
     return application
 
 
-app = create_app()
+# Public/native/container launch paths run Alembic before importing this app into
+# Uvicorn. Keep runtime schema ownership in migrations; tests call create_app()
+# directly and retain direct schema creation for isolated temporary databases.
+app = create_app(create_schema=False)
