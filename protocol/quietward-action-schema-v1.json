@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://quietward.local/protocol/quietward-action-schema-v1.json",
+  "$id": "https://github.com/LUKEcheadle-ship-it/quietward-response/blob/main/protocol/quietward-action-schema-v1.json",
   "title": "QuietWard Response Action Protocol v1",
   "oneOf": [
     {"$ref": "#/$defs/ActionRequest"},
@@ -28,8 +28,8 @@
         "requested_by": {"type": "string", "minLength": 1, "maxLength": 128},
         "approval_id": {"type": "string", "format": "uuid"},
         "expires_at": {"type": "string", "format": "date-time"},
-        "status": {"enum": ["approved", "dispatching", "executing"]},
-        "policy_allowed": {"type": ["boolean", "null"]},
+        "status": {"enum": ["dispatching", "executing"]},
+        "policy_allowed": {"const": true},
         "policy_reasons": {"type": "array", "items": {"type": "string"}},
         "dispatched_at": {"type": ["string", "null"], "format": "date-time"},
         "started_at": {"type": ["string", "null"], "format": "date-time"},
