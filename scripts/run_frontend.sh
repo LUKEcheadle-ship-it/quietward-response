@@ -7,6 +7,10 @@ cd "${ROOT}/frontend"
 if [[ ! -d node_modules ]]; then
   npm ci
 fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js 22 or newer is required." >&2
+  exit 1
+fi
 
 # Next.js does not automatically load the repository-root .env when it is started
 # from frontend/. Resolve the public API URL here so QWR_API_PORT and browser
@@ -34,4 +38,12 @@ NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:${API_PORT}}"
 export NEXT_PUBLIC_API_URL
 export NEXT_TELEMETRY_DISABLED=1
 
-exec npm run dev
+NEXT_CLI="${ROOT}/frontend/node_modules/next/dist/bin/next"
+if [[ ! -f "${NEXT_CLI}" ]]; then
+  echo "Next.js CLI was not installed correctly." >&2
+  exit 1
+fi
+
+# Execute the Next process directly rather than keeping an npm parent process.
+# This lets run_all.sh terminate the actual server deterministically on shutdown.
+exec node "${NEXT_CLI}" dev -H 127.0.0.1 -p 3001
