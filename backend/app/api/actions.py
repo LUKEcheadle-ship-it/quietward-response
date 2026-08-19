@@ -190,6 +190,11 @@ def approve_action(
         )
     except ActionError as exc:
         raise _action_error(exc) from exc
+    # At the approval endpoint, an expired request also means the corresponding
+    # approval window is over. Keep that analyst-facing reason specific while the
+    # generic action-list path continues to surface action-request expiry.
+    if action.status == "expired" and action.policy_reasons == ["action request has expired"]:
+        action.policy_reasons = ["approval has expired"]
     db.commit()
     return action_to_dict(action)
 
