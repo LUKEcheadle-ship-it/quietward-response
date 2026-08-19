@@ -200,5 +200,5 @@ def test_disabled_agent_cannot_revive_cancelled_dispatch(client, event_factory) 
         "agent_version": "test",
     }
     rejected = _post_signed_json(client, agent, result_target, executing_payload)
-    assert rejected.status_code == 409
-    assert "cancelled" in rejected.text
+    assert rejected.status_code == 403
+    assert rejected.json()["detail"]["code"] == "disabled_agent_result_not_reconcilable"
