@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import subprocess
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from response_agent import AgentConfig, ResponseAgent
 from verify_v1_live import (
     BACKEND,
     _free_port,
@@ -74,7 +76,8 @@ def main() -> int:
     token = secrets.token_urlsafe(32)
 
     with tempfile.TemporaryDirectory(prefix="qwr-v11-alpha-live-") as temporary:
-        database = Path(temporary) / "response.db"
+        root = Path(temporary)
+        database = root / "response.db"
         env = os.environ.copy()
         env.update(
             {
@@ -149,14 +152,15 @@ def main() -> int:
             if malware_incident_id is None or malware_host_id is None:
                 raise RuntimeError("malware acceptance fixture was not created")
 
-            enrollment = _enroll_alpha_agent(api_url, token, malware_host_id)
+            # Advisory plan steps must never silently become endpoint actions.
+            malware_enrollment = _enroll_alpha_agent(api_url, token, malware_host_id)
             try:
                 _json_request(
                     api_url + f"/api/v1/incidents/{malware_incident_id}/actions",
                     method="POST",
                     headers={"X-Actor-ID": "v11-alpha-acceptance"},
                     payload={
-                        "target_agent_id": enrollment["agent_id"],
+                        "target_agent_id": malware_enrollment["agent_id"],
                         "target_host_id": malware_host_id,
                         "action_type": "collect_file_diagnostic",
                         "parameters": {},
@@ -173,14 +177,90 @@ def main() -> int:
             if action_types != {"restart_quietward_demo_service"}:
                 raise RuntimeError(f"unexpected executable action registry: {registry!r}")
 
+            # Prove the executable surface is fully owned by this repository: a
+            # Response-owned agent performs the demo lifecycle without any detector checkout.
+            demo_host = "alpha-response-agent-demo-host"
+            demo_event = _json_request(
+                api_url + "/api/v1/events",
+                method="POST",
+                payload=_event(
+                    demo_host,
+                    "demo_service_unhealthy",
+                    "operational",
+                    "medium",
+                ),
+            )
+            demo_incident_id = demo_event["incident_id"]
+            demo_plan = _json_request(
+                api_url + f"/api/v1/incidents/{demo_incident_id}/response-plan"
+            )
+            if demo_plan.get("executable_actions") != ["restart_quietward_demo_service"]:
+                raise RuntimeError(f"demo plan action surface is invalid: {demo_plan!r}")
+
+            demo_enrollment = _enroll_alpha_agent(api_url, token, demo_host)
+            action = _json_request(
+                api_url + f"/api/v1/incidents/{demo_incident_id}/actions",
+                method="POST",
+                headers={"X-Actor-ID": "v11-alpha-acceptance"},
+                payload={
+                    "target_agent_id": demo_enrollment["agent_id"],
+                    "target_host_id": demo_host,
+                    "action_type": "restart_quietward_demo_service",
+                    "parameters": {},
+                },
+            )
+            if action.get("status") != "pending":
+                raise RuntimeError(f"demo action did not require approval: {action!r}")
+            approved = _json_request(
+                api_url + f"/api/v1/actions/{action['action_id']}/approve",
+                method="POST",
+                headers={"X-Actor-ID": "v11-alpha-acceptance"},
+                payload={"reason": "standalone Response agent alpha acceptance"},
+            )
+            if approved.get("status") != "approved" or approved.get("policy_allowed") is not True:
+                raise RuntimeError(f"demo action approval/policy failed: {approved!r}")
+
+            agent_state = root / "response-agent-state"
+            response_agent = ResponseAgent(
+                AgentConfig(
+                    base_url=api_url,
+                    agent_id=demo_enrollment["agent_id"],
+                    key_id=demo_enrollment["key_id"],
+                    secret=demo_enrollment["secret"],
+                    host_id=demo_host,
+                    state_dir=agent_state,
+                    timeout_seconds=5.0,
+                )
+            )
+            fixture = response_agent.initialize_demo_fixture(unhealthy=True)
+            if response_agent.poll_once() != 1:
+                raise RuntimeError("Response-owned agent did not execute exactly one demo action")
+
+            actions = _json_request(
+                api_url + f"/api/v1/incidents/{demo_incident_id}/actions"
+            )
+            stored = next(item for item in actions if item["action_id"] == action["action_id"])
+            if stored.get("status") != "succeeded":
+                raise RuntimeError(f"demo action result was not stored: {stored!r}")
+            state = json.loads(fixture.read_text(encoding="utf-8"))
+            if state.get("status") != "running" or state.get("restart_count") != 1:
+                raise RuntimeError(f"demo fixture did not change exactly once: {state!r}")
+            if response_agent.poll_once() != 0:
+                raise RuntimeError("terminal demo action was unexpectedly re-executed")
+            state_after = json.loads(fixture.read_text(encoding="utf-8"))
+            if state_after.get("restart_count") != 1:
+                raise RuntimeError("demo fixture changed on terminal replay")
+
             audit = _json_request(api_url + "/api/v1/audit/verify")
             if audit.get("valid") is not True or int(audit.get("entries_checked", 0)) < 1:
                 raise RuntimeError(f"audit chain failed verification: {audit!r}")
 
-            print("V1.1.0-ALPHA.1 LIVE STANDALONE RESPONSE-PLAN ACCEPTANCE: PASS")
+            print("V1.1.0-ALPHA.1 LIVE STANDALONE ACCEPTANCE: PASS")
             print("response_families=" + ",".join(verified_families))
             print("executable_actions=restart_quietward_demo_service")
             print("unsupported_advisory_action_rejected=yes")
+            print("response_owned_agent_demo_exactly_once=yes")
+            print(f"demo_action_id={action['action_id']}")
             print(f"audit_entries={audit['entries_checked']}")
             print(f"audit_head={audit['head_hash']}")
             return 0
