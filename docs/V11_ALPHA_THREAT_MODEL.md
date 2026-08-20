@@ -43,7 +43,8 @@ Expected result: wrong-agent/wrong-host/stale or unknown actions fail closed.
 Control:
 
 - only event families already observed by QuietWard can appear;
-- diagnostics are bounded to 80 matching events and 40 correlated findings;
+- diagnostics are bounded to at most 80 matching events and 40 correlated findings;
+- the complete serialized diagnostic result is capped at 256 KiB and trims oldest returned findings/events if necessary;
 - the endpoint retains only a bounded recent context cache for this path;
 - the diagnostic result does not invoke a fresh arbitrary filesystem/network/process search;
 - existing QuietWard privacy transformations remain in effect before evidence reaches the diagnostic layer.
@@ -65,11 +66,13 @@ Controls inherited from v1:
 
 Control:
 
-- action/result names are explicitly `collect_*_diagnostic`, but the alpha documentation defines them as bounded recent evidence retrieval;
-- result includes explicit `read_only=true` and `system_state_changed=false` metadata;
+- every result states `fresh_scan_performed=false`;
+- every result states `evidence_scope=recent_in_memory_quietward_evidence`;
+- every non-empty result includes the oldest/newest returned evidence timestamps;
+- result still includes explicit `read_only=true` and `system_state_changed=false` metadata;
 - the alpha does not claim it performs an unrestricted on-demand forensic scan.
 
-Residual risk: analysts must interpret returned event timestamps. A future version can add explicit age/freshness metadata and optionally trigger narrowly defined read-only collectors.
+Residual risk: the endpoint's bounded recent context is process-local and is lost on restart. A future version can add durable bounded diagnostic caches or narrowly defined read-only on-demand collectors.
 
 ## Abuse case: diagnostic result causes endpoint state mutation
 
