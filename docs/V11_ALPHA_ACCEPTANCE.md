@@ -26,13 +26,27 @@ The released v1 demo-fixture action remains unchanged. The alpha adds eight appr
 
 Each diagnostic returns only bounded evidence already observed by QuietWard on the enrolled host. The endpoint does not accept an arbitrary path, PID, service name, IP address, container ID, command, script, or shell fragment from Response.
 
+Diagnostic results are bounded in three independent ways:
+
+- at most 80 matching events;
+- at most 40 correlated findings;
+- at most 256 KiB serialized result size.
+
+Every diagnostic result must state:
+
+- `read_only=true`;
+- `system_state_changed=false`;
+- `fresh_scan_performed=false`;
+- `evidence_scope=recent_in_memory_quietward_evidence`;
+- oldest/newest returned evidence timestamps when evidence is present.
+
 ## QuietWard detection expansion included with this alpha candidate
 
 The companion QuietWard branch adds:
 
 - cross-subject, same-host multi-stage attack-chain correlation inside a bounded 15-minute window;
+- credential-spray correlation across one redacted source-address hash and multiple installation-scoped user identity hashes, without restoring raw usernames or source addresses;
 - stronger deterministic priority for large authentication-failure bursts;
-- credential-spray-aware scoring when a detector provides distinct-user counts;
 - additional weighting for already-produced high-confidence behavior markers such as encoded shell chains, downloader/execute chains, encoded commands, living-off-the-land patterns, cryptominer indicators, and dangerous container configuration markers;
 - unchanged observation-only local analysis: QuietWard detection still executes no general host remediation by itself.
 
@@ -63,7 +77,7 @@ It runs:
    - public quick-start startup and cleanup smoke
    - companion QuietWard compile check
    - QuietWard public-release audit
-   - complete QuietWard unittest suite, including expanded detection tests
+   - complete QuietWard unittest suite, including expanded detection, diagnostic size-bound, and freshness tests
 
 2. `scripts/verify_v1_live.py`
    - proves the released authenticated demo-fixture lifecycle still works end to end and exactly once.
@@ -75,6 +89,9 @@ It runs:
    - proves the diagnostic requires explicit analyst approval and deterministic policy allowance
    - proves the endpoint polls outward and independently validates the typed action
    - proves the returned diagnostic is read-only and reports `system_state_changed=false`
+   - proves it explicitly reports that no fresh scan occurred and labels its evidence scope
+   - proves returned evidence includes an explicit timestamp range
+   - proves the serialized result remains within the advertised byte ceiling
    - proves the triggering QuietWard event is present in the bounded result
    - proves the signed terminal result is stored
    - proves terminal replay does not re-execute work
@@ -87,12 +104,14 @@ After the automated wrapper passes:
 1. start Response with the normal quick-start path;
 2. create one local test incident that exposes a diagnostic response;
 3. open the incident page;
-4. confirm the diagnostic action is clearly labeled approval-required/read-only;
-5. approve it once;
-6. run the matching QuietWard cycle;
-7. confirm the UI shows a succeeded result and bounded evidence without displaying any generic command input;
-8. confirm the released demo-fixture workflow still appears and functions as before;
-9. stop both services and confirm ports are released.
+4. confirm diagnostics are explicitly labeled `Read-only diagnostic · Approval required`;
+5. confirm the demo restart is separately labeled `State-changing demo · Approval required`;
+6. approve the diagnostic once;
+7. run the matching QuietWard cycle;
+8. confirm the UI shows a succeeded bounded diagnostic result with no generic command input;
+9. confirm the result states no fresh scan occurred and shows bounded recent evidence;
+10. confirm the released demo-fixture workflow still appears and functions as before;
+11. stop both services and confirm ports are released.
 
 ## Alpha safety boundary
 
@@ -126,6 +145,7 @@ The next containment layer must use endpoint-created opaque resource handles wit
 - audit history is tamper-evident, not immutable;
 - API qualification remains single-process/single-worker;
 - diagnostic results reflect bounded recent QuietWard evidence in the running endpoint process, not an unrestricted forensic collection engine;
+- recent diagnostic context is process-local and is lost when the QuietWard endpoint restarts;
 - read-only diagnostics are approval-gated in this alpha for control-plane consistency, even though they do not change host state;
 - higher-impact containment and remediation remain intentionally disabled.
 
