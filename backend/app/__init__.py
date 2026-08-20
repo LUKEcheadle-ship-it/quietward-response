@@ -1,4 +1,4 @@
 """QuietWard Response backend."""
 
-# Runtime/API version for the first public controlled-response release.
-__version__ = "1.0.0"
+# Runtime/API version for the first expanded diagnostic-response alpha.
+__version__ = "1.1.0a1"
