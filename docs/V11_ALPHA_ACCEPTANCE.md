@@ -1,154 +1,162 @@
 # QuietWard Response v1.1.0-alpha.1 acceptance
 
-This document defines the release boundary for the first expanded diagnostic-response alpha.
+This document defines the release boundary for the first broad incident-response planning alpha.
 
 ## Release identifier
 
-- GitHub release/tag: `v1.1.0-alpha.1`
+- GitHub release/tag candidate: `v1.1.0-alpha.1`
 - backend/API version: `1.1.0a1`
 - Response branch: `feature/response-diagnostic-expansion`
-- QuietWard branch: `feature/response-diagnostic-expansion`
 
-This alpha does not replace the released `v1.0.0` qualification record.
+This alpha does not replace the historical `v1.0.0` qualification record.
+
+## Product boundary
+
+QuietWard Response is qualified here as a **standalone product**. The alpha gate does not require, modify, or validate any detector repository.
+
+Telemetry enters through the versioned event API or a separately maintained sensor adapter. Response owns correlation, incident state, structured response planning, analyst decisions, controlled-action policy, and audit.
 
 ## What the alpha adds
 
-The released v1 demo-fixture action remains unchanged. The alpha adds eight approval-gated, parameter-free, read-only diagnostic response actions:
+Every incident now exposes a deterministic response plan at:
 
-- `collect_process_diagnostic`
-- `collect_network_diagnostic`
-- `collect_persistence_diagnostic`
-- `collect_file_diagnostic`
-- `collect_container_diagnostic`
-- `collect_identity_diagnostic`
-- `collect_vulnerability_diagnostic`
-- `collect_integrity_diagnostic`
+`GET /api/v1/incidents/{incident_id}/response-plan`
 
-Each diagnostic returns only bounded evidence already observed by QuietWard on the enrolled host. The endpoint does not accept an arbitrary path, PID, service name, IP address, container ID, command, script, or shell fragment from Response.
+The plan covers these response families when relevant:
 
-Diagnostic results are bounded in three independent ways:
+- malware and suspicious files;
+- process execution and privilege escalation;
+- identity/authentication compromise;
+- persistence;
+- suspicious network activity;
+- container compromise;
+- vulnerabilities and security configuration weaknesses;
+- sensor/evidence integrity;
+- operational failures that may overlap security events.
 
-- at most 80 matching events;
-- at most 40 correlated findings;
-- at most 256 KiB serialized result size.
+Each plan includes:
 
-Every diagnostic result must state:
+- priority;
+- attack-family classification;
+- response objectives;
+- investigation steps;
+- containment steps;
+- recovery steps;
+- escalation conditions;
+- explicit step state (`available`, `manual`, `planned`, or `blocked`);
+- exact executable-action list;
+- limitations.
 
-- `read_only=true`;
-- `system_state_changed=false`;
-- `fresh_scan_performed=false`;
-- `evidence_scope=recent_in_memory_quietward_evidence`;
-- oldest/newest returned evidence timestamps when evidence is present.
+Plan text is never converted into an executable command.
 
-## QuietWard detection expansion included with this alpha candidate
+## Executable action surface
 
-The companion QuietWard branch adds:
+The action registry must contain exactly:
 
-- cross-subject, same-host multi-stage attack-chain correlation inside a bounded 15-minute window;
-- credential-spray correlation across one redacted source-address hash and multiple installation-scoped user identity hashes, without restoring raw usernames or source addresses;
-- stronger deterministic priority for large authentication-failure bursts;
-- additional weighting for already-produced high-confidence behavior markers such as encoded shell chains, downloader/execute chains, encoded commands, living-off-the-land patterns, cryptominer indicators, and dangerous container configuration markers;
-- unchanged observation-only local analysis: QuietWard detection still executes no general host remediation by itself.
+`restart_quietward_demo_service`
 
-## Automated gate
+That compatibility/demo action accepts no arbitrary parameters and remains approval/policy gated.
 
-Run from the Response checkout with the matching QuietWard checkout beside it:
+All real containment ideas shown by the alpha — quarantine, process stop, network block, host isolation, account/session action, persistence disable, container stop, package/configuration mutation — must remain manual/planned/blocked until a dedicated Response agent implements and qualifies a narrow typed executor.
+
+## Automated static/local gate
+
+Run:
 
 ```text
-python scripts/finalize_v11_alpha.py --quietward-repo ../quietward
+python scripts/verify_v11_alpha.py
 ```
 
-The wrapper requires both local branches to match their exact pushed GitHub feature branches and to contain current `origin/main`.
+It must pass:
 
-It runs:
+1. backend and script compile checks;
+2. public-release audit;
+3. complete backend pytest suite with warnings as errors;
+4. standalone response-plan action-surface verification;
+5. fresh Alembic migration;
+6. Phase-1-to-current migration;
+7. Alembic drift check;
+8. frontend `npm ci`;
+9. frontend typecheck;
+10. frontend production build;
+11. high-severity npm audit;
+12. public quick-start startup and cleanup smoke.
 
-1. `scripts/verify_v11_alpha.py`
-   - Response compile checks
-   - public-release audit
-   - full backend pytest suite with warnings as errors
-   - exact v1.1 diagnostic action-surface check
-   - fresh Alembic migration
-   - Phase-1-to-current migration
-   - Alembic drift check
-   - frontend `npm ci`
-   - frontend typecheck
-   - frontend production build
-   - high-severity npm audit
-   - public quick-start startup and cleanup smoke
-   - companion QuietWard compile check
-   - QuietWard public-release audit
-   - complete QuietWard unittest suite, including expanded detection, diagnostic size-bound, and freshness tests
+No companion detector checkout is accepted as an argument or touched by this gate.
 
-2. `scripts/verify_v1_live.py`
-   - proves the released authenticated demo-fixture lifecycle still works end to end and exactly once.
+## Automated live HTTP gate
 
-3. `scripts/verify_v11_alpha_live.py`
-   - creates a test-owned QuietWard malware-signature event
-   - sends it over the real HMAC-authenticated event path
-   - proves Response creates an incident with the file diagnostic recommendation
-   - proves the diagnostic requires explicit analyst approval and deterministic policy allowance
-   - proves the endpoint polls outward and independently validates the typed action
-   - proves the returned diagnostic is read-only and reports `system_state_changed=false`
-   - proves it explicitly reports that no fresh scan occurred and labels its evidence scope
-   - proves returned evidence includes an explicit timestamp range
-   - proves the serialized result remains within the advertised byte ceiling
-   - proves the triggering QuietWard event is present in the bounded result
-   - proves the signed terminal result is stored
-   - proves terminal replay does not re-execute work
-   - proves the Response audit chain still verifies
+Run:
+
+```text
+python scripts/verify_v11_alpha_live.py
+```
+
+It starts a migrated single-worker Response API on loopback and proves:
+
+- synthetic development telemetry can create incidents through the real HTTP API;
+- malware, privilege, identity, persistence, network, container, vulnerability, and integrity events each map to the correct response-plan family;
+- each non-demo plan contains investigation guidance;
+- non-demo plans expose zero executable actions;
+- attempting to submit an advisory diagnostic name as an endpoint action fails as `unsupported action type`;
+- the public action registry contains exactly the demo-fixture action;
+- the audit chain remains valid after the acceptance traffic.
+
+## Complete automated wrapper
+
+On the exact clean pushed candidate branch run:
+
+```text
+python scripts/finalize_v11_alpha.py
+```
+
+The wrapper verifies the expected Response repository/branch/version, then runs both automated gates above.
 
 ## Manual browser smoke before publication
 
 After the automated wrapper passes:
 
-1. start Response with the normal quick-start path;
-2. create one local test incident that exposes a diagnostic response;
+1. start Response using `python scripts/bootstrap_local.py`;
+2. create or seed at least one non-demo security incident;
 3. open the incident page;
-4. confirm diagnostics are explicitly labeled `Read-only diagnostic · Approval required`;
-5. confirm the demo restart is separately labeled `State-changing demo · Approval required`;
-6. approve the diagnostic once;
-7. run the matching QuietWard cycle;
-8. confirm the UI shows a succeeded bounded diagnostic result with no generic command input;
-9. confirm the result states no fresh scan occurred and shows bounded recent evidence;
-10. confirm the released demo-fixture workflow still appears and functions as before;
-11. stop both services and confirm ports are released.
+4. confirm the **Response plan** panel appears;
+5. confirm the plan shows attack family and priority;
+6. confirm investigation, containment, and recovery steps are readable;
+7. confirm planned containment says `Planned · not executable`;
+8. confirm blocked future capabilities say `Blocked · future capability`;
+9. confirm the controlled-action panel does not offer a generic command or a fake diagnostic executor;
+10. if a demo incident is used, confirm the demo action is separately labeled `State-changing demo · Approval required`;
+11. change incident status and confirm the UI remains healthy;
+12. verify `/api/v1/audit/verify` returns `valid=true`;
+13. stop the product and confirm API/frontend ports are released.
 
 ## Alpha safety boundary
 
-The alpha still has no generic remote administration surface.
-
 Not enabled:
 
-- arbitrary shell / PowerShell / cmd / bash
-- arbitrary process termination
-- arbitrary service stop/restart
-- arbitrary file deletion or quarantine
-- arbitrary firewall rules
-- host isolation
-- arbitrary account lockout/session revocation
-- arbitrary package installation/update
-- autonomous remediation
-- LLM-generated executable commands
+- arbitrary shell / PowerShell / cmd / bash;
+- generic command execution;
+- arbitrary process termination;
+- arbitrary service control;
+- file deletion or quarantine automation;
+- firewall modification automation;
+- host isolation automation;
+- arbitrary account/session mutation;
+- package/configuration mutation;
+- autonomous remediation;
+- LLM-generated executable commands.
 
-The only system-state-changing endpoint action remains the dedicated v1 JSON demo fixture.
-
-## Why higher-impact containment is not in this alpha
-
-QuietWard deliberately redacts or hashes several sensitive endpoint identifiers before persistence, including raw usernames, remote addresses, and container IDs. That privacy boundary prevents Response from safely targeting those resources using a server-supplied string.
-
-The next containment layer must use endpoint-created opaque resource handles with local precondition checks, expiry, rollback metadata, and resource-specific executors. That work should happen after this diagnostic alpha is qualified rather than weakening the current privacy model.
+The alpha may **recommend** or **plan** those response types where appropriate, but it must label them as manual/planned/blocked rather than executable.
 
 ## Known limitations
 
 - analyst identity remains development-grade `X-Actor-ID`, not OIDC/RBAC;
-- HMAC transport still assumes TLS outside loopback/trusted development;
+- HMAC transport assumes TLS outside loopback/trusted development;
 - audit history is tamper-evident, not immutable;
 - API qualification remains single-process/single-worker;
-- diagnostic results reflect bounded recent QuietWard evidence in the running endpoint process, not an unrestricted forensic collection engine;
-- recent diagnostic context is process-local and is lost when the QuietWard endpoint restarts;
-- read-only diagnostics are approval-gated in this alpha for control-plane consistency, even though they do not change host state;
-- higher-impact containment and remediation remain intentionally disabled.
+- production sensor adapters/authentication are source-specific work outside this alpha;
+- most real containment remains guidance until the separate Response agent layer is implemented and qualified.
 
 ## Publication rule
 
-Do not publish/tag `v1.1.0-alpha.1` unless the complete automated wrapper and manual browser smoke both pass on the exact pushed candidate branches.
+Do not publish or tag `v1.1.0-alpha.1` unless the complete automated wrapper and manual browser smoke pass on the exact candidate SHA.
