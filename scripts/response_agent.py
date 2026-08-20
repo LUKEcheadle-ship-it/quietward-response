@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
@@ -59,6 +60,7 @@ _REQUIRED_ACTION_FIELDS = {
     "policy_allowed",
 }
 _ONLY_ACTION = "restart_quietward_demo_service"
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 
 def _derive_hmac_key(secret: str) -> bytes:
@@ -119,6 +121,22 @@ def _load_json(path: Path, expected_type: type) -> Any:
     return value
 
 
+def _validate_base_url(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ResponseAgentError("Response agent URL must be an absolute http(s) URL")
+    if parsed.username or parsed.password:
+        raise ResponseAgentError("Response agent URL must not contain embedded credentials")
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        raise ResponseAgentError("Response agent URL must not contain a path, query, or fragment")
+    hostname = parsed.hostname.lower()
+    loopback = hostname in _LOOPBACK_HOSTS or hostname.endswith(".localhost")
+    if parsed.scheme == "http" and not loopback:
+        raise ResponseAgentError("plain HTTP Response agent URL is allowed only on loopback; use HTTPS otherwise")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class AgentConfig:
     base_url: str
@@ -128,6 +146,23 @@ class AgentConfig:
     host_id: str
     state_dir: Path
     timeout_seconds: float = 5.0
+
+    def __post_init__(self) -> None:
+        base_url = _validate_base_url(str(self.base_url))
+        state_dir = Path(self.state_dir).expanduser()
+        if not state_dir.is_absolute():
+            raise ResponseAgentError("Response agent state directory must be absolute")
+        if not all(str(value).strip() for value in (self.agent_id, self.key_id, self.secret, self.host_id)):
+            raise ResponseAgentError("Response agent credentials/configuration are incomplete")
+        try:
+            timeout = float(self.timeout_seconds)
+        except (TypeError, ValueError) as exc:
+            raise ResponseAgentError("Response agent timeout must be numeric") from exc
+        if not 0.1 <= timeout <= 60:
+            raise ResponseAgentError("Response agent timeout must be between 0.1 and 60")
+        object.__setattr__(self, "base_url", base_url)
+        object.__setattr__(self, "state_dir", state_dir)
+        object.__setattr__(self, "timeout_seconds", timeout)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "AgentConfig":
@@ -144,23 +179,14 @@ class AgentConfig:
             raise ResponseAgentError(
                 "Response agent credentials/configuration are incomplete: " + ", ".join(missing)
             )
-        state_dir = Path(required["state_dir"]).expanduser()
-        if not state_dir.is_absolute():
-            raise ResponseAgentError("Response agent state directory must be absolute")
-        try:
-            timeout = float(value.get("timeout_seconds", 5.0))
-        except (TypeError, ValueError) as exc:
-            raise ResponseAgentError("Response agent timeout must be numeric") from exc
-        if not 0.1 <= timeout <= 60:
-            raise ResponseAgentError("Response agent timeout must be between 0.1 and 60")
         return cls(
-            base_url=required["base_url"].rstrip("/"),
+            base_url=required["base_url"],
             agent_id=required["agent_id"],
             key_id=required["key_id"],
             secret=required["secret"],
             host_id=required["host_id"],
-            state_dir=state_dir,
-            timeout_seconds=timeout,
+            state_dir=Path(required["state_dir"]).expanduser(),
+            timeout_seconds=value.get("timeout_seconds", 5.0),
         )
 
     @classmethod
@@ -330,7 +356,7 @@ class ResponseAgent:
             raise ResponseAgentError("action lifecycle status is not deliverable")
 
         action_id = action.get("action_id")
-        if not isinstance(action_id, str) or not action_id or len(action_id) > 128:
+        if not isinstance(action_id, str) or not action_id or len(action_id) > 36:
             raise ResponseAgentError("action id is invalid")
         for field_name in ("incident_id", "approval_id", "requested_by"):
             value = action.get(field_name)
@@ -417,6 +443,8 @@ class ResponseAgent:
 
             ledger[action_id] = {"status": "executing", "result": {}, "error": None}
             self._save_ledger(ledger)
+            # If the server revoked/cancelled this dispatch after it was returned by
+            # polling, this acknowledgement fails and local mutation never begins.
             self._post_result(action_id, "executing", {})
 
             state_before = self._load_demo_state()
@@ -434,7 +462,7 @@ class ResponseAgent:
                 dict(final["result"]),
                 final["error"],
             )
-            if not already_applied:
+            if final["status"] == "succeeded" and not already_applied:
                 executed += 1
         return executed
 
