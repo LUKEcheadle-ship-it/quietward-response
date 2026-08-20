@@ -2,9 +2,11 @@
 
 QuietWard Response is an event-driven incident investigation and controlled-response platform. It validates sensor events, tracks hosts, deterministically correlates related observations into incidents, reconstructs timelines, recommends investigation steps, and records a tamper-evident audit trail.
 
-The v1 line adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. There is still **no arbitrary command execution** and no general host-remediation surface.
+The released v1 line adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. The v1.1 alpha candidate expands that control plane with eight approval-gated, parameter-free, read-only diagnostic actions across QuietWard's major event families. There is still **no arbitrary command execution** and no general host-remediation surface.
 
-> **Release status:** `v1.0.0` is the first public controlled-response release. The final release qualification passed on 2026-08-19: 73 Response backend tests, migrations/drift checks, frontend typecheck/build/audit, 182 QuietWard tests, the real two-repository HTTP loop, quick-start cleanup, and a live browser UI smoke. The executable scope remains demo-fixture-only.
+> **Candidate status:** this feature branch is the `v1.1.0-alpha.1` candidate (`1.1.0a1`). It retains the released `v1.0.0` demo lifecycle and adds read-only diagnostics for process/privilege, network, persistence, file/malware, container, identity/authentication, vulnerability/configuration, and QuietWard integrity evidence. Publication remains blocked until the complete automated alpha wrapper and documented browser smoke pass on the exact pushed candidate branches. See [v1.1 alpha acceptance](docs/V11_ALPHA_ACCEPTANCE.md) and [v1.1 threat-model delta](docs/V11_ALPHA_THREAT_MODEL.md).
+
+> **Released status:** `v1.0.0` remains the first public controlled-response release. Its final release qualification passed on 2026-08-19 with 73 Response backend tests, migrations/drift checks, frontend typecheck/build/audit, 182 QuietWard tests, the real two-repository HTTP loop, quick-start cleanup, and a live browser UI smoke.
 
 ## Relationship with QuietWard
 
@@ -28,14 +30,14 @@ flowchart TD
     R --> P[Human approval + deterministic policy]
     P -->|typed approved action| A[Agent-initiated polling]
     A --> E[QuietWard endpoint allowlist]
-    E -->|v1: demo fixture only| Z[Controlled action]
+    E -->|v1 demo fixture or v1.1 read-only diagnostic| Z[Controlled action]
     Z -->|signed ActionResult| X
     I --> U[Hash-chained audit]
     P --> U
     Z --> U
 ```
 
-See [architecture](docs/architecture.md), [event/action protocol](protocol/README.md), [threat model](docs/threat-model.md), [v1 acceptance](docs/V1_ACCEPTANCE.md), and [roadmap](docs/roadmap.md).
+See [architecture](docs/architecture.md), [event/action protocol](protocol/README.md), [threat model](docs/threat-model.md), [v1 acceptance](docs/V1_ACCEPTANCE.md), [v1.1 alpha acceptance](docs/V11_ALPHA_ACCEPTANCE.md), [v1.1 threat-model delta](docs/V11_ALPHA_THREAT_MODEL.md), and [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -51,7 +53,7 @@ On Windows, `py -3.12 scripts\bootstrap_local.py` is also supported when Python 
 
 `bootstrap_local.py` is the cross-platform first-run path. It creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, creates/reconciles the Python virtual environment, installs dependencies, applies database migrations, installs frontend dependencies when needed, starts the API and frontend, and refuses to report ready unless both are reachable. It also terminates the full product process groups on shutdown so the API and frontend ports are released cleanly.
 
-A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents.
+A normal startup begins with a clean incident database; it does **not** inject synthetic incidents.
 
 - Frontend: <http://localhost:3001>
 - API: <http://localhost:8002>
@@ -128,9 +130,26 @@ Store the secret securely on the endpoint. Response stores derived HMAC key mate
 
 Authenticated agent requests bind the HTTP method, target path/query, Unix timestamp, random nonce, and SHA-256 body digest into an HMAC-SHA256 signature. The server enforces a bounded replay window and persists used agent nonces.
 
+## v1.1 read-only diagnostics
+
+The alpha candidate adds these approval-gated actions:
+
+- `collect_process_diagnostic`
+- `collect_network_diagnostic`
+- `collect_persistence_diagnostic`
+- `collect_file_diagnostic`
+- `collect_container_diagnostic`
+- `collect_identity_diagnostic`
+- `collect_vulnerability_diagnostic`
+- `collect_integrity_diagnostic`
+
+They accept **no parameters**. QuietWard independently allowlists them and returns only bounded recent evidence that QuietWard has already observed in the running endpoint process. Every result declares `read_only=true`, `system_state_changed=false`, `fresh_scan_performed=false`, an explicit evidence scope/time range, record-count bounds, and a 256 KiB serialized result ceiling.
+
+The incident console labels these actions **Read-only diagnostic · Approval required**. It separately labels the v1 demo action **State-changing demo · Approval required**.
+
 ## v1 controlled response demo
 
-The only executable v1 action is:
+The only state-changing endpoint action remains:
 
 `restart_quietward_demo_service`
 
@@ -184,28 +203,27 @@ Controlled-response endpoints:
 
 Events claiming `source=quietward` require authenticated agent delivery when `QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS=true`. Synthetic/development sources remain available for the local demo; outside development, unauthenticated generic sensor sources fail closed until they have an authenticated adapter.
 
-## v1 verification
+## v1.1 alpha verification
 
-The complete gate is:
+The complete candidate gate is:
+
+```text
+python scripts/finalize_v11_alpha.py --quietward-repo ../quietward
+```
+
+It runs the full static/local gate, the released v1 live lifecycle as a regression check, and the real v1.1 diagnostic HTTP lifecycle. See [docs/V11_ALPHA_ACCEPTANCE.md](docs/V11_ALPHA_ACCEPTANCE.md) for the exact automated and browser-smoke requirements.
+
+The frozen v1 verification remains available for the released line:
 
 ```text
 python scripts/finalize_v1.py --quietward-repo ../quietward
 ```
 
-The underlying gates can also be run separately:
-
-```text
-python scripts/verify_v1.py --quietward-repo ../quietward
-python scripts/verify_v1_live.py --quietward-repo ../quietward
-```
-
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the UI smoke requirements.
-
 ## Safety status
 
-QuietWard Response v1 is intentionally a controlled local/trusted-network response system, not an unrestricted remote administration service.
+QuietWard Response remains a controlled local/trusted-network response system, not an unrestricted remote administration service.
 
-Current guarantees are deliberately narrow:
+Current alpha guarantees are deliberately narrow:
 
 - no shell/PowerShell/cmd/bash action
 - no arbitrary process termination
@@ -213,11 +231,16 @@ Current guarantees are deliberately narrow:
 - no file deletion/quarantine
 - no firewall modification
 - no host isolation
+- no arbitrary account mutation
+- no package/configuration mutation
 - no LLM-generated command execution
 - agent-initiated polling instead of an inbound endpoint command listener
-- one demo-fixture action requiring human approval and deterministic policy validation
+- eight parameter-free read-only diagnostics requiring human approval and deterministic policy validation
+- one state-changing demo-fixture action requiring human approval and deterministic policy validation
+- bounded diagnostic record counts and serialized result size
+- server-side ActionResult result/evidence size validation before persistence
 
-v1 is intentionally qualified as a **single-process/single-worker** API. Both the native launcher and backend container enforce one Uvicorn worker because request serialization protects the linear audit-chain append model. Do not horizontally scale this version against one database; multi-worker support requires a database-backed atomic audit append/head mechanism and requalification.
+The current line is intentionally qualified as a **single-process/single-worker** API. Both the native launcher and backend container enforce one Uvicorn worker because request serialization protects the linear audit-chain append model. Do not horizontally scale this version against one database; multi-worker support requires a database-backed atomic audit append/head mechanism and requalification.
 
 Analyst identity is still local-development grade (`X-Actor-ID`) rather than OIDC/RBAC. HMAC should be carried over TLS outside loopback/local trusted development. The audit chain provides tamper evidence, not immutability.
 
