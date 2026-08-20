@@ -14,6 +14,9 @@ First broad incident-response planning alpha candidate. Publication remains bloc
 - step-state contract distinguishing `available`, `manual`, `planned`, and `blocked` capabilities
 - exact `executable_actions` list so advisory containment cannot be mistaken for hidden endpoint automation
 - incident-console Response Plan panel with explicit planned/blocked/manual labels
+- shared response-family classifier for canonical and common vendor vocabulary including ransomware, credential spray, C2/beaconing, tamper/defense-evasion, Kubernetes/container, CVE, persistence, execution, and outage signals
+- bundled Response-owned outward-polling alpha agent implementing only the dedicated demo-fixture action
+- private local Response-agent enrollment/config helper that does not print the one-time secret
 - standalone live HTTP alpha acceptance using synthetic development telemetry rather than a companion detector checkout
 - standalone alpha finalizer and static/local gate
 
@@ -21,14 +24,18 @@ First broad incident-response planning alpha candidate. Publication remains bloc
 
 - executable action registry remains exactly the released demo-fixture action
 - advisory diagnostic/containment names are rejected if submitted to the action API
-- generic command/shell execution remains absent
+- generic command/shell execution remains absent from the bundled Response agent
+- Response-agent target, action type, parameters, policy allowance, lifecycle state, expiry, and local recovery history are independently revalidated before execution
+- Response-agent demo execution is durable and exactly-once across terminal replay/crash-recovery paths
 - ActionResult `result` is capped at 256 KiB serialized and `evidence` at 64 KiB before persistence
+- release audit rejects common Response-agent credential/config filenames in tracked files/history
 - release-facing docs and gates no longer require or modify any detector repository
 - recommendations and probable-cause text are sensor-neutral rather than assuming one detector implementation
+- the response-plan API, unit tests, static gate, and live gate share/verify the same high-signal response-family mapping so vendor event names cannot silently downgrade to `unknown`
 
 ### Safety boundary
 
-The alpha can recommend broad investigation, containment, and recovery procedures, but those procedures are clearly manual/planned/blocked until a dedicated Response agent implements a narrow typed executor. The only registered executable endpoint action remains the dedicated v1 JSON demo fixture. There is still no generic shell/PowerShell/cmd/bash, arbitrary process termination, service control, quarantine/deletion, firewall modification, host isolation, account mutation, package mutation, autonomous remediation, or LLM-generated executable command surface.
+The alpha can recommend broad investigation, containment, and recovery procedures, but those procedures remain clearly manual/planned/blocked. The bundled Response agent exists only to execute the dedicated v1 JSON demo fixture. Real quarantine, process termination, network blocking/isolation, persistence modification, account/session actions, container control, service control, and package/configuration mutation require separate narrow typed executors plus preconditions, rollback/failure semantics, least privilege, and adversarial qualification. There is still no generic shell/PowerShell/cmd/bash, autonomous remediation, or LLM-generated executable command surface.
 
 ## 1.0.0 — 2026-08-19
 
@@ -68,10 +75,10 @@ First public release of the end-to-end controlled-response system.
 - the release gate verifies that public quick-start smoke leaves frontend port 3001 available after shutdown
 - reproducible qualification bootstraps the Python venv/requirements and rebuilds frontend dependencies from `package-lock.json` with `npm ci`
 - release-gate npm execution is cross-platform, including Windows `npm.cmd` launch semantics
-- finalizer verifies the exact expected GitHub owner/repository, clean tracked state, and untracked `.env` boundary before qualification
+- finalizer verifies the exact expected GitHub owner/repository, branch, clean tracked state, and untracked `.env` boundary before qualification
 - final release qualification cannot silently skip npm audit
 - the known development enrollment token is accepted only on a loopback development bind
-- authenticated telemetry may be disabled only on a loopback development bind where supported
+- event authentication may be disabled only on a loopback development bind
 - wildcard CORS is rejected on non-loopback API binds
 - unauthenticated generic sensor sources remain development-only
 - single-use authenticated nonces even when later business validation rejects the request
@@ -86,17 +93,16 @@ First public release of the end-to-end controlled-response system.
 - request serialization for single-process v1 audit-chain consistency
 - `/api/v1` responses are marked `no-store`; one-time enrollment-secret responses also include `Pragma: no-cache`
 - frontend API errors preserve useful server conflict/policy details instead of reducing failures to only an HTTP status
-- severity compatibility normalization to canonical `informational`
-- controlled recommendation metadata preserved through FastAPI response serialization
+- controlled recommendation metadata is preserved through FastAPI response serialization
 - dedicated demo incidents keep their response recommendations focused on the demo fixture rather than unrelated operational/disk guidance
-- endpoint response state fails closed on corrupt outbox/ledger/demo data in the historical compatibility path and does not silently discard older queued events when the bounded outbox fills
+- endpoint response state fails closed on corrupt outbox/ledger/demo data and does not silently discard older queued events when the bounded outbox fills
 - Docker Compose waits for backend health before starting the frontend service
 - release version promotion stamps the actual promotion date instead of a hard-coded development date
 
 ### Safety boundary
 
-v1 has no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, file deletion/quarantine, firewall modification, host isolation, or autonomous remediation. The only executable action changes a dedicated JSON demo fixture after human approval and deterministic policy validation.
+v1 has no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, file deletion/quarantine, firewall modification, host isolation, or autonomous remediation. The only executable action changes a dedicated JSON demo fixture after human approval, deterministic policy validation, and endpoint-side allowlist validation.
 
 ### Release qualification
 
-The v1 qualification record is preserved under `docs/V1_ACCEPTANCE.md`. The v1.1 alpha has a separate standalone gate and does not recharacterize the historical v1 release.
+The historical v1 release qualification used its documented `scripts/finalize_v1.py` wrapper and UI smoke record. v1.1 and later have their own standalone qualification documents and do not require a detector repository checkout.
