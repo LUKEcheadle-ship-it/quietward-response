@@ -113,10 +113,10 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                     "Return bounded persistence-change evidence already observed by QuietWard.",
                     "collect_persistence_diagnostic",
                 ),
-                _controlled_diagnostic(
-                    "Collect related process context",
-                    "Return bounded process and privilege evidence to correlate persistence with nearby execution.",
-                    "collect_process_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review related process context",
+                    "Review nearby process evidence in the incident timeline. A process diagnostic is exposed only when process/privilege evidence is actually present.",
                 ),
                 _action(
                     "remediation",
@@ -137,10 +137,10 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                     "Return bounded listener and outbound-connection evidence already observed by QuietWard.",
                     "collect_network_diagnostic",
                 ),
-                _controlled_diagnostic(
-                    "Collect owning-process context",
-                    "Return bounded process evidence to correlate network activity with process identity.",
-                    "collect_process_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review owning-process context",
+                    "Review nearby process evidence in the incident timeline. A process diagnostic is exposed only when process/privilege evidence is actually present.",
                 ),
                 _action(
                     "remediation",
@@ -163,10 +163,10 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                     "Return bounded container security and configuration-change evidence already observed by QuietWard.",
                     "collect_container_diagnostic",
                 ),
-                _controlled_diagnostic(
-                    "Collect container network context",
-                    "Return bounded network evidence to correlate suspicious container activity with host connections and listeners.",
-                    "collect_network_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review related network context",
+                    "Review nearby network evidence in the incident timeline. A network diagnostic is exposed only when network evidence is actually present.",
                 ),
                 _action(
                     "remediation",
@@ -237,15 +237,10 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     ):
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect process context",
-                    "Return bounded process evidence before deciding whether service/resource pressure is security-related.",
-                    "collect_process_diagnostic",
-                ),
                 _action(
                     "diagnostic",
                     "Assess service and resource health",
-                    "Review health checks, storage pressure, and dependency failures around the incident window.",
+                    "Review health checks, storage pressure, dependency failures, and any existing process evidence around the incident window.",
                 ),
                 _action(
                     "remediation",
