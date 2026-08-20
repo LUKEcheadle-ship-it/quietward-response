@@ -50,35 +50,35 @@ RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
 
 COLLECT_PROCESS_DIAGNOSTIC = _diagnostic(
     "collect_process_diagnostic",
-    "Collect a bounded read-only process snapshot and process/privilege events from QuietWard.",
+    "Return bounded read-only process and privilege evidence already observed by QuietWard.",
 )
 COLLECT_NETWORK_DIAGNOSTIC = _diagnostic(
     "collect_network_diagnostic",
-    "Collect bounded read-only listening-socket and outbound-connection context from QuietWard.",
+    "Return bounded read-only listener and outbound-connection evidence already observed by QuietWard.",
 )
 COLLECT_PERSISTENCE_DIAGNOSTIC = _diagnostic(
     "collect_persistence_diagnostic",
-    "Collect bounded read-only persistence inventory and persistence-change context from QuietWard.",
+    "Return bounded read-only persistence-change evidence already observed by QuietWard.",
 )
 COLLECT_FILE_DIAGNOSTIC = _diagnostic(
     "collect_file_diagnostic",
-    "Collect bounded read-only file integrity, executable, malware-signature, and YARA context from QuietWard.",
+    "Return bounded read-only file-integrity, executable, malware-signature, and YARA evidence already observed by QuietWard.",
 )
 COLLECT_CONTAINER_DIAGNOSTIC = _diagnostic(
     "collect_container_diagnostic",
-    "Collect bounded read-only container state and container security-change context from QuietWard.",
+    "Return bounded read-only container security and configuration-change evidence already observed by QuietWard.",
 )
 COLLECT_IDENTITY_DIAGNOSTIC = _diagnostic(
     "collect_identity_diagnostic",
-    "Collect bounded authentication, account-change, and privilege-escalation context already observed by QuietWard.",
+    "Return bounded authentication, account-change, and privilege-escalation evidence already observed by QuietWard.",
 )
 COLLECT_VULNERABILITY_DIAGNOSTIC = _diagnostic(
     "collect_vulnerability_diagnostic",
-    "Collect bounded package-vulnerability and configuration-weakness context already observed by QuietWard.",
+    "Return bounded package-vulnerability and configuration-weakness evidence already observed by QuietWard.",
 )
 COLLECT_INTEGRITY_DIAGNOSTIC = _diagnostic(
     "collect_integrity_diagnostic",
-    "Collect bounded QuietWard self-integrity, evidence-integrity, and collector-health context.",
+    "Return bounded QuietWard self-integrity, evidence-integrity, and collector-health evidence already observed by QuietWard.",
 )
 
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
