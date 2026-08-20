@@ -1,0 +1,6 @@
+release=v1.0.0
+release_present=yes
+tag_target=0906983fa6f5c3b925383af8e7c498548eef406e
+release_draft=no
+release_prerelease=no
+visibility=blocked
