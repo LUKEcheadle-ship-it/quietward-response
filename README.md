@@ -8,7 +8,7 @@ It is a **separate product and repository from QuietWard**. Response does not re
 >
 > The alpha adds broad response planning for malware/file, process/privilege, identity/authentication, persistence, network, container, vulnerability/configuration, sensor/evidence-integrity, and operational incidents. Planned/manual steps are clearly distinguished from executable actions.
 >
-> The executable endpoint surface remains deliberately narrow: `restart_quietward_demo_service` is the only registered action and exists only as the previously qualified demo-fixture lifecycle. There is no generic remote command surface.
+> The executable endpoint surface remains deliberately narrow: `restart_quietward_demo_service` is the only registered action. The alpha now includes a **Response-owned standalone agent** that can execute only that dedicated demo-fixture action. There is no generic remote command surface.
 
 ## What the alpha does
 
@@ -43,6 +43,8 @@ A plan contains:
 | Sensor / evidence integrity | trust review, audit/collection integrity checks, manual credential revocation guidance |
 | Operational issues | separate operational failure from adversarial activity and preserve evidence before recovery |
 
+The family mapper also recognizes common sensor terminology such as ransomware, credential spray/brute force, credential dumping, C2/beaconing, lateral movement, scheduled-task/autorun persistence, container/Kubernetes alerts, CVEs/misconfiguration, defense evasion/tamper, suspicious execution, file-integrity changes, and availability/resource failures.
+
 These plans make the system useful across many incident types **without pretending unsupported host automation exists**.
 
 ## Architecture
@@ -58,12 +60,13 @@ flowchart TD
     P --> H[Analyst investigation / manual containment]
     P --> A[Controlled action registry]
     A --> G[Approval + deterministic policy]
-    G --> E[Compatible response agent]
+    G --> E[Response-owned outward-polling agent]
+    E -->|signed result| X
     X --> U[Tamper-evident audit]
     G --> U
 ```
 
-The control plane never turns plan text into shell commands. An action must exist in the explicit action registry before the action API can create it.
+The control plane never turns plan text into shell commands. An action must exist in the explicit action registry before the action API can create it, and the Response agent independently allowlists the action again.
 
 ## Quick start
 
@@ -122,21 +125,62 @@ The alpha action registry contains exactly one executable action:
 
 `restart_quietward_demo_service`
 
-This is a compatibility/demo capability. It is not a general service manager and accepts no service name, path, PID, IP address, command, script, or arbitrary parameters.
+The name is retained for v1 API compatibility. It is not a general service manager and accepts no service name, path, PID, IP address, command, script, or arbitrary parameters. The bundled Response agent maps it only to its own dedicated JSON demo fixture.
 
-All other response capabilities shown in a plan are currently `manual`, `planned`, or `blocked` until a dedicated Response agent implements a narrow typed executor with:
+All other response capabilities shown in a plan remain `manual`, `planned`, or `blocked`. Extending the Response agent to real containment requires:
 
-- exact target identity;
+- exact target identity or an endpoint-validated opaque resource handle;
 - endpoint-side allowlisting;
-- preconditions;
+- preconditions and stale-target protection;
 - expiry;
 - analyst approval;
 - deterministic policy;
-- idempotency;
+- idempotency and a durable execution journal;
 - timeout/failure semantics;
 - evidence preservation;
 - rollback metadata where applicable;
+- least privilege;
 - adversarial validation.
+
+## Bundled Response agent — alpha demo boundary
+
+The repository includes `scripts/response_agent.py`, a standard-library outward-polling agent owned by this product. In this alpha it deliberately implements only the dedicated demo action.
+
+It does **not** import or invoke subprocess, PowerShell, cmd, shell commands, service managers, process-kill APIs, firewall tools, quarantine tools, account managers, container-control tools, or package managers.
+
+### Enroll the agent
+
+With Response running, provide the local enrollment token and a test host ID:
+
+```text
+python scripts/enroll_response_agent.py --host-id response-alpha-host --token YOUR_LOCAL_ENROLLMENT_TOKEN
+```
+
+The helper writes the one-time secret to a private local JSON config and does not echo it to the terminal. Override the config/state paths with `--config-file` and `--state-dir` if needed.
+
+The default config paths are user-local:
+
+- Windows: `%LOCALAPPDATA%\QuietWardResponse\agent.json`
+- Linux/macOS: `~/.config/quietward-response/agent.json` (or `$XDG_CONFIG_HOME`)
+
+Production credential storage should move to OS secret storage; the private JSON file is an alpha/local-development mechanism.
+
+### Exercise the demo fixture
+
+Initialize the dedicated fixture:
+
+```text
+python scripts/response_agent.py init-demo-unhealthy --config PATH_TO_AGENT_JSON
+```
+
+After a matching demo incident/action is prepared and approved in Response:
+
+```text
+python scripts/response_agent.py poll-once --config PATH_TO_AGENT_JSON
+python scripts/response_agent.py status --config PATH_TO_AGENT_JSON
+```
+
+The agent persists execution intent before changing the fixture, records the applied action ID/result, reports a signed terminal result, and does not apply the same action twice on retry.
 
 ## Core API
 
@@ -183,6 +227,8 @@ Run the standalone live HTTP acceptance:
 python scripts/verify_v11_alpha_live.py
 ```
 
+The live gate also proves the bundled Response agent completes the approved demo action exactly once and returns a signed result without any detector repository checkout.
+
 On an exact clean candidate checkout, the final automated wrapper is:
 
 ```text
@@ -221,11 +267,13 @@ Additional controls:
 
 - strict Pydantic request envelopes;
 - action allowlist separate from response-plan guidance;
+- independent Response-agent allowlist;
 - explicit human approval for registered actions;
 - deterministic policy revalidation before dispatch;
 - action expiry and lifecycle checks;
 - bounded ActionResult/evidence serialized sizes;
 - replay-resistant authenticated agent requests;
+- durable demo execution ledger and action-id marker;
 - single-process/single-worker qualification boundary;
 - hash-chained audit verification at startup and on demand.
 
@@ -233,9 +281,10 @@ Additional controls:
 
 - analyst identity is development-grade `X-Actor-ID`, not OIDC/RBAC;
 - HMAC transport assumes TLS outside loopback/trusted development;
+- agent secrets are stored in a permission-hardened local JSON file when using the alpha enrollment helper rather than OS secret storage;
 - the audit chain is tamper-evident, not immutable;
 - the API is qualified only as a single process/single worker;
-- most real containment steps are guidance until the separate Response agent layer is implemented and qualified;
+- the bundled agent implements only the demo fixture; real containment remains guidance until narrow agent executors are individually qualified;
 - the product is not a SIEM, EDR replacement, or autonomous remediation system.
 
 Licensed under Apache-2.0.
