@@ -31,6 +31,14 @@ CASES = (
     ("container_escape_indicator", "container", "critical", "container"),
     ("package_vulnerability", "vulnerability", "medium", "vulnerability"),
     ("evidence_integrity_failure", "integrity", "critical", "integrity"),
+    # Real adapters frequently use vendor-specific names and broad categories.
+    # These cases prevent classifier/plan drift from hiding behind canonical fixtures.
+    ("ransomware_detected", "execution", "critical", "malware"),
+    ("credential_spray_detected", "security", "high", "identity"),
+    ("c2_beacon_detected", "security", "high", "network"),
+    ("audit_log_clear", "security", "high", "integrity"),
+    ("kubernetes_pod_security_violation", "security", "high", "container"),
+    ("cve_2026_1234_detected", "security", "medium", "vulnerability"),
 )
 
 
@@ -138,6 +146,10 @@ def main() -> int:
                     raise RuntimeError(
                         f"response plan missing {expected_family}: {plan!r}"
                     )
+                if "unknown" in plan.get("attack_families", []):
+                    raise RuntimeError(
+                        f"known response family was downgraded to unknown: {plan!r}"
+                    )
                 if plan.get("executable_actions") != []:
                     raise RuntimeError(
                         f"non-demo plan exposed executable action: {plan!r}"
@@ -145,7 +157,7 @@ def main() -> int:
                 if not plan.get("investigation_steps"):
                     raise RuntimeError(f"response plan missing investigation steps: {plan!r}")
                 verified_families.append(expected_family)
-                if expected_family == "malware":
+                if expected_family == "malware" and malware_incident_id is None:
                     malware_incident_id = incident_id
                     malware_host_id = host_id
 
@@ -256,7 +268,7 @@ def main() -> int:
                 raise RuntimeError(f"audit chain failed verification: {audit!r}")
 
             print("V1.1.0-ALPHA.1 LIVE STANDALONE ACCEPTANCE: PASS")
-            print("response_families=" + ",".join(verified_families))
+            print(f"response_family_cases={len(CASES)}")
             print("executable_actions=restart_quietward_demo_service")
             print("unsupported_advisory_action_rejected=yes")
             print("response_owned_agent_demo_exactly_once=yes")
