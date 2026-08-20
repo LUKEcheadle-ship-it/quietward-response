@@ -99,6 +99,46 @@ def test_agent_config_rejects_relative_state_directory(tmp_path: Path) -> None:
         AgentConfig.from_file(path)
 
 
+def test_direct_agent_config_enforces_transport_and_state_boundaries(tmp_path: Path) -> None:
+    with pytest.raises(ResponseAgentError, match="plain HTTP.*loopback"):
+        AgentConfig(
+            base_url="http://192.0.2.10:8002",
+            agent_id="agent-alpha",
+            key_id="key-alpha",
+            secret="alpha-secret",
+            host_id="host-alpha",
+            state_dir=tmp_path,
+        )
+    with pytest.raises(ResponseAgentError, match="must be absolute"):
+        AgentConfig(
+            base_url="http://127.0.0.1:8002",
+            agent_id="agent-alpha",
+            key_id="key-alpha",
+            secret="alpha-secret",
+            host_id="host-alpha",
+            state_dir=Path("relative-state"),
+        )
+    with pytest.raises(ResponseAgentError, match="must not contain a path"):
+        AgentConfig(
+            base_url="https://response.example.test/api",
+            agent_id="agent-alpha",
+            key_id="key-alpha",
+            secret="alpha-secret",
+            host_id="host-alpha",
+            state_dir=tmp_path,
+        )
+
+    secure = AgentConfig(
+        base_url="https://response.example.test:8443/",
+        agent_id="agent-alpha",
+        key_id="key-alpha",
+        secret="alpha-secret",
+        host_id="host-alpha",
+        state_dir=tmp_path,
+    )
+    assert secure.base_url == "https://response.example.test:8443"
+
+
 def test_response_agent_allowlist_rejects_target_and_parameter_substitution(tmp_path: Path) -> None:
     agent = ResponseAgent(_config(tmp_path))
     agent.initialize_demo_fixture(unhealthy=True)
@@ -114,6 +154,8 @@ def test_response_agent_allowlist_rejects_target_and_parameter_substitution(tmp_
         agent._validate_action(_action(parameters={"command": "whoami"}), ledger)
     with pytest.raises(ResponseAgentError, match="not policy-allowed"):
         agent._validate_action(_action(policy_allowed=False), ledger)
+    with pytest.raises(ResponseAgentError, match="action id is invalid"):
+        agent._validate_action(_action(action_id="x" * 37), ledger)
 
 
 def test_demo_fixture_action_is_exactly_once_locally(tmp_path: Path) -> None:
