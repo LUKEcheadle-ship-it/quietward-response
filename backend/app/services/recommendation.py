@@ -12,18 +12,20 @@ def _action(
 ) -> dict[str, object]:
     diagnostic = action_type == "diagnostic"
     controlled = registry_action_type is not None
+    if registry_action_type == "restart_quietward_demo_service":
+        phase = "v1 — approval required"
+    elif controlled:
+        phase = "v1.1 — approval required"
+    elif diagnostic:
+        phase = "v1"
+    else:
+        phase = "v1.1 — not enabled"
     return {
         "action_type": action_type,
         "title": title,
         "description": description,
         "enabled": diagnostic or controlled,
-        "phase": (
-            "v1"
-            if diagnostic and not controlled
-            else "v1.1 — approval required"
-            if controlled
-            else "v1.1 — not enabled"
-        ),
+        "phase": phase,
         "registry_action_type": registry_action_type,
         "requires_approval": controlled,
     }
@@ -72,7 +74,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
         recommendations.append(
             _controlled_diagnostic(
                 "Collect process and privilege context",
-                "Collect a bounded read-only process snapshot plus current process/privilege evidence from QuietWard.",
+                "Return bounded read-only process and privilege evidence already observed by QuietWard.",
                 "collect_process_diagnostic",
             )
         )
@@ -89,7 +91,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect file and malware context",
-                    "Collect bounded read-only file-integrity, executable, malware-signature, and YARA context from QuietWard.",
+                    "Return bounded read-only file-integrity, executable, malware-signature, and YARA evidence already observed by QuietWard.",
                     "collect_file_diagnostic",
                 ),
                 _action(
@@ -108,12 +110,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect persistence context",
-                    "Collect the current bounded persistence inventory and persistence-change evidence from QuietWard.",
+                    "Return bounded persistence-change evidence already observed by QuietWard.",
                     "collect_persistence_diagnostic",
                 ),
                 _controlled_diagnostic(
                     "Collect related process context",
-                    "Collect the current bounded process snapshot to correlate persistence with execution ancestry.",
+                    "Return bounded process and privilege evidence to correlate persistence with nearby execution.",
                     "collect_process_diagnostic",
                 ),
                 _action(
@@ -132,12 +134,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect network context",
-                    "Collect bounded listening-socket and outbound-connection context from QuietWard.",
+                    "Return bounded listener and outbound-connection evidence already observed by QuietWard.",
                     "collect_network_diagnostic",
                 ),
                 _controlled_diagnostic(
                     "Collect owning-process context",
-                    "Collect the bounded process snapshot to correlate network activity with process identity.",
+                    "Return bounded process evidence to correlate network activity with process identity.",
                     "collect_process_diagnostic",
                 ),
                 _action(
@@ -158,12 +160,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect container security context",
-                    "Collect bounded container state, security fingerprints, privilege flags, and configuration-change evidence from QuietWard.",
+                    "Return bounded container security and configuration-change evidence already observed by QuietWard.",
                     "collect_container_diagnostic",
                 ),
                 _controlled_diagnostic(
                     "Collect container network context",
-                    "Collect bounded network context to correlate suspicious container activity with host connections and listeners.",
+                    "Return bounded network evidence to correlate suspicious container activity with host connections and listeners.",
                     "collect_network_diagnostic",
                 ),
                 _action(
@@ -180,7 +182,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect identity and authentication context",
-                    "Collect bounded authentication, account-change, and privilege-escalation evidence already observed by QuietWard.",
+                    "Return bounded authentication, account-change, and privilege-escalation evidence already observed by QuietWard.",
                     "collect_identity_diagnostic",
                 ),
                 _action(
@@ -197,7 +199,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect vulnerability and configuration context",
-                    "Collect bounded package-vulnerability and configuration-weakness evidence already observed by QuietWard.",
+                    "Return bounded package-vulnerability and configuration-weakness evidence already observed by QuietWard.",
                     "collect_vulnerability_diagnostic",
                 ),
                 _action(
@@ -218,7 +220,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect QuietWard integrity context",
-                    "Collect bounded self-integrity, evidence-chain, and collector-health context before trusting additional endpoint evidence.",
+                    "Return bounded self-integrity, evidence-chain, and collector-health evidence before trusting additional endpoint observations.",
                     "collect_integrity_diagnostic",
                 ),
                 _action(
@@ -229,8 +231,6 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             ]
         )
 
-    # The dedicated demo health event is tagged operational for transport and UI
-    # grouping, but it is not a resource-exhaustion incident.
     if not demo_event and (
         "operational" in categories
         or any("disk" in value or "service_unavailable" in value for value in types)
@@ -239,7 +239,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _controlled_diagnostic(
                     "Collect process context",
-                    "Collect a bounded process snapshot before deciding whether service/resource pressure is security-related.",
+                    "Return bounded process evidence before deciding whether service/resource pressure is security-related.",
                     "collect_process_diagnostic",
                 ),
                 _action(
