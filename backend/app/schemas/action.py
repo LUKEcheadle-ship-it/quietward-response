@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -16,6 +17,17 @@ ActionStatus = Literal[
     "expired",
     "cancelled",
 ]
+
+MAX_ACTION_RESULT_BYTES = 256 * 1024
+MAX_ACTION_EVIDENCE_BYTES = 64 * 1024
+
+
+def _json_size(value: dict[str, Any]) -> int:
+    return len(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    )
 
 
 class ActionCreate(BaseModel):
@@ -98,7 +110,7 @@ class ActionResultCreate(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_lifecycle_timestamps(self) -> "ActionResultCreate":
+    def validate_lifecycle_and_bounds(self) -> "ActionResultCreate":
         if self.status == "executing" and self.completed_at is not None:
             raise ValueError("executing result cannot include completed_at")
         if (
@@ -107,6 +119,14 @@ class ActionResultCreate(BaseModel):
             and self.completed_at < self.started_at
         ):
             raise ValueError("completed_at cannot be earlier than started_at")
+        if _json_size(self.result) > MAX_ACTION_RESULT_BYTES:
+            raise ValueError(
+                f"result exceeds {MAX_ACTION_RESULT_BYTES} serialized bytes"
+            )
+        if _json_size(self.evidence) > MAX_ACTION_EVIDENCE_BYTES:
+            raise ValueError(
+                f"evidence exceeds {MAX_ACTION_EVIDENCE_BYTES} serialized bytes"
+            )
         return self
 
 
