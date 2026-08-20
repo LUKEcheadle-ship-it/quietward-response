@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
@@ -10,49 +11,60 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 from app.services.action_registry import ACTION_REGISTRY
+from app.services.response_plan import build_response_plan
 
 
-DIAGNOSTIC_ACTIONS = {
-    "collect_process_diagnostic",
-    "collect_network_diagnostic",
-    "collect_persistence_diagnostic",
-    "collect_file_diagnostic",
-    "collect_container_diagnostic",
-    "collect_identity_diagnostic",
-    "collect_vulnerability_diagnostic",
-    "collect_integrity_diagnostic",
-}
-EXPECTED_ACTIONS = {"restart_quietward_demo_service", *DIAGNOSTIC_ACTIONS}
+CASES = (
+    ("malware_signature", "malware", "critical", "malware"),
+    ("privilege_escalation", "privilege", "high", "privilege"),
+    ("auth_failure", "identity", "medium", "identity"),
+    ("persistence_change", "persistence", "high", "persistence"),
+    ("outbound_connection", "network", "high", "network"),
+    ("container_escape_indicator", "container", "critical", "container"),
+    ("package_vulnerability", "vulnerability", "medium", "vulnerability"),
+    ("evidence_integrity_failure", "integrity", "critical", "integrity"),
+)
 
 
 def main() -> int:
     actual = set(ACTION_REGISTRY)
-    if actual != EXPECTED_ACTIONS:
-        raise RuntimeError(
-            f"unexpected v1.1 response action surface: {sorted(actual)}"
-        )
-
-    for action_type in sorted(DIAGNOSTIC_ACTIONS):
-        definition = ACTION_REGISTRY[action_type]
-        if definition.approval_required is not True:
-            raise RuntimeError(f"{action_type} must require approval")
-        if definition.risk_level != "low":
-            raise RuntimeError(f"{action_type} must remain low risk")
-        if definition.reversible is not True:
-            raise RuntimeError(f"{action_type} must remain reversible/read-only")
-        if definition.validate_parameters({}) != []:
-            raise RuntimeError(f"{action_type} rejected its empty parameter envelope")
-        if not definition.validate_parameters({"command": "forbidden"}):
-            raise RuntimeError(f"{action_type} accepted non-empty parameters")
+    if actual != {"restart_quietward_demo_service"}:
+        raise RuntimeError(f"unexpected executable alpha action surface: {sorted(actual)}")
 
     forbidden_fragments = ("shell", "command", "exec", "powershell", "script")
     for action_type in actual:
         if any(fragment in action_type.lower() for fragment in forbidden_fragments):
             raise RuntimeError(f"generic execution surface detected: {action_type}")
 
-    print("V1.1 DIAGNOSTIC RESPONSE SURFACE: PASS")
-    print("Approval-gated diagnostics:", ", ".join(sorted(DIAGNOSTIC_ACTIONS)))
-    print("Legacy v1 demo action retained: restart_quietward_demo_service")
+    for index, (event_type, category, severity, expected_family) in enumerate(CASES):
+        incident = SimpleNamespace(
+            incident_id=f"alpha-static-{index}",
+            severity=severity,
+        )
+        event = SimpleNamespace(event_type=event_type, category=category)
+        plan = build_response_plan(incident, [event])
+        if expected_family not in plan["attack_families"]:
+            raise RuntimeError(f"missing response family {expected_family}: {plan!r}")
+        if plan["executable_actions"]:
+            raise RuntimeError(
+                f"non-demo response plan unexpectedly executable: {plan['executable_actions']}"
+            )
+        if not plan["investigation_steps"]:
+            raise RuntimeError(f"response plan has no investigation steps: {expected_family}")
+        for section in ("containment_steps", "recovery_steps"):
+            for step in plan[section]:
+                if step.get("state") not in {"available", "manual", "planned", "blocked"}:
+                    raise RuntimeError(f"invalid step state: {step!r}")
+
+    demo_incident = SimpleNamespace(incident_id="alpha-demo", severity="medium")
+    demo_event = SimpleNamespace(event_type="demo_service_unhealthy", category="operational")
+    demo_plan = build_response_plan(demo_incident, [demo_event])
+    if demo_plan["executable_actions"] != ["restart_quietward_demo_service"]:
+        raise RuntimeError(f"demo action missing from demo plan: {demo_plan!r}")
+
+    print("V1.1 ALPHA RESPONSE PLAN SURFACE: PASS")
+    print("Executable endpoint actions: restart_quietward_demo_service")
+    print("Advisory response families:", ", ".join(case[3] for case in CASES))
     print("Generic command/shell execution surface: absent")
     return 0
 
