@@ -13,7 +13,6 @@ from uuid import uuid4
 
 from verify_v1_live import (
     BACKEND,
-    _enroll,
     _free_port,
     _json_request,
     _python,
@@ -50,6 +49,22 @@ def _event(host_id: str, event_type: str, category: str, severity: str) -> dict[
         "evidence": {"synthetic": True, "alpha_acceptance": True},
         "metadata": {"operating_system": "Test OS"},
     }
+
+
+def _enroll_alpha_agent(api_url: str, token: str, host_id: str) -> dict[str, Any]:
+    value = _json_request(
+        api_url + "/api/v1/agents/enroll",
+        method="POST",
+        headers={"X-QWR-Enrollment-Token": token},
+        payload={
+            "host_id": host_id,
+            "display_name": f"Response alpha acceptance agent on {host_id}",
+            "agent_version": "v1.1-alpha-acceptance",
+        },
+    )
+    if not isinstance(value, dict) or not value.get("secret"):
+        raise RuntimeError("agent enrollment returned an invalid response")
+    return value
 
 
 def main() -> int:
@@ -134,7 +149,7 @@ def main() -> int:
             if malware_incident_id is None or malware_host_id is None:
                 raise RuntimeError("malware acceptance fixture was not created")
 
-            enrollment = _enroll(api_url, token, malware_host_id)
+            enrollment = _enroll_alpha_agent(api_url, token, malware_host_id)
             try:
                 _json_request(
                     api_url + f"/api/v1/incidents/{malware_incident_id}/actions",
