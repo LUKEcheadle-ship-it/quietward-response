@@ -18,75 +18,50 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Tag verified release commit
+      - name: Verify tag and GitHub Release, then attempt public visibility
         env:
+          GH_TOKEN: ${{ github.token }}
           TARGET_SHA: 0906983fa6f5c3b925383af8e7c498548eef406e
         run: |
           set -euo pipefail
           git fetch origin --tags
-          if git rev-parse -q --verify refs/tags/v1.0.0 >/dev/null; then
-            EXISTING="$(git rev-list -n 1 v1.0.0)"
-            test "$EXISTING" = "$TARGET_SHA"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a v1.0.0 "$TARGET_SHA" -m "QuietWard Response v1.0.0"
-            git push origin refs/tags/v1.0.0
-          fi
+          TAG_TARGET="$(git rev-list -n 1 v1.0.0)"
+          test "$TAG_TARGET" = "$TARGET_SHA"
 
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: 0906983fa6f5c3b925383af8e7c498548eef406e
-        run: |
-          set -euo pipefail
-          cat > /tmp/release-notes.md <<'EOF'
-          # QuietWard Response v1.0.0
-
-          First public controlled-response release.
-
-          **Validated release path:** authenticated QuietWard telemetry → deterministic incident correlation/investigation → explicit human approval → deterministic policy → outward endpoint polling → endpoint allowlist → demo-fixture-only action → signed result → tamper-evident audit.
-
-          Qualification completed on the release source:
-          - 73 QuietWard Response backend tests passed with warnings as errors
-          - fresh and Phase1→v1 Alembic migration/upgrade/drift checks passed
-          - frontend typecheck and production build passed
-          - shipped frontend high-severity npm audit: 0 vulnerabilities
-          - QuietWard public-release audit passed with no blockers
-          - 182 QuietWard tests passed
-          - real two-repository HTTP acceptance passed
-          - safe demo action executed exactly once and returned a signed terminal result
-          - public quick-start startup/shutdown cleanup passed
-          - live browser UI route and response-lifecycle smoke passed
-
-          v1 deliberately exposes only `restart_quietward_demo_service`, which modifies a dedicated JSON demo fixture. It does not provide arbitrary shell execution, process termination, real service control, file deletion/quarantine, firewall changes, host isolation, or autonomous remediation.
-          EOF
-          if gh release view v1.0.0 >/dev/null 2>&1; then
-            gh release edit v1.0.0 --target "$TARGET_SHA" --title "QuietWard Response v1.0.0" --notes-file /tmp/release-notes.md
-          else
-            gh release create v1.0.0 --target "$TARGET_SHA" --title "QuietWard Response v1.0.0" --notes-file /tmp/release-notes.md
-          fi
-          echo "V1_RELEASE_CREATED=YES"
-
-      - name: Attempt public repository visibility
-        id: visibility
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}" -F private=false >/tmp/visibility.json
+          gh release view v1.0.0 --json tagName,name,isDraft,isPrerelease,url,targetCommitish >/tmp/release.json
           python - <<'PY'
           import json
-          value = json.load(open('/tmp/visibility.json', encoding='utf-8'))
-          assert value.get('private') is False, value.get('visibility')
-          print('REPOSITORY_VISIBILITY=PUBLIC')
+          value = json.load(open('/tmp/release.json', encoding='utf-8'))
+          assert value['tagName'] == 'v1.0.0', value
+          assert value['name'] == 'QuietWard Response v1.0.0', value
+          assert value['isDraft'] is False, value
+          assert value['isPrerelease'] is False, value
+          print('RELEASE_VERIFIED=YES')
           PY
 
-      - name: Report publication state
-        env:
-          VISIBILITY_OUTCOME: ${{ steps.visibility.outcome }}
-        run: |
-          echo "TAG=v1.0.0"
-          echo "RELEASE=CREATED"
-          echo "VISIBILITY_ATTEMPT=${VISIBILITY_OUTCOME}"
+          VISIBILITY="blocked"
+          if gh api --method PATCH "repos/${GITHUB_REPOSITORY}" -F private=false >/tmp/visibility.json 2>/tmp/visibility.err; then
+            if python - <<'PY'
+          import json
+          value = json.load(open('/tmp/visibility.json', encoding='utf-8'))
+          raise SystemExit(0 if value.get('private') is False else 1)
+          PY
+            then
+              VISIBILITY="public"
+            fi
+          fi
+
+          cat > .github/v1-publication-result.txt <<EOF
+          release=v1.0.0
+          release_present=yes
+          tag_target=${TAG_TARGET}
+          release_draft=no
+          release_prerelease=no
+          visibility=${VISIBILITY}
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/v1-publication-result.txt
+          git commit -m "chore: record temporary v1 publication result"
+          git push origin HEAD:main
