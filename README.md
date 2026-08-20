@@ -4,7 +4,7 @@ QuietWard Response is an event-driven incident investigation and controlled-resp
 
 The v1 line adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. There is still **no arbitrary command execution** and no general host-remediation surface.
 
-> **Release status:** `v1.0.0` is the first public controlled-response release. It remains intentionally narrow: authenticated telemetry, deterministic investigation/approval/policy, and one demo-fixture-only executable action.
+> **Release status:** `v1.0.0` is the first public controlled-response release. The final release qualification passed on 2026-08-19: 73 Response backend tests, migrations/drift checks, frontend typecheck/build/audit, 182 QuietWard tests, the real two-repository HTTP loop, quick-start cleanup, and a live browser UI smoke. The executable scope remains demo-fixture-only.
 
 ## Relationship with QuietWard
 
@@ -49,7 +49,7 @@ python scripts/bootstrap_local.py
 
 On Windows, `py -3.12 scripts\bootstrap_local.py` is also supported when Python is installed through the Python launcher.
 
-`bootstrap_local.py` is the cross-platform first-run path. It creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, creates/reconciles the Python virtual environment, installs dependencies, applies database migrations, installs frontend dependencies when needed, starts the API and frontend, and refuses to report ready unless both are reachable.
+`bootstrap_local.py` is the cross-platform first-run path. It creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, creates/reconciles the Python virtual environment, installs dependencies, applies database migrations, installs frontend dependencies when needed, starts the API and frontend, and refuses to report ready unless both are reachable. It also terminates the full product process groups on shutdown so the API and frontend ports are released cleanly.
 
 A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents.
 
@@ -186,7 +186,7 @@ Events claiming `source=quietward` require authenticated agent delivery when `QW
 
 ## v1 verification
 
-The complete release gate is:
+The complete gate is:
 
 ```text
 python scripts/finalize_v1.py --quietward-repo ../quietward
@@ -199,11 +199,11 @@ python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the final UI smoke check.
+See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the UI smoke requirements.
 
 ## Safety status
 
-QuietWard Response v1 is intentionally a controlled local-development response system, not an unrestricted remote administration service.
+QuietWard Response v1 is intentionally a controlled local/trusted-network response system, not an unrestricted remote administration service.
 
 Current guarantees are deliberately narrow:
 
