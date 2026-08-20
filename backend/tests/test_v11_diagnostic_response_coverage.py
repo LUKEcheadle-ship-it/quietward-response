@@ -18,6 +18,14 @@ from app.services.action_registry import ACTION_REGISTRY
         ("package_vulnerability", "vulnerability", "medium", "vulnerability"),
         ("evidence_integrity_failure", "integrity", "critical", "integrity"),
         ("service_unavailable", "operational", "medium", "operational"),
+        # High-signal vendor vocabulary must flow through the same shared classifier
+        # used by the public response-plan endpoint, even when the category is broad.
+        ("ransomware_detected", "execution", "critical", "malware"),
+        ("credential_spray_detected", "security", "high", "identity"),
+        ("c2_beacon_detected", "security", "high", "network"),
+        ("audit_log_clear", "security", "high", "integrity"),
+        ("kubernetes_pod_security_violation", "security", "high", "container"),
+        ("cve_2026_1234_detected", "security", "medium", "vulnerability"),
     ],
 )
 def test_major_attack_families_receive_structured_response_plans(
@@ -31,7 +39,7 @@ def test_major_attack_families_receive_structured_response_plans(
     created = client.post(
         "/api/v1/events",
         json=event_factory(
-            host_id=f"host-{expected_family}",
+            host_id=f"host-{expected_family}-{event_type}",
             event_type=event_type,
             category=category,
             severity=severity,
@@ -48,6 +56,7 @@ def test_major_attack_families_receive_structured_response_plans(
     assert plan["schema_version"] == "1.0"
     assert plan["mode"] == "advisory_with_controlled_actions"
     assert expected_family in plan["attack_families"]
+    assert "unknown" not in plan["attack_families"]
     assert plan["investigation_steps"]
     assert plan["containment_steps"] or plan["recovery_steps"]
     assert plan["executable_actions"] == []
