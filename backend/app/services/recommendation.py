@@ -14,9 +14,9 @@ def _action(
     if registry_action_type == "restart_quietward_demo_service":
         phase = "v1 — approval required"
     elif action_type == "diagnostic":
-        phase = "v1.1 alpha — advisory"
+        phase = "v1"
     else:
-        phase = "v1.1 alpha — planned"
+        phase = "v1 — not enabled"
     return {
         "action_type": action_type,
         "title": title,
@@ -42,12 +42,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "diagnostic",
                     "Confirm demo service health",
-                    "Verify that the dedicated Response demo fixture is the affected test resource and review its recorded state.",
+                    "Verify the dedicated QuietWard Response demo service is the affected fixture and inspect its local health state.",
                 ),
                 _action(
                     "remediation",
-                    "Restart Response demo service fixture",
-                    "Reset only the dedicated demo fixture after analyst approval and deterministic policy validation.",
+                    "Restart QuietWard demo service",
+                    "Restart only the dedicated QuietWard Response demo fixture after analyst approval and policy validation.",
                     registry_action_type="restart_quietward_demo_service",
                 ),
             ]
@@ -122,7 +122,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Contain suspicious network activity",
-                    "Temporary network blocking or host isolation is planned but disabled until bounded rules, connectivity-preservation checks, expiry, and rollback are qualified.",
+                    "Firewall and host-isolation changes remain disabled until bounded rules, rollback, and connectivity-preservation checks are qualified.",
                 ),
             ]
         )
@@ -142,7 +142,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Contain suspicious container",
-                    "Container stop or network containment is planned but disabled until exact container identity and recovery semantics are qualified.",
+                    "Container stop/network containment remains disabled until exact container identity and recovery semantics are qualified.",
                 ),
             ]
         )
@@ -200,7 +200,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Revoke suspected sensor credential",
-                    "Credential revocation can be performed manually from the agent control plane; automatic revocation remains disabled until stronger analyst authentication/RBAC is available.",
+                    "Agent disable/revocation is available to the analyst control plane; automatic revocation remains disabled pending stronger analyst identity/RBAC.",
                 ),
             ]
         )
@@ -260,8 +260,8 @@ def probable_cause_for(events: list[EventRecord]) -> str:
     types = {str(event.event_type or "").lower() for event in events}
     if types & {"quietward_demo_service_unhealthy", "demo_service_unhealthy"}:
         return (
-            "The dedicated Response demo fixture reported an unhealthy state. The approval-gated "
-            "demo-fixture reset remains the only endpoint state-changing action in this alpha."
+            "The dedicated QuietWard Response demo service reported an unhealthy state. "
+            "The approval-gated demo-fixture restart remains available."
         )
     if types & {"malware_signature", "yara_match"} or "malware" in categories:
         return (
