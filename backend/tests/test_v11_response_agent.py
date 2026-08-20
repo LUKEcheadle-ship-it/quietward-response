@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.response_agent import AgentConfig, ResponseAgent, ResponseAgentError
+from scripts.response_agent import (
+    AgentConfig,
+    ResponseAgent,
+    ResponseAgentError,
+    write_agent_config,
+)
 
 
 def _config(tmp_path: Path) -> AgentConfig:
@@ -63,6 +68,37 @@ class FakeResponseAgent(ResponseAgent):
         raise AssertionError((method, target))
 
 
+def test_private_config_round_trip_and_overwrite_protection(tmp_path: Path) -> None:
+    config = _config(tmp_path / "state")
+    path = tmp_path / "agent.json"
+    write_agent_config(path, config)
+
+    loaded = AgentConfig.from_file(path)
+    assert loaded == config
+    assert json.loads(path.read_text(encoding="utf-8"))["secret"] == "alpha-secret"
+    with pytest.raises(ResponseAgentError, match="already exists"):
+        write_agent_config(path, config)
+
+
+def test_agent_config_rejects_relative_state_directory(tmp_path: Path) -> None:
+    path = tmp_path / "agent.json"
+    path.write_text(
+        json.dumps(
+            {
+                "base_url": "http://127.0.0.1:8002",
+                "agent_id": "agent-alpha",
+                "key_id": "key-alpha",
+                "secret": "alpha-secret",
+                "host_id": "host-alpha",
+                "state_dir": "relative-state",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ResponseAgentError, match="must be absolute"):
+        AgentConfig.from_file(path)
+
+
 def test_response_agent_allowlist_rejects_target_and_parameter_substitution(tmp_path: Path) -> None:
     agent = ResponseAgent(_config(tmp_path))
     agent.initialize_demo_fixture(unhealthy=True)
@@ -103,8 +139,6 @@ def test_poll_once_persists_terminal_result_and_does_not_reexecute(tmp_path: Pat
     assert agent.poll_once() == 1
     assert [item["status"] for item in agent.results] == ["executing", "succeeded"]
 
-    # The same delivered action is reconciled from the terminal ledger rather than
-    # changing the demo fixture again.
     assert agent.poll_once() == 0
     assert agent.results[-1]["status"] == "succeeded"
     state = json.loads(agent.demo_state_path.read_text(encoding="utf-8"))
@@ -119,9 +153,9 @@ def test_server_only_executing_state_requires_local_history(tmp_path: Path) -> N
 
 
 def test_agent_source_has_no_generic_host_execution_primitive() -> None:
-    source = (Path(__file__).resolve().parents[2] / "scripts" / "response_agent.py").read_text(
-        encoding="utf-8"
-    )
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "scripts" / "response_agent.py").read_text(encoding="utf-8")
+    enrollment = (root / "scripts" / "enroll_response_agent.py").read_text(encoding="utf-8")
     for forbidden in (
         "import subprocess",
         "subprocess.run",
@@ -132,3 +166,5 @@ def test_agent_source_has_no_generic_host_execution_primitive() -> None:
         "cmd.exe",
     ):
         assert forbidden not in source
+        assert forbidden not in enrollment
+    assert "was not printed" in enrollment
