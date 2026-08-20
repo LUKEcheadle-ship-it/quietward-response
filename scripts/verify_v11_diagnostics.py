@@ -23,6 +23,14 @@ CASES = (
     ("container_escape_indicator", "container", "critical", "container"),
     ("package_vulnerability", "vulnerability", "medium", "vulnerability"),
     ("evidence_integrity_failure", "integrity", "critical", "integrity"),
+    # High-signal vendor vocabulary must use the same shared classifier as the
+    # response-plan API rather than falling back to a broad category.
+    ("ransomware_detected", "execution", "critical", "malware"),
+    ("credential_spray_detected", "security", "high", "identity"),
+    ("c2_beacon_detected", "security", "high", "network"),
+    ("audit_log_clear", "security", "high", "integrity"),
+    ("kubernetes_pod_security_violation", "security", "high", "container"),
+    ("cve_2026_1234_detected", "security", "medium", "vulnerability"),
 )
 
 
@@ -45,6 +53,8 @@ def main() -> int:
         plan = build_response_plan(incident, [event])
         if expected_family not in plan["attack_families"]:
             raise RuntimeError(f"missing response family {expected_family}: {plan!r}")
+        if "unknown" in plan["attack_families"]:
+            raise RuntimeError(f"known response family was downgraded to unknown: {plan!r}")
         if plan["executable_actions"]:
             raise RuntimeError(
                 f"non-demo response plan unexpectedly executable: {plan['executable_actions']}"
@@ -64,7 +74,7 @@ def main() -> int:
 
     print("V1.1 ALPHA RESPONSE PLAN SURFACE: PASS")
     print("Executable endpoint actions: restart_quietward_demo_service")
-    print("Advisory response families:", ", ".join(case[3] for case in CASES))
+    print("Response-family cases checked:", len(CASES))
     print("Generic command/shell execution surface: absent")
     return 0
 
