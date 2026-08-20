@@ -35,12 +35,16 @@ _CATEGORY_FAMILIES: dict[str, str] = {
     "privilege": "privilege",
     "identity": "identity",
     "authentication": "identity",
+    "credential_access": "identity",
     "persistence": "persistence",
     "network": "network",
+    "command_and_control": "network",
+    "lateral_movement": "network",
     "container": "container",
     "vulnerability": "vulnerability",
     "configuration": "vulnerability",
     "integrity": "integrity",
+    "defense_evasion": "integrity",
     "operational": "operational",
     "availability": "operational",
 }
@@ -73,7 +77,10 @@ _EVENT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "impossible_travel",
             "account_takeover",
             "credential_theft",
+            "credential_dumping",
+            "token_theft",
             "session_hijack",
+            "phishing",
         ),
     ),
     (
@@ -93,9 +100,11 @@ _EVENT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "cron_change",
             "startup_entry",
             "autorun",
+            "registry_run",
             "persistence",
             "service_created",
             "service_install",
+            "new_service",
         ),
     ),
     (
@@ -106,6 +115,9 @@ _EVENT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "beacon",
             "dns_tunnel",
             "exfiltration",
+            "data_exfiltration",
+            "lateral_movement",
+            "remote_service",
             "suspicious_connection",
             "port_scan",
             "new_listener",
@@ -142,6 +154,9 @@ _EVENT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "tamper",
             "audit_failure",
+            "audit_log_clear",
+            "log_clear",
+            "defense_evasion",
             "evidence_integrity",
             "sensor_integrity",
             "sensor_disabled",
@@ -156,9 +171,13 @@ _EVENT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "suspicious_process",
             "command_execution",
             "script_execution",
+            "remote_execution",
             "encoded_command",
             "powershell_activity",
             "shell_activity",
+            "web_shell",
+            "lolbin",
+            "living_off_the_land",
             "process_injection",
         ),
     ),
@@ -194,12 +213,15 @@ def infer_response_family(event_type: str | None, category: str | None) -> str:
     if exact is not None:
         return exact
 
-    category_family = _CATEGORY_FAMILIES.get(raw_category)
-    if category_family is not None:
-        return category_family
-
+    # High-signal event vocabulary wins over a broad vendor category. For example,
+    # a ransomware event categorized merely as "execution" must still get the
+    # malware response plan rather than a generic process-execution plan.
     for family, hints in _EVENT_HINTS:
         if any(hint in event for hint in hints):
             return family
+
+    category_family = _CATEGORY_FAMILIES.get(raw_category)
+    if category_family is not None:
+        return category_family
 
     return "unknown"
