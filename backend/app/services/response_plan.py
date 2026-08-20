@@ -4,47 +4,7 @@ import hashlib
 from collections.abc import Iterable
 
 from app.database.models import EventRecord, IncidentRecord
-
-
-_FAMILY_BY_EVENT_TYPE: dict[str, str] = {
-    "malware_signature": "malware",
-    "yara_match": "malware",
-    "executable_created": "malware",
-    "sensitive_file_change": "file_integrity",
-    "file_change": "file_integrity",
-    "process_start": "execution",
-    "privilege_escalation": "privilege",
-    "auth_failure": "identity",
-    "account_change": "identity",
-    "persistence_change": "persistence",
-    "new_listening_port": "network",
-    "outbound_connection": "network",
-    "container_escape_indicator": "container",
-    "container_change": "container",
-    "container_configuration_change": "container",
-    "package_vulnerability": "vulnerability",
-    "configuration_weakness": "vulnerability",
-    "self_integrity_change": "integrity",
-    "evidence_integrity_failure": "integrity",
-    "collector_health": "integrity",
-    "quietward_demo_service_unhealthy": "demo",
-    "demo_service_unhealthy": "demo",
-}
-
-_FAMILY_BY_CATEGORY: dict[str, str] = {
-    "malware": "malware",
-    "file": "file_integrity",
-    "execution": "execution",
-    "privilege": "privilege",
-    "identity": "identity",
-    "persistence": "persistence",
-    "network": "network",
-    "container": "container",
-    "vulnerability": "vulnerability",
-    "configuration": "vulnerability",
-    "integrity": "integrity",
-    "operational": "operational",
-}
+from app.services.response_family import infer_response_family
 
 
 def _step(
@@ -80,26 +40,25 @@ def _dedupe_steps(steps: Iterable[dict[str, object]]) -> list[dict[str, object]]
 
 
 def _families(events: list[EventRecord]) -> list[str]:
-    values: set[str] = set()
-    for event in events:
-        event_type = str(event.event_type or "").strip().lower()
-        category = str(event.category or "").strip().lower()
-        if event_type in _FAMILY_BY_EVENT_TYPE:
-            values.add(_FAMILY_BY_EVENT_TYPE[event_type])
-        elif category in _FAMILY_BY_CATEGORY:
-            values.add(_FAMILY_BY_CATEGORY[category])
-        else:
-            values.add("unknown")
+    values = {
+        infer_response_family(event.event_type, event.category)
+        for event in events
+    }
     return sorted(values or {"unknown"})
 
 
 def _priority(incident: IncidentRecord, families: list[str]) -> str:
     severity = str(incident.severity or "").lower()
-    if severity == "critical" or "integrity" in families and severity == "high":
+    if severity == "critical" or ("integrity" in families and severity == "high"):
         return "critical"
     if severity == "high" or set(families) & {"malware", "privilege", "container"}:
         return "high"
-    if severity == "medium" or set(families) & {"identity", "persistence", "network", "vulnerability"}:
+    if severity == "medium" or set(families) & {
+        "identity",
+        "persistence",
+        "network",
+        "vulnerability",
+    }:
         return "elevated"
     return "routine"
 
@@ -109,7 +68,20 @@ def build_response_plan(
     events: list[EventRecord],
 ) -> dict[str, object]:
     families = _families(events)
-    investigation: list[dict[str, object]] = []
+    investigation: list[dict[str, object]] = [
+        _step(
+            "validate-evidence",
+            "Validate source evidence",
+            "Confirm event identity, timestamps, sensor/source trust, affected hosts, confidence, and corroborating indicators in the incident timeline.",
+            "available",
+        ),
+        _step(
+            "scope-adjacent-events",
+            "Scope adjacent activity",
+            "Review events immediately before and after the trigger and identify additional hosts, accounts, processes, files, containers, or destinations that may belong to the same incident.",
+            "available",
+        ),
+    ]
     containment: list[dict[str, object]] = []
     recovery: list[dict[str, object]] = []
     escalation: list[str] = []
@@ -119,23 +91,6 @@ def build_response_plan(
         "Recover service only after persistence, identity, and integrity risks are addressed.",
         "Keep every analyst decision and controlled action auditable.",
     ]
-
-    investigation.extend(
-        [
-            _step(
-                "validate-evidence",
-                "Validate source evidence",
-                "Confirm event identity, timestamps, sensor/source trust, affected hosts, confidence, and corroborating indicators in the incident timeline.",
-                "available",
-            ),
-            _step(
-                "scope-adjacent-events",
-                "Scope adjacent activity",
-                "Review events immediately before and after the trigger and identify additional hosts, accounts, processes, files, containers, or destinations that may belong to the same incident.",
-                "available",
-            ),
-        ]
-    )
 
     if "malware" in families or "file_integrity" in families:
         investigation.extend(
@@ -173,7 +128,9 @@ def build_response_plan(
                 requires_approval=True,
             )
         )
-        escalation.append("Escalate when malware evidence is confirmed on multiple hosts or reappears after cleanup.")
+        escalation.append(
+            "Escalate when malware evidence is confirmed on multiple hosts or reappears after cleanup."
+        )
 
     if "execution" in families or "privilege" in families:
         investigation.append(
@@ -194,7 +151,9 @@ def build_response_plan(
                 requires_approval=True,
             )
         )
-        escalation.append("Escalate immediately when privilege escalation is confirmed or a privileged malicious process persists.")
+        escalation.append(
+            "Escalate immediately when privilege escalation is confirmed or a privileged malicious process persists."
+        )
 
     if "identity" in families:
         investigation.append(
@@ -234,7 +193,9 @@ def build_response_plan(
                 requires_approval=True,
             )
         )
-        escalation.append("Escalate when a privileged account, service account, or repeated multi-account attack is involved.")
+        escalation.append(
+            "Escalate when a privileged account, service account, or repeated multi-account attack is involved."
+        )
 
     if "persistence" in families:
         investigation.append(
@@ -263,7 +224,9 @@ def build_response_plan(
                 "manual",
             )
         )
-        escalation.append("Escalate when persistence recreates itself or is tied to privileged execution.")
+        escalation.append(
+            "Escalate when persistence recreates itself or is tied to privileged execution."
+        )
 
     if "network" in families:
         investigation.append(
@@ -332,7 +295,9 @@ def build_response_plan(
                 requires_approval=True,
             )
         )
-        escalation.append("Escalate immediately for escape indicators, host namespace access, docker-socket access, or sensitive host mounts.")
+        escalation.append(
+            "Escalate immediately for escape indicators, host namespace access, docker-socket access, or sensitive host mounts."
+        )
 
     if "vulnerability" in families:
         investigation.append(
@@ -380,7 +345,9 @@ def build_response_plan(
                 requires_approval=True,
             )
         )
-        escalation.append("Escalate any confirmed evidence-chain tamper or sensor compromise before relying on additional endpoint claims.")
+        escalation.append(
+            "Escalate any confirmed evidence-chain tamper or sensor compromise before relying on additional endpoint claims."
+        )
 
     if "operational" in families:
         investigation.append(
@@ -408,7 +375,6 @@ def build_response_plan(
                 "Reset dedicated demo fixture",
                 "The released controlled-response demo action changes only the dedicated Response demo fixture and requires analyst approval plus deterministic policy validation.",
                 "available",
-                destructive=False,
                 requires_approval=True,
                 executable_action_type="restart_quietward_demo_service",
             )
@@ -416,7 +382,9 @@ def build_response_plan(
         executable_actions.append("restart_quietward_demo_service")
 
     if "unknown" in families:
-        escalation.append("Escalate when the event family cannot be mapped confidently to a bounded response procedure.")
+        escalation.append(
+            "Escalate when the event family cannot be mapped confidently to a bounded response procedure."
+        )
 
     investigation = _dedupe_steps(investigation)
     containment = _dedupe_steps(containment)
