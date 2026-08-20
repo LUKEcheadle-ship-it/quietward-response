@@ -29,7 +29,8 @@
     "event_type": { "type": "string", "minLength": 1, "maxLength": 128 },
     "category": { "type": ["string", "null"], "maxLength": 128 },
     "severity": {
-      "enum": ["informational", "low", "medium", "high", "critical"]
+      "description": "`info` is the QuietWard compatibility alias for canonical `informational`.",
+      "enum": ["info", "informational", "low", "medium", "high", "critical"]
     },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
     "summary": { "type": "string", "minLength": 1, "maxLength": 2048 },

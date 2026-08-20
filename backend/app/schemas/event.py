@@ -31,6 +31,15 @@ class EventCreate(BaseModel):
     persistence: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("severity", mode="before")
+    @classmethod
+    def normalize_quietward_info_alias(cls, value: Any) -> Any:
+        # QuietWard's existing public contract calls the lowest level `info` while
+        # Response stores it canonically as `informational`. v1 accepts both wire
+        # spellings and normalizes to one persisted value.
+        raw = getattr(value, "value", value)
+        return "informational" if raw == "info" else value
+
     @field_validator("timestamp")
     @classmethod
     def require_timezone(cls, value: datetime) -> datetime:

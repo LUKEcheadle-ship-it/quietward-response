@@ -1,3 +1,4 @@
+from app import __version__
 from scripts.seed_demo import build_demo_events
 
 
@@ -7,24 +8,35 @@ def test_health_and_empty_overview(client) -> None:
     assert health.json() == {
         "status": "ok",
         "service": "quietward-response",
-        "version": "0.1.0",
+        "version": __version__,
         "database": "ok",
         "remediation_enabled": False,
+        "controlled_response_enabled": True,
+        "controlled_action_count": 1,
+        "response_scope": "demo_fixture_only",
+        "single_worker_required": True,
     }
     overview = client.get("/api/v1/overview").json()
     assert overview["active_incidents"] == 0
     assert overview["remediation_enabled"] is False
 
 
-def test_openapi_exposes_no_endpoint_action_or_shell_surface(client) -> None:
+def test_openapi_exposes_only_typed_controlled_action_surface(client) -> None:
     paths = client.get("/openapi.json").json()["paths"]
     assert all(
         forbidden not in path.lower()
         for path in paths
-        for forbidden in ("shell", "command", "remediation", "isolate", "quarantine")
+        for forbidden in ("shell", "command", "isolate", "quarantine")
     )
     assert set(paths["/api/v1/events"]) == {"get", "post"}
     assert set(paths["/api/v1/incidents/{incident_id}"]) == {"get", "patch"}
+    assert "/api/v1/actions/registry" in paths
+    assert "/api/v1/incidents/{incident_id}/actions" in paths
+    registry = client.get("/api/v1/actions/registry")
+    assert registry.status_code == 200
+    assert [item["action_type"] for item in registry.json()] == [
+        "restart_quietward_demo_service"
+    ]
 
 
 def test_all_demo_scenarios_exercise_complete_pipeline(client) -> None:

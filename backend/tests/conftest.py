@@ -20,11 +20,18 @@ from app.main import create_app
 @pytest.fixture
 def client(tmp_path: Path):
     database = tmp_path / "test.db"
+    # Pin every security-sensitive setting that the tests rely on so a developer's
+    # repository-root .env cannot silently change the test contract.
     settings = Settings(
+        environment="development",
         database_url=f"sqlite:///{database.as_posix()}",
         cors_origins=["http://localhost:3001"],
         correlation_window_seconds=300,
         log_level="WARNING",
+        enrollment_token="development-enrollment-token-change-me",
+        agent_replay_window_seconds=300,
+        action_default_ttl_seconds=600,
+        require_agent_auth_for_quietward_events=True,
     )
     with TestClient(create_app(settings=settings)) as test_client:
         yield test_client

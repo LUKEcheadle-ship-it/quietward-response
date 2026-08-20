@@ -17,6 +17,11 @@ class RecommendedAction(BaseModel):
     description: str
     enabled: bool
     phase: str
+    # v1 controlled-response metadata must survive FastAPI response-model
+    # serialization so the analyst UI can distinguish executable allowlisted
+    # recommendations from informational remediation guidance.
+    registry_action_type: str | None = None
+    requires_approval: bool = False
 
 
 class TimelineEntry(BaseModel):

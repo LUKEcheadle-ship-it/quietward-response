@@ -21,12 +21,28 @@ services:
       QWR_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quietward_response}:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/${POSTGRES_DB:-quietward_response}
       QWR_API_HOST: 0.0.0.0
       QWR_API_PORT: 8001
-      QWR_CORS_ORIGINS: '["http://localhost:3001"]'
+      QWR_CORS_ORIGINS: '["http://localhost:3001","http://127.0.0.1:3001"]'
+      QWR_ENROLLMENT_TOKEN: ${QWR_ENROLLMENT_TOKEN:?Set QWR_ENROLLMENT_TOKEN in .env before starting Compose}
+      QWR_AGENT_REPLAY_WINDOW_SECONDS: ${QWR_AGENT_REPLAY_WINDOW_SECONDS:-300}
+      QWR_ACTION_DEFAULT_TTL_SECONDS: ${QWR_ACTION_DEFAULT_TTL_SECONDS:-600}
+      QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS: ${QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS:-true}
     ports:
       - "127.0.0.1:8002:8001"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2); d=json.load(r); assert r.status == 200 and d.get('status') == 'ok'",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     networks: [response-internal]
 
   frontend:
@@ -38,7 +54,9 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:8002
     ports:
       - "127.0.0.1:3001:3000"
-    depends_on: [backend]
+    depends_on:
+      backend:
+        condition: service_healthy
     networks: [response-internal]
 
 volumes:

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.database.session import get_db
+from app.services.action_registry import ACTION_REGISTRY
 
 router = APIRouter(tags=["health"])
 
@@ -17,5 +18,10 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
         "service": "quietward-response",
         "version": __version__,
         "database": "ok",
+        # Backward-compatible Phase 1 flag: general host remediation is still off.
         "remediation_enabled": False,
+        "controlled_response_enabled": bool(ACTION_REGISTRY),
+        "controlled_action_count": len(ACTION_REGISTRY),
+        "response_scope": "demo_fixture_only",
+        "single_worker_required": True,
     }

@@ -38,3 +38,15 @@ def test_events_outside_window_do_not_merge(client, event_factory) -> None:
         json=event_factory(601, event_type="new_listener", category="network"),
     )
     assert first.json()["incident_id"] != second.json()["incident_id"]
+
+
+def test_out_of_order_events_within_full_window_still_merge(client, event_factory) -> None:
+    later = event_factory(240, host_id="host-out-of-order", event_type="listener_later", category="network")
+    earlier = event_factory(0, host_id="host-out-of-order", event_type="listener_earlier", category="network")
+
+    later_response = client.post("/api/v1/events", json=later)
+    earlier_response = client.post("/api/v1/events", json=earlier)
+
+    assert later_response.status_code == 201
+    assert earlier_response.status_code == 201
+    assert later_response.json()["incident_id"] == earlier_response.json()["incident_id"]

@@ -31,9 +31,9 @@ def build_demo_events(
             "schema_version": "1.0",
             "event_id": str(uuid5(NAMESPACE_URL, f"quietward-response-demo:{batch}:{scenario}:{offset}")),
             "source": "quietward-demo",
-            "source_version": "0.1.0",
+            "source_version": "1.0.0",
             "host_id": host_id,
-            "host_name": host_id.replace("-", "-"),
+            "host_name": host_id,
             "timestamp": (base + timedelta(seconds=offset)).isoformat(),
             "event_type": event_type,
             "category": category,
@@ -93,7 +93,7 @@ def seed(api_url: str) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed safe synthetic Phase 1 incidents")
+    parser = argparse.ArgumentParser(description="Seed safe synthetic v1 investigation incidents")
     parser.add_argument("--api-url", default="http://localhost:8002")
     args = parser.parse_args()
     try:

@@ -5,8 +5,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database.models import AuditRecord, EventRecord, IncidentRecord
+from app.database.models import AuditRecord, EventRecord, IncidentRecord, utcnow
 from app.schemas.incident import IncidentPatch
+from app.services.action_service import cancel_undispatched_actions_for_incident
 from app.services.audit_service import record_audit
 from app.services.timeline import timeline_for
 
@@ -98,9 +99,11 @@ def update_incident(
     *,
     actor_id: str,
 ) -> IncidentRecord:
+    changed = False
     if patch.status is not None and patch.status != incident.status:
         previous = incident.status
         incident.status = patch.status
+        changed = True
         record_audit(
             session,
             actor_type="analyst",
@@ -111,9 +114,18 @@ def update_incident(
             details={"previous": previous, "current": incident.status},
             incident_id=incident.incident_id,
         )
+        if incident.status in {"resolved", "dismissed"}:
+            # Cancels pending, approved, and dispatching lifecycles. An action that
+            # has already reached `executing` remains recoverable/auditable.
+            cancel_undispatched_actions_for_incident(
+                session,
+                incident.incident_id,
+                reason=f"incident moved to {incident.status}",
+            )
     if patch.severity is not None and patch.severity.value != incident.severity:
         previous = incident.severity
         incident.severity = patch.severity.value
+        changed = True
         record_audit(
             session,
             actor_type="analyst",
@@ -124,6 +136,8 @@ def update_incident(
             details={"previous": previous, "current": incident.severity},
             incident_id=incident.incident_id,
         )
+    if changed:
+        incident.updated_at = utcnow()
     session.commit()
     session.refresh(incident)
     return incident

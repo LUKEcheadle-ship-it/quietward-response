@@ -9,18 +9,32 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import events, health, hosts, incidents, overview
+from app import __version__
+from app.api import actions, agents, audit, events, health, hosts, incidents, overview
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.logging import configure_logging
-from app.services.audit_service import record_audit
+from app.request_serialization import SerializedRequestMiddleware
+from app.services.audit_service import (
+    backfill_legacy_audit_chain,
+    record_audit,
+    verify_audit_chain,
+)
 
 
 def create_app(
     *,
     database_url: str | None = None,
     settings: Settings | None = None,
+    create_schema: bool = True,
 ) -> FastAPI:
+    """Build the API application.
+
+    Tests and explicitly embedded development callers may request direct SQLAlchemy
+    schema creation. Normal launchers call `runtime_app()` and rely on the documented
+    Alembic migration step, preventing application startup from silently masking
+    migration drift.
+    """
     resolved = settings or get_settings()
     if database_url:
         resolved = resolved.model_copy(update={"database_url": database_url})
@@ -29,14 +43,34 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        database.create_all()
-        yield
-        database.dispose()
+        try:
+            if create_schema:
+                database.create_all()
+            else:
+                # Normal launchers and containers run Alembic before starting Uvicorn.
+                # Still harden the resulting SQLite file after migration created it.
+                database.harden_local_file_permissions()
+            with database.session_factory() as session:
+                if backfill_legacy_audit_chain(session):
+                    session.commit()
+                audit_state = verify_audit_chain(session)
+                if audit_state["valid"] is not True:
+                    raise RuntimeError(
+                        "audit chain verification failed at startup; refusing to serve requests"
+                    )
+            yield
+        finally:
+            # Also dispose when startup validation itself fails so Windows/local
+            # SQLite files are not left locked by a partially started service.
+            database.dispose()
 
     application = FastAPI(
         title="QuietWard Response API",
-        version="0.1.0",
-        description="Deterministic event ingestion, incident correlation, investigation, and audit.",
+        version=__version__,
+        description=(
+            "Deterministic event ingestion, incident correlation, investigation, "
+            "authenticated agents, policy-controlled response actions, and tamper-evident audit."
+        ),
         lifespan=lifespan,
     )
     application.state.database = database
@@ -46,8 +80,20 @@ def create_app(
         allow_origins=resolved.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-        allow_headers=["Content-Type", "X-Actor-ID"],
+        allow_headers=[
+            "Content-Type",
+            "X-Actor-ID",
+            "X-QWR-Enrollment-Token",
+            "X-QWR-Agent-ID",
+            "X-QWR-Key-ID",
+            "X-QWR-Timestamp",
+            "X-QWR-Nonce",
+            "X-QWR-Signature",
+        ],
     )
+    # v1 uses one API process/worker and serializes request transactions so the
+    # single linear audit chain cannot fork under concurrent HTTP requests.
+    application.add_middleware(SerializedRequestMiddleware)
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(
@@ -85,6 +131,9 @@ def create_app(
     application.include_router(incidents.router)
     application.include_router(hosts.router)
     application.include_router(overview.router)
+    application.include_router(agents.router)
+    application.include_router(actions.router)
+    application.include_router(audit.router)
 
     @application.get("/", include_in_schema=False)
     def root() -> dict[str, str]:
@@ -97,4 +146,6 @@ def create_app(
     return application
 
 
-app = create_app()
+def runtime_app() -> FastAPI:
+    """Uvicorn application factory for the migrated runtime schema."""
+    return create_app(create_schema=False)

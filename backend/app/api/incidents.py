@@ -16,6 +16,11 @@ from app.services.incident_service import (
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
 
 
+def _actor_id(value: str) -> str:
+    resolved = value.strip() or "local-analyst"
+    return resolved[:128]
+
+
 @router.get("", response_model=list[IncidentSummary])
 def list_incidents(
     incident_status: str | None = Query(default=None, alias="status"),
@@ -52,5 +57,5 @@ def patch_incident(
     incident = db.get(IncidentRecord, incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
-    updated = update_incident(db, incident, patch, actor_id=actor_id[:128])
+    updated = update_incident(db, incident, patch, actor_id=_actor_id(actor_id))
     return incident_to_detail(db, updated)

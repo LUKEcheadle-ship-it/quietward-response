@@ -3,7 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -84,6 +95,77 @@ class EventRecord(Base):
     incident: Mapped[IncidentRecord | None] = relationship(back_populates="events")
 
 
+class AgentRecord(Base):
+    __tablename__ = "agents"
+
+    agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    host_id: Mapped[str] = mapped_column(String(128), index=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    key_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    hmac_key_b64: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    agent_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class AgentNonceRecord(Base):
+    __tablename__ = "agent_nonces"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "nonce", name="uq_agent_nonce"),
+        Index("ix_agent_nonce_timestamp", "timestamp"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_id: Mapped[str] = mapped_column(ForeignKey("agents.agent_id"), index=True)
+    nonce: Mapped[str] = mapped_column(String(128))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ApprovalRecord(Base):
+    __tablename__ = "approvals"
+
+    approval_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.incident_id"), index=True)
+    action_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ActionRecord(Base):
+    __tablename__ = "actions"
+    __table_args__ = (
+        Index("ix_actions_agent_status", "target_agent_id", "status"),
+        Index("ix_actions_incident", "incident_id", "requested_at"),
+    )
+
+    action_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    schema_version: Mapped[str] = mapped_column(String(16), default="1.0")
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.incident_id"), index=True)
+    target_agent_id: Mapped[str] = mapped_column(ForeignKey("agents.agent_id"), index=True)
+    target_host_id: Mapped[str] = mapped_column(String(128), index=True)
+    action_type: Mapped[str] = mapped_column(String(128), index=True)
+    parameters: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    policy_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    policy_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+
+
 class AuditRecord(Base):
     __tablename__ = "audit_records"
     __table_args__ = (Index("ix_audit_resource", "resource_type", "resource_id"),)
@@ -101,5 +183,7 @@ class AuditRecord(Base):
     incident_id: Mapped[str | None] = mapped_column(
         ForeignKey("incidents.incident_id"), nullable=True, index=True
     )
+    previous_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     incident: Mapped[IncidentRecord | None] = relationship(back_populates="audits")

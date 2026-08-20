@@ -26,6 +26,15 @@ fi
 
 "${VENV_PYTHON}" -m pip install -q -r "${ROOT}/backend/requirements.txt"
 cd "${ROOT}/backend"
-exec "${VENV_PYTHON}" -m uvicorn app.main:app \
-  --host "${QWR_API_HOST:-127.0.0.1}" \
-  --port "${QWR_API_PORT:-8002}"
+"${VENV_PYTHON}" -m alembic upgrade head
+
+# Resolve bind settings through the same Pydantic settings loader as the API and
+# Alembic. This makes repository-root .env values effective for the launcher too.
+API_HOST="$("${VENV_PYTHON}" -c 'from app.config import get_settings; print(get_settings().api_host)')"
+API_PORT="$("${VENV_PYTHON}" -c 'from app.config import get_settings; print(get_settings().api_port)')"
+
+exec "${VENV_PYTHON}" -m uvicorn app.main:runtime_app \
+  --factory \
+  --host "${API_HOST}" \
+  --port "${API_PORT}" \
+  --workers 1
