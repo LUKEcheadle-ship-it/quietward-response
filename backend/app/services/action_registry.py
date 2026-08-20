@@ -15,27 +15,11 @@ class ActionDefinition:
     implementation_version: str
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
-        # The first expanded response surface deliberately remains parameter-free.
-        # This keeps the server from turning a diagnostic action into a generic
-        # process/path/network selector before endpoint-side identity binding exists.
+        # The released QuietWard endpoint recognizes no arbitrary target/service/path
+        # parameter. Keep the alpha endpoint-executed surface exactly compatible.
         if parameters:
             return ["this action accepts no parameters"]
         return []
-
-
-SUPPORTED_DIAGNOSTIC_OS = ("linux", "windows", "unknown")
-
-
-def _diagnostic(action_type: str, description: str) -> ActionDefinition:
-    return ActionDefinition(
-        action_type=action_type,
-        description=description,
-        risk_level="low",
-        approval_required=True,
-        supported_os=SUPPORTED_DIAGNOSTIC_OS,
-        reversible=True,
-        implementation_version="1",
-    )
 
 
 RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
@@ -48,52 +32,11 @@ RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
     implementation_version="1",
 )
 
-COLLECT_PROCESS_DIAGNOSTIC = _diagnostic(
-    "collect_process_diagnostic",
-    "Return bounded read-only process and privilege evidence already observed by QuietWard.",
-)
-COLLECT_NETWORK_DIAGNOSTIC = _diagnostic(
-    "collect_network_diagnostic",
-    "Return bounded read-only listener and outbound-connection evidence already observed by QuietWard.",
-)
-COLLECT_PERSISTENCE_DIAGNOSTIC = _diagnostic(
-    "collect_persistence_diagnostic",
-    "Return bounded read-only persistence-change evidence already observed by QuietWard.",
-)
-COLLECT_FILE_DIAGNOSTIC = _diagnostic(
-    "collect_file_diagnostic",
-    "Return bounded read-only file-integrity, executable, malware-signature, and YARA evidence already observed by QuietWard.",
-)
-COLLECT_CONTAINER_DIAGNOSTIC = _diagnostic(
-    "collect_container_diagnostic",
-    "Return bounded read-only container security and configuration-change evidence already observed by QuietWard.",
-)
-COLLECT_IDENTITY_DIAGNOSTIC = _diagnostic(
-    "collect_identity_diagnostic",
-    "Return bounded authentication, account-change, and privilege-escalation evidence already observed by QuietWard.",
-)
-COLLECT_VULNERABILITY_DIAGNOSTIC = _diagnostic(
-    "collect_vulnerability_diagnostic",
-    "Return bounded package-vulnerability and configuration-weakness evidence already observed by QuietWard.",
-)
-COLLECT_INTEGRITY_DIAGNOSTIC = _diagnostic(
-    "collect_integrity_diagnostic",
-    "Return bounded QuietWard self-integrity, evidence-integrity, and collector-health evidence already observed by QuietWard.",
-)
-
+# Alpha rule: executable endpoint actions must remain compatible with the finished
+# public QuietWard release. Broad cyber-response coverage lives in the response-plan
+# engine until each future endpoint action has its own versioned typed contract.
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
-    item.action_type: item
-    for item in (
-        RESTART_QUIETWARD_DEMO_SERVICE,
-        COLLECT_PROCESS_DIAGNOSTIC,
-        COLLECT_NETWORK_DIAGNOSTIC,
-        COLLECT_PERSISTENCE_DIAGNOSTIC,
-        COLLECT_FILE_DIAGNOSTIC,
-        COLLECT_CONTAINER_DIAGNOSTIC,
-        COLLECT_IDENTITY_DIAGNOSTIC,
-        COLLECT_VULNERABILITY_DIAGNOSTIC,
-        COLLECT_INTEGRITY_DIAGNOSTIC,
-    )
+    RESTART_QUIETWARD_DEMO_SERVICE.action_type: RESTART_QUIETWARD_DEMO_SERVICE,
 }
 
 
