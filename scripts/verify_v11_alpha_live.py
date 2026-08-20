@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import subprocess
@@ -189,6 +190,24 @@ def main() -> int:
             result = stored.get("result") or {}
             if result.get("read_only") is not True or result.get("system_state_changed") is not False:
                 raise RuntimeError(f"diagnostic safety metadata is invalid: {result!r}")
+            if result.get("fresh_scan_performed") is not False:
+                raise RuntimeError(f"diagnostic freshness semantics are invalid: {result!r}")
+            if result.get("evidence_scope") != "recent_in_memory_quietward_evidence":
+                raise RuntimeError(f"diagnostic evidence scope is invalid: {result!r}")
+            time_range = result.get("evidence_time_range") or {}
+            if not time_range.get("oldest") or not time_range.get("newest"):
+                raise RuntimeError(f"diagnostic evidence time range is missing: {result!r}")
+            bounds = result.get("bounds") or {}
+            max_bytes = int(bounds.get("max_serialized_bytes", 0))
+            if max_bytes <= 0:
+                raise RuntimeError(f"diagnostic serialized byte bound is missing: {result!r}")
+            result_bytes = len(
+                json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            )
+            if result_bytes > max_bytes:
+                raise RuntimeError(
+                    f"diagnostic result exceeded byte bound: {result_bytes} > {max_bytes}"
+                )
             if int(result.get("matched_event_count", 0)) < 1:
                 raise RuntimeError(f"diagnostic returned no matching evidence: {result!r}")
             returned_ids = {
@@ -210,6 +229,7 @@ def main() -> int:
             print(f"incident_id={incident_id}")
             print(f"action_id={action['action_id']}")
             print(f"diagnostic_events={result['matched_event_count']}")
+            print(f"diagnostic_bytes={result_bytes}")
             print(f"audit_entries={audit['entries_checked']}")
             print(f"audit_head={audit['head_hash']}")
             return 0
