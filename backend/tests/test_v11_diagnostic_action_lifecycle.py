@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from uuid import uuid4
 
@@ -96,11 +95,7 @@ def test_file_diagnostic_requires_recommendation_approval_and_signed_poll(
     approved = client.post(
         f"/api/v1/actions/{action['action_id']}/approve",
         headers={"X-Actor-ID": "analyst-diagnostic-test"},
-        content=json.dumps({"reason": "collect bounded evidence"}).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "X-Actor-ID": "analyst-diagnostic-test",
-        },
+        json={"reason": "collect bounded evidence"},
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"
