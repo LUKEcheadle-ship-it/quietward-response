@@ -10,38 +10,22 @@ def _action(
     *,
     registry_action_type: str | None = None,
 ) -> dict[str, object]:
-    diagnostic = action_type == "diagnostic"
     controlled = registry_action_type is not None
     if registry_action_type == "restart_quietward_demo_service":
         phase = "v1 — approval required"
-    elif controlled:
-        phase = "v1.1 — approval required"
-    elif diagnostic:
-        phase = "v1"
+    elif action_type == "diagnostic":
+        phase = "v1.1 alpha — advisory"
     else:
-        phase = "v1.1 — not enabled"
+        phase = "v1.1 alpha — planned"
     return {
         "action_type": action_type,
         "title": title,
         "description": description,
-        "enabled": diagnostic or controlled,
+        "enabled": action_type == "diagnostic" or controlled,
         "phase": phase,
         "registry_action_type": registry_action_type,
         "requires_approval": controlled,
     }
-
-
-def _controlled_diagnostic(
-    title: str,
-    description: str,
-    registry_action_type: str,
-) -> dict[str, object]:
-    return _action(
-        "diagnostic",
-        title,
-        description,
-        registry_action_type=registry_action_type,
-    )
 
 
 def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
@@ -58,175 +42,165 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "diagnostic",
                     "Confirm demo service health",
-                    "Verify the dedicated QuietWard Response demo service is the affected fixture and inspect its local health state.",
+                    "Verify that the dedicated Response demo fixture is the affected test resource and review its recorded state.",
                 ),
                 _action(
                     "remediation",
-                    "Restart QuietWard demo service",
-                    "Restart only the dedicated QuietWard Response demo fixture after analyst approval and policy validation.",
+                    "Restart Response demo service fixture",
+                    "Reset only the dedicated demo fixture after analyst approval and deterministic policy validation.",
                     registry_action_type="restart_quietward_demo_service",
                 ),
             ]
         )
 
-    process_types = {"process_start", "privilege_escalation"}
-    if types & process_types or "privilege" in categories:
-        recommendations.append(
-            _controlled_diagnostic(
-                "Collect process and privilege context",
-                "Return bounded read-only process and privilege evidence already observed by QuietWard.",
-                "collect_process_diagnostic",
-            )
+    if types & {"process_start", "privilege_escalation"} or "privilege" in categories:
+        recommendations.extend(
+            [
+                _action(
+                    "diagnostic",
+                    "Review process and privilege context",
+                    "Inspect process identity, parent/child relationships, execution account, privilege context, hashes, and adjacent telemetry supplied with the incident.",
+                ),
+                _action(
+                    "remediation",
+                    "Contain the suspicious process",
+                    "Process suspension or termination is planned but is not executable in this alpha until exact process identity, preconditions, timeout, and rollback behavior are qualified.",
+                ),
+            ]
         )
 
-    file_types = {
+    if types & {
         "malware_signature",
         "yara_match",
         "sensitive_file_change",
         "executable_created",
         "file_change",
-    }
-    if types & file_types or categories & {"file", "malware"}:
+    } or categories & {"file", "malware"}:
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect file and malware context",
-                    "Return bounded read-only file-integrity, executable, malware-signature, and YARA evidence already observed by QuietWard.",
-                    "collect_file_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review file and malware evidence",
+                    "Validate file identity, cryptographic hash, signer/ownership, scanner or rule evidence, creation/modification time, and related process activity.",
                 ),
                 _action(
                     "remediation",
                     "Quarantine suspicious artifact",
-                    "Artifact quarantine remains disabled until exact-path identity binding, rollback, and adversarial qualification are complete.",
+                    "Artifact quarantine is planned but disabled until exact artifact identity, evidence preservation, rollback, and adversarial qualification are complete.",
                 ),
             ]
         )
 
-    persistence_types = {"persistence_change"}
-    if types & persistence_types or "persistence" in categories or any(
+    if "persistence" in categories or "persistence_change" in types or any(
         "scheduled_task" in value for value in types
     ):
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect persistence context",
-                    "Return bounded persistence-change evidence already observed by QuietWard.",
-                    "collect_persistence_diagnostic",
-                ),
                 _action(
                     "diagnostic",
-                    "Review related process context",
-                    "Review nearby process evidence in the incident timeline. A process diagnostic is exposed only when process/privilege evidence is actually present.",
+                    "Review persistence mechanism",
+                    "Validate the exact task, service, startup entry, account, executable, creation time, fingerprint, and nearby execution/network evidence.",
                 ),
                 _action(
                     "remediation",
-                    "Disable persistence mechanism",
-                    "Persistence modification remains disabled until each platform object type has an exact schema and rollback path.",
+                    "Disable suspicious persistence",
+                    "Persistence modification is planned but disabled until each object type has an exact schema, preserved original state, and tested rollback path.",
                 ),
             ]
         )
 
-    network_types = {"new_listening_port", "outbound_connection"}
-    if types & network_types or "network" in categories or any(
+    if types & {"new_listening_port", "outbound_connection"} or "network" in categories or any(
         "listener" in value for value in types
     ):
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect network context",
-                    "Return bounded listener and outbound-connection evidence already observed by QuietWard.",
-                    "collect_network_diagnostic",
-                ),
                 _action(
                     "diagnostic",
-                    "Review owning-process context",
-                    "Review nearby process evidence in the incident timeline. A process diagnostic is exposed only when process/privilege evidence is actually present.",
+                    "Review network and owning-process context",
+                    "Correlate listener or destination scope, protocol, port, owning process, first-seen time, and adjacent endpoint evidence.",
                 ),
                 _action(
                     "remediation",
-                    "Block suspicious network activity",
-                    "Firewall and host-isolation changes remain disabled until bounded rules, rollback, and connectivity-preservation checks are qualified.",
+                    "Contain suspicious network activity",
+                    "Temporary network blocking or host isolation is planned but disabled until bounded rules, connectivity-preservation checks, expiry, and rollback are qualified.",
                 ),
             ]
         )
 
-    container_types = {
+    if types & {
         "container_escape_indicator",
         "container_change",
         "container_configuration_change",
-    }
-    if types & container_types or "container" in categories:
+    } or "container" in categories:
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect container security context",
-                    "Return bounded container security and configuration-change evidence already observed by QuietWard.",
-                    "collect_container_diagnostic",
-                ),
                 _action(
                     "diagnostic",
-                    "Review related network context",
-                    "Review nearby network evidence in the incident timeline. A network diagnostic is exposed only when network evidence is actually present.",
+                    "Review container security context",
+                    "Validate container identity, image, privileges, capabilities, mounts, namespaces, network activity, restart behavior, and security-fingerprint changes.",
                 ),
                 _action(
                     "remediation",
                     "Contain suspicious container",
-                    "Container stop/network containment remains disabled until exact container identity and rollback semantics are qualified.",
+                    "Container stop or network containment is planned but disabled until exact container identity and recovery semantics are qualified.",
                 ),
             ]
         )
 
-    identity_types = {"auth_failure", "account_change", "privilege_escalation"}
-    if types & identity_types or categories & {"identity", "privilege"}:
+    if types & {"auth_failure", "account_change", "privilege_escalation"} or categories & {
+        "identity",
+        "privilege",
+    }:
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect identity and authentication context",
-                    "Return bounded authentication, account-change, and privilege-escalation evidence already observed by QuietWard.",
-                    "collect_identity_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review identity and authentication context",
+                    "Correlate account identity, authentication failures, source context, privilege changes, session activity, and affected hosts while preserving available privacy controls.",
                 ),
                 _action(
                     "remediation",
                     "Revoke or lock compromised identity",
-                    "Account/session mutation remains disabled until identity-provider-specific rollback and lockout safeguards are qualified.",
+                    "Session revocation and temporary account lock are planned but disabled until provider-specific safeguards, recovery, and analyst-authentication controls are qualified.",
                 ),
             ]
         )
 
-    vulnerability_types = {"package_vulnerability", "configuration_weakness"}
-    if types & vulnerability_types or categories & {"vulnerability", "configuration"}:
+    if types & {"package_vulnerability", "configuration_weakness"} or categories & {
+        "vulnerability",
+        "configuration",
+    }:
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect vulnerability and configuration context",
-                    "Return bounded package-vulnerability and configuration-weakness evidence already observed by QuietWard.",
-                    "collect_vulnerability_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review vulnerable component and exposure",
+                    "Confirm the affected package or configuration, installed version, severity, exposure path, compensating controls, and whether exploitation evidence exists.",
                 ),
                 _action(
                     "remediation",
                     "Patch or harden affected component",
-                    "Package/configuration mutation remains disabled until package-manager-specific preconditions and rollback are qualified.",
+                    "Package or configuration mutation is planned but disabled until platform-specific preconditions, maintenance-window handling, and rollback are qualified.",
                 ),
             ]
         )
 
-    integrity_types = {
+    if types & {
         "self_integrity_change",
         "evidence_integrity_failure",
         "collector_health",
-    }
-    if types & integrity_types or "integrity" in categories:
+    } or "integrity" in categories:
         recommendations.extend(
             [
-                _controlled_diagnostic(
-                    "Collect QuietWard integrity context",
-                    "Return bounded self-integrity, evidence-chain, and collector-health evidence before trusting additional endpoint observations.",
-                    "collect_integrity_diagnostic",
+                _action(
+                    "diagnostic",
+                    "Review sensor and evidence integrity",
+                    "Validate evidence-chain state, sensor health, unexpected self-changes, collection gaps, and whether subsequent endpoint evidence should be treated as degraded trust.",
                 ),
                 _action(
                     "remediation",
-                    "Revoke suspected endpoint credential",
-                    "Agent disable/revocation is available to the analyst control plane; automatic revocation remains disabled pending stronger analyst identity/RBAC.",
+                    "Revoke suspected sensor credential",
+                    "Credential revocation can be performed manually from the agent control plane; automatic revocation remains disabled until stronger analyst authentication/RBAC is available.",
                 ),
             ]
         )
@@ -240,12 +214,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "diagnostic",
                     "Assess service and resource health",
-                    "Review health checks, storage pressure, dependency failures, and any existing process evidence around the incident window.",
+                    "Review health checks, resource pressure, dependency failures, and nearby security events before classifying the incident as operational or adversarial.",
                 ),
                 _action(
                     "remediation",
-                    "Reclaim resources or restart affected service",
-                    "General deletion, cleanup, and service-control actions are not enabled in this expansion.",
+                    "Restore affected service safely",
+                    "General service control, cleanup, and deletion are not executable in this alpha; use the generated response plan to preserve evidence and define a bounded recovery action.",
                 ),
             ]
         )
@@ -256,17 +230,17 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "diagnostic",
                     "Validate the original evidence",
-                    "Confirm the reporting source, timestamps, and affected host context.",
+                    "Confirm the reporting source, timestamps, affected host, event identity, confidence, and any linked indicators.",
                 ),
                 _action(
                     "diagnostic",
                     "Review adjacent activity",
-                    "Inspect related events before and after this observation.",
+                    "Inspect related events before and after the observation and determine whether a known response family applies.",
                 ),
                 _action(
                     "remediation",
-                    "Apply corrective action",
-                    "No generic remediation action is enabled; add a narrow typed responder for this incident class before execution.",
+                    "Define a bounded corrective action",
+                    "No generic remediation action is enabled. Create a narrow typed responder only after the target, preconditions, rollback, and failure behavior are defined and tested.",
                 ),
             ]
         )
@@ -286,50 +260,56 @@ def probable_cause_for(events: list[EventRecord]) -> str:
     types = {str(event.event_type or "").lower() for event in events}
     if types & {"quietward_demo_service_unhealthy", "demo_service_unhealthy"}:
         return (
-            "The dedicated QuietWard Response demo service reported an unhealthy state. "
-            "The approval-gated demo-fixture restart remains available."
+            "The dedicated Response demo fixture reported an unhealthy state. The approval-gated "
+            "demo-fixture reset remains the only endpoint state-changing action in this alpha."
         )
-    if types & {"malware_signature", "yara_match"}:
+    if types & {"malware_signature", "yara_match"} or "malware" in categories:
         return (
-            "QuietWard observed malware-signature or YARA evidence. File and process context "
-            "should be collected before any containment decision."
+            "Telemetry contains malware-signature or rule-match evidence. File identity, process "
+            "ancestry, and related network activity should be validated before containment."
         )
-    if types & {"container_escape_indicator"}:
+    if "container" in categories or "container_escape_indicator" in types:
         return (
-            "QuietWard observed a container escape indicator. Treat the container and host as "
-            "potentially compromised until container, process, and network context are reviewed."
+            "Telemetry indicates a container security change or possible escape condition. Treat "
+            "the container and host as potentially compromised until correlated context is reviewed."
         )
     if "persistence" in categories or "persistence_change" in types:
         return (
             "A persistence mechanism changed and may be related to nearby execution or network "
-            "activity. Analyst validation is required."
+            "activity. Validate the object and its creator before remediation."
         )
     if "network" in categories or types & {"new_listening_port", "outbound_connection"}:
         return (
             "Unexpected network exposure or outbound activity was observed. Ownership, process "
-            "context, and destination/listener scope should be validated."
+            "context, destination/listener scope, and timing should be validated."
         )
-    if types & {"auth_failure", "account_change", "privilege_escalation"}:
+    if types & {"auth_failure", "account_change", "privilege_escalation"} or categories & {
+        "identity",
+        "privilege",
+    }:
         return (
             "Identity or privilege activity deviated from the expected baseline. Authentication, "
-            "account, and process context should be reviewed before containment."
+            "account, session, and process context should be reviewed before containment."
         )
-    if types & {"package_vulnerability", "configuration_weakness"}:
+    if types & {"package_vulnerability", "configuration_weakness"} or categories & {
+        "vulnerability",
+        "configuration",
+    }:
         return (
-            "A vulnerable package or security-relevant configuration weakness was observed. "
-            "Confirm the affected component and exposure before applying changes."
+            "A vulnerable component or security-relevant configuration weakness was observed. "
+            "Confirm exposure and exploitation evidence before applying changes."
         )
     if types & {"self_integrity_change", "evidence_integrity_failure"} or "integrity" in categories:
         return (
-            "QuietWard or its evidence chain reported an integrity problem. Treat subsequent "
-            "endpoint evidence cautiously until integrity context is reviewed."
+            "Sensor or evidence integrity is in question. Treat subsequent evidence cautiously "
+            "until collection health and chain integrity are reviewed."
         )
     if "operational" in categories:
         return (
             "Operational degradation may be related to resource pressure or a security event. "
-            "Correlate process and adjacent event context before remediation."
+            "Correlate adjacent telemetry before remediation."
         )
     return (
-        "The available evidence is correlated by host, time, and shared indicators; "
-        "a human assessment is still required."
+        "The available evidence is correlated by host, time, and shared indicators; a human "
+        "assessment is still required before containment or recovery."
     )
