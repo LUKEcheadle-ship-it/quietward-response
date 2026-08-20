@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -130,30 +130,29 @@ class AgentConfig:
     timeout_seconds: float = 5.0
 
     @classmethod
-    def from_environment(cls) -> "AgentConfig":
+    def from_mapping(cls, value: Mapping[str, Any]) -> "AgentConfig":
         required = {
-            "base_url": os.environ.get("QWR_AGENT_URL", "").strip(),
-            "agent_id": os.environ.get("QWR_AGENT_ID", "").strip(),
-            "key_id": os.environ.get("QWR_AGENT_KEY_ID", "").strip(),
-            "secret": os.environ.get("QWR_AGENT_SECRET", "").strip(),
-            "host_id": os.environ.get("QWR_AGENT_HOST_ID", "").strip(),
-            "state_dir": os.environ.get("QWR_AGENT_STATE_DIR", "").strip(),
+            "base_url": str(value.get("base_url") or "").strip(),
+            "agent_id": str(value.get("agent_id") or "").strip(),
+            "key_id": str(value.get("key_id") or "").strip(),
+            "secret": str(value.get("secret") or "").strip(),
+            "host_id": str(value.get("host_id") or "").strip(),
+            "state_dir": str(value.get("state_dir") or "").strip(),
         }
-        missing = [name for name, value in required.items() if not value]
+        missing = [name for name, item in required.items() if not item]
         if missing:
             raise ResponseAgentError(
                 "Response agent credentials/configuration are incomplete: " + ", ".join(missing)
             )
         state_dir = Path(required["state_dir"]).expanduser()
         if not state_dir.is_absolute():
-            raise ResponseAgentError("QWR_AGENT_STATE_DIR must be absolute")
-        timeout_raw = os.environ.get("QWR_AGENT_TIMEOUT_SECONDS", "5").strip()
+            raise ResponseAgentError("Response agent state directory must be absolute")
         try:
-            timeout = float(timeout_raw)
-        except ValueError as exc:
-            raise ResponseAgentError("QWR_AGENT_TIMEOUT_SECONDS must be numeric") from exc
+            timeout = float(value.get("timeout_seconds", 5.0))
+        except (TypeError, ValueError) as exc:
+            raise ResponseAgentError("Response agent timeout must be numeric") from exc
         if not 0.1 <= timeout <= 60:
-            raise ResponseAgentError("QWR_AGENT_TIMEOUT_SECONDS must be between 0.1 and 60")
+            raise ResponseAgentError("Response agent timeout must be between 0.1 and 60")
         return cls(
             base_url=required["base_url"].rstrip("/"),
             agent_id=required["agent_id"],
@@ -163,6 +162,48 @@ class AgentConfig:
             state_dir=state_dir,
             timeout_seconds=timeout,
         )
+
+    @classmethod
+    def from_environment(cls) -> "AgentConfig":
+        return cls.from_mapping(
+            {
+                "base_url": os.environ.get("QWR_AGENT_URL", ""),
+                "agent_id": os.environ.get("QWR_AGENT_ID", ""),
+                "key_id": os.environ.get("QWR_AGENT_KEY_ID", ""),
+                "secret": os.environ.get("QWR_AGENT_SECRET", ""),
+                "host_id": os.environ.get("QWR_AGENT_HOST_ID", ""),
+                "state_dir": os.environ.get("QWR_AGENT_STATE_DIR", ""),
+                "timeout_seconds": os.environ.get("QWR_AGENT_TIMEOUT_SECONDS", "5"),
+            }
+        )
+
+    @classmethod
+    def from_file(cls, path: Path) -> "AgentConfig":
+        if not path.exists():
+            raise ResponseAgentError(f"Response agent config file does not exist: {path}")
+        value = _load_json(path, dict)
+        return cls.from_mapping(value)
+
+    def to_private_dict(self) -> dict[str, Any]:
+        return {
+            "base_url": self.base_url,
+            "agent_id": self.agent_id,
+            "key_id": self.key_id,
+            "secret": self.secret,
+            "host_id": self.host_id,
+            "state_dir": str(self.state_dir),
+            "timeout_seconds": self.timeout_seconds,
+        }
+
+
+def write_agent_config(path: Path, config: AgentConfig, *, force: bool = False) -> Path:
+    resolved = path.expanduser()
+    if not resolved.is_absolute():
+        raise ResponseAgentError("Response agent config path must be absolute")
+    if resolved.exists() and not force:
+        raise ResponseAgentError(f"Response agent config already exists: {resolved}")
+    _atomic_json(resolved, config.to_private_dict())
+    return resolved
 
 
 class ResponseAgent:
@@ -406,12 +447,17 @@ def _parser() -> argparse.ArgumentParser:
         "command",
         choices=("init-demo-unhealthy", "init-demo-running", "status", "poll-once"),
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Private JSON configuration written by enroll_response_agent.py. Environment variables are used when omitted.",
+    )
     return parser
 
 
 def main() -> int:
     args = _parser().parse_args()
-    config = AgentConfig.from_environment()
+    config = AgentConfig.from_file(args.config.expanduser()) if args.config else AgentConfig.from_environment()
     agent = ResponseAgent(config)
     if args.command == "init-demo-unhealthy":
         path = agent.initialize_demo_fixture(unhealthy=True)
