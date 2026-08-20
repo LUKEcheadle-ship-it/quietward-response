@@ -2,6 +2,31 @@
 
 All notable changes to QuietWard Response are documented here.
 
+## 1.1.0-alpha.1 — candidate 2026-08-20
+
+First expanded-response alpha candidate. Publication remains blocked until the complete alpha wrapper and browser smoke in `docs/V11_ALPHA_ACCEPTANCE.md` pass on the exact pushed candidate branches.
+
+### Added
+
+- eight approval-gated, parameter-free read-only diagnostic response actions for process/privilege, network, persistence, file/malware, container, identity/authentication, vulnerability/configuration, and QuietWard integrity evidence
+- incident-to-diagnostic recommendation mapping across QuietWard's major event families
+- endpoint-side v1.1 typed diagnostic client that preserves the v1 demo action and rejects arbitrary action types/parameters
+- bounded recent-evidence diagnostic results with explicit `read_only=true` and `system_state_changed=false` safety metadata
+- dedicated v1.1 action-surface qualification script
+- complete v1.1 alpha static/local qualification gate
+- live two-repository malware-event-to-diagnostic acceptance loop
+- complete alpha finalizer that also reruns the released v1 live demo lifecycle as a regression gate
+
+### Companion QuietWard detection expansion
+
+- bounded same-host multi-stage attack-chain correlation across distinct subjects
+- stronger deterministic scoring for large authentication-failure bursts and credential-spray context
+- additional priority for existing high-confidence behavioral markers including encoded/download-execute chains, living-off-the-land patterns, cryptomining indicators, and dangerous container configuration markers
+
+### Safety boundary
+
+The only system-state-changing endpoint action remains the dedicated v1 JSON demo fixture. This alpha still adds no generic shell/PowerShell/cmd/bash, process termination, service control, quarantine/deletion, firewall modification, host isolation, account mutation, package mutation, autonomous remediation, or LLM-generated executable command surface.
+
 ## 1.0.0 — 2026-08-19
 
 First public release of the end-to-end controlled-response system.
