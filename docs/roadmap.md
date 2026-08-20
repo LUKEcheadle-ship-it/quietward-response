@@ -22,7 +22,7 @@ The released v1 foundation established:
 
 The historical v1 qualification record is documented in `docs/V1_ACCEPTANCE.md`.
 
-## v1.1 alpha — broad response planning
+## v1.1 alpha — broad response planning + demo-only Response agent
 
 The current alpha candidate expands **what Response knows how to handle** without pretending all response types are already safe to automate.
 
@@ -42,18 +42,20 @@ Each plan separates investigation, containment, recovery, escalation, and execut
 
 The alpha remains standalone and sensor-neutral. No detector repository must contain Response code.
 
-## Next — dedicated Response agent
+The repository now also includes a **Response-owned outward-polling alpha agent**. Its purpose in this release is to prove the secure action lifecycle while touching only its own dedicated JSON demo fixture. It implements no generic host-response primitive.
 
-Real endpoint capabilities belong to a **dedicated Response agent maintained in this repository**, not in QuietWard or another detector product.
+## Next — extend the bundled Response agent safely
 
-The first Response-agent release should provide only the security primitives needed to make narrow actions safe:
+Real endpoint capabilities belong to the **dedicated Response agent maintained in this repository**, not in QuietWard or another detector product.
 
-1. authenticated enrollment and outward polling using the existing agent protocol;
+The next agent foundation work should add the security primitives needed to make narrow real actions safe without weakening the demo-qualified control path:
+
+1. OS-protected credential storage plus key rotation/revocation workflow;
 2. endpoint-created opaque resource handles for processes, files, network targets, containers, identities, persistence objects, services, and packages/configuration targets;
 3. short handle expiry and target fingerprints;
 4. read-only precondition/preview requests;
-5. durable execution journal and exactly-once/idempotent result behavior;
-6. endpoint-side action allowlist and schema version checks;
+5. preserve the durable execution journal and exactly-once/idempotent result behavior already proven by the demo executor;
+6. endpoint-side action allowlist and schema-version checks for every new capability;
 7. bounded execution timeout and failure reporting;
 8. rollback metadata where a rollback is meaningful;
 9. least-privilege execution boundary;
@@ -61,7 +63,7 @@ The first Response-agent release should provide only the security primitives nee
 
 ## First real containment actions
 
-After the Response agent foundation is qualified, add actions one at a time in roughly this order:
+After those agent foundations are qualified, add actions one at a time in roughly this order:
 
 1. bounded process-tree diagnostics;
 2. artifact hash/metadata diagnostics;
