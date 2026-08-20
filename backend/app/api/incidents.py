@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +15,7 @@ from app.services.incident_service import (
     incident_to_summary,
     update_incident,
 )
+from app.services.response_family import infer_response_family
 from app.services.response_plan import build_response_plan
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
@@ -64,7 +67,20 @@ def get_response_plan(
             .order_by(EventRecord.occurred_at.asc(), EventRecord.event_id.asc())
         )
     )
-    return build_response_plan(incident, events)
+
+    # Response plans are sensor-neutral. Normalize common external event vocabulary
+    # into the canonical plan families without rewriting persisted evidence.
+    normalized_events = []
+    for event in events:
+        family = infer_response_family(event.event_type, event.category)
+        canonical_category = "file" if family == "file_integrity" else family
+        normalized_events.append(
+            SimpleNamespace(
+                event_type=event.event_type,
+                category=canonical_category,
+            )
+        )
+    return build_response_plan(incident, normalized_events)
 
 
 @router.patch("/{incident_id}", response_model=IncidentDetail)
