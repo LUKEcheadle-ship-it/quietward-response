@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-from finalize_v1 import (
-    EXPECTED_QUIETWARD_REPO,
-    EXPECTED_RESPONSE_REPO,
-    ROOT,
-    _verify_checkout,
-)
+from finalize_v1 import EXPECTED_RESPONSE_REPO, ROOT, _verify_checkout
 
 EXPECTED_BRANCH = "feature/response-diagnostic-expansion"
 EXPECTED_VERSION = "1.1.0a1"
@@ -28,54 +22,33 @@ def _response_version() -> str:
     return match.group(1)
 
 
-def _run(script: str, quietward: Path) -> None:
+def _run(script: str) -> None:
     subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "scripts" / script),
-            "--quietward-repo",
-            str(quietward),
-        ],
+        [sys.executable, str(ROOT / "scripts" / script)],
         cwd=ROOT,
         check=True,
     )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Run the complete QuietWard Response v1.1.0-alpha.1 gates."
-    )
-    parser.add_argument("--quietward-repo", type=Path, required=True)
-    args = parser.parse_args()
-
-    quietward = args.quietward_repo.resolve()
     version = _response_version()
     response_head = _verify_checkout(
         ROOT,
         expected_branch=EXPECTED_BRANCH,
         expected_repo=EXPECTED_RESPONSE_REPO,
     )
-    quietward_head = _verify_checkout(
-        quietward,
-        expected_branch=EXPECTED_BRANCH,
-        expected_repo=EXPECTED_QUIETWARD_REPO,
-    )
 
-    _run("verify_v11_alpha.py", quietward)
-    # Regression gate: the released v1 demo lifecycle must still work unchanged.
-    _run("verify_v1_live.py", quietward)
-    # New alpha gate: real QuietWard malware evidence -> approved read-only diagnostic.
-    _run("verify_v11_alpha_live.py", quietward)
+    _run("verify_v11_alpha.py")
+    _run("verify_v11_alpha_live.py")
 
     print("\nQUIETWARD RESPONSE V1.1.0-ALPHA.1 AUTOMATED GATES: PASS")
     print(f"response_version={version}")
     print(f"response_head={response_head}")
-    print(f"quietward_head={quietward_head}")
-    print("Released v1 demo lifecycle regression: PASS")
-    print("Expanded diagnostic lifecycle: PASS")
-    print("QuietWard expanded detection suite: PASS")
-    print("Both checkouts matched their exact pushed feature branches and contain origin/main.")
-    print("Next: perform the documented browser UI smoke, then publish the alpha only if clean.")
+    print("Static/local Response qualification: PASS")
+    print("Standalone live response-plan HTTP acceptance: PASS")
+    print("Executable endpoint action surface remains demo-only: PASS")
+    print("No detector repository checkout is required or modified by this finalizer.")
+    print("Next: perform the documented browser UI smoke on this exact candidate SHA.")
     return 0
 
 
