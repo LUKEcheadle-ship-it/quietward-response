@@ -57,7 +57,7 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> di
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Enroll the standalone QuietWard Response alpha agent and write a private local config file."
+        description="Enroll the QuietWard Response v1.2 alpha agent and write a private local config file."
     )
     parser.add_argument("--api-url", default="http://127.0.0.1:8002")
     parser.add_argument(
@@ -69,6 +69,28 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--display-name")
     parser.add_argument("--state-dir", type=Path, default=_default_state_dir())
     parser.add_argument("--config-file", type=Path, default=_default_config_file())
+    parser.add_argument(
+        "--managed-root",
+        action="append",
+        type=Path,
+        default=[],
+        help="Absolute directory whose regular files may receive opaque diagnostic/quarantine handles. Repeatable.",
+    )
+    parser.add_argument(
+        "--quarantine-dir",
+        type=Path,
+        help="Private quarantine directory. Defaults under the agent state directory.",
+    )
+    parser.add_argument(
+        "--enable-process-termination",
+        action="store_true",
+        help="Opt in to handle-bound exact-process termination.",
+    )
+    parser.add_argument(
+        "--enable-file-quarantine",
+        action="store_true",
+        help="Opt in to managed-root handle-bound quarantine/restore.",
+    )
     parser.add_argument("--force", action="store_true")
     return parser
 
@@ -80,6 +102,14 @@ def main() -> int:
         raise SystemExit("--token or QWR_ENROLLMENT_TOKEN is required")
     state_dir = args.state_dir.expanduser().resolve()
     config_file = args.config_file.expanduser().resolve()
+    managed_roots = tuple(path.expanduser().resolve() for path in args.managed_root)
+    quarantine_dir = (
+        args.quarantine_dir.expanduser().resolve()
+        if args.quarantine_dir
+        else (state_dir / "quarantine").resolve()
+    )
+    if args.enable_file_quarantine and not managed_roots:
+        raise SystemExit("--enable-file-quarantine requires at least one --managed-root")
     display_name = args.display_name or f"Response agent on {args.host_id}"
 
     value = _post_json(
@@ -87,7 +117,7 @@ def main() -> int:
         {
             "host_id": args.host_id,
             "display_name": display_name,
-            "agent_version": "1.1.0-alpha.1",
+            "agent_version": "1.2.0-alpha.1",
         },
         {"X-QWR-Enrollment-Token": token},
     )
@@ -102,15 +132,20 @@ def main() -> int:
         secret=str(value["secret"]),
         host_id=str(value["host_id"]),
         state_dir=state_dir,
+        managed_roots=managed_roots,
+        quarantine_dir=quarantine_dir,
+        enable_process_termination=args.enable_process_termination,
+        enable_file_quarantine=args.enable_file_quarantine,
     )
     written = write_agent_config(config_file, config, force=args.force)
 
-    # Never echo the one-time secret. The private file is permission-hardened where
-    # POSIX semantics are available; production deployments should use OS secret storage.
     print(f"Response agent enrolled: {config.agent_id}")
     print(f"Host: {config.host_id}")
     print(f"Private config: {written}")
     print(f"State directory: {config.state_dir}")
+    print(f"Managed roots: {len(config.managed_roots)}")
+    print(f"Process termination enabled: {config.enable_process_termination}")
+    print(f"File quarantine enabled: {config.enable_file_quarantine}")
     print("The enrollment secret was written to the private config and was not printed.")
     return 0
 
