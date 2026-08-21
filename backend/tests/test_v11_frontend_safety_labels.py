@@ -18,9 +18,13 @@ def test_ui_separates_guidance_diagnostics_and_handle_bound_actions() -> None:
     assert "High-impact containment · Opaque handle · Approval required" in action_text
     assert "Reversible containment · Opaque handle · Approval required" in action_text
     assert "Rollback · Opaque handle · Approval required" in action_text
-    assert "Do not enter a PID or file path" in action_text
+    assert "Only handles returned by this incident and selected agent are offered" in action_text
+    assert "Raw PIDs and file paths cannot be entered" in action_text
+    assert "Run the matching diagnostic/action first" in action_text
     assert "raw PIDs, paths, commands, service names, firewall rules" in action_text
+    assert "handleOptionsFor" in action_text
     assert "qwrh1_" in action_text
+    assert "placeholder=\"qwrh1_" not in action_text
 
     assert "Planned · not executable" in plan_text
     assert "Blocked · future capability" in plan_text
