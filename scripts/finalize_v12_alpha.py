@@ -40,15 +40,17 @@ def main() -> int:
     )
 
     _run("verify_v12_alpha.py")
-    _run("verify_v12_alpha_live.py")
+    _run("verify_v12_alpha_live_capabilities.py")
 
     print("\nQUIETWARD RESPONSE V1.2.0-ALPHA.1 AUTOMATED GATES: PASS")
     print(f"response_version={version}")
     print(f"response_head={response_head}")
     print("Full backend/static/local qualification: PASS")
+    print("Signed agent capability negotiation: PASS")
     print("Live handle-bound quarantine/restore: PASS")
     print("Live disposable exact-process termination: PASS")
     print("Analyst bearer RBAC and authenticated audit identity: PASS")
+    print("Signed externalizable audit checkpoints: PASS")
     print("API request-size/rate bounds: PASS")
     print("Raw PID/path and generic command targeting remain unavailable: PASS")
     print("No detector repository checkout is required or modified by this finalizer.")
