@@ -47,8 +47,6 @@ def create_app(
             if create_schema:
                 database.create_all()
             else:
-                # Normal launchers and containers run Alembic before starting Uvicorn.
-                # Still harden the resulting SQLite file after migration created it.
                 database.harden_local_file_permissions()
             with database.session_factory() as session:
                 if backfill_legacy_audit_chain(session):
@@ -60,8 +58,6 @@ def create_app(
                     )
             yield
         finally:
-            # Also dispose when startup validation itself fails so Windows/local
-            # SQLite files are not left locked by a partially started service.
             database.dispose()
 
     application = FastAPI(
@@ -91,9 +87,14 @@ def create_app(
             "X-QWR-Signature",
         ],
     )
-    # v1 uses one API process/worker and serializes request transactions so the
-    # single linear audit chain cannot fork under concurrent HTTP requests.
-    application.add_middleware(SerializedRequestMiddleware)
+    # Current qualification is one API process/worker. The same middleware keeps
+    # the linear audit chain serialized and enforces process-local request/rate
+    # bounds until a future shared multi-worker control plane is qualified.
+    application.add_middleware(
+        SerializedRequestMiddleware,
+        max_request_bytes=resolved.api_max_request_bytes,
+        rate_limit_per_minute=resolved.api_rate_limit_per_minute,
+    )
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(
