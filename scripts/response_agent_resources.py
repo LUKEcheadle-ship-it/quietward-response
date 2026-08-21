@@ -22,6 +22,8 @@ MAX_PROCESS_RESULTS = 128
 MAX_FILE_RESULTS = 128
 MAX_FILE_WALK_DIRECTORIES = 256
 MAX_HANDLE_RECORDS = 8192
+MAX_MANAGED_FILE_BYTES = 64 * 1024 * 1024
+PROCESS_EXIT_WAIT_SECONDS = 2.0
 
 
 class ResourceError(RuntimeError):
@@ -77,9 +79,13 @@ class ResourceHandleStore:
         for handle, record in list(records.items()):
             expires_at = float(record.get("expires_at_epoch") or 0)
             consumed_epoch = float(record.get("consumed_at_epoch") or 0)
-            old_expired = bool(expires_at and expires_at <= now - 86_400)
+            # Unconsumed handles are useless once expired, so remove them promptly
+            # instead of allowing repeated diagnostics to fill the local handle store.
+            expired_unconsumed = bool(
+                not record.get("consumed_at") and expires_at and expires_at <= now
+            )
             old_consumed = bool(consumed_epoch and consumed_epoch <= now - 86_400)
-            if old_expired or old_consumed:
+            if expired_unconsumed or old_consumed:
                 records.pop(handle, None)
                 changed = True
         if changed:
@@ -239,9 +245,27 @@ def _windows_kernel32():
     kernel32.GetProcessTimes.restype = wintypes.BOOL
     kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
     kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
     return kernel32
+
+
+def _windows_creation_filetime(kernel32, handle) -> int | None:
+    creation_ft = wintypes.FILETIME()
+    exit_ft = wintypes.FILETIME()
+    kernel_ft = wintypes.FILETIME()
+    user_ft = wintypes.FILETIME()
+    if not kernel32.GetProcessTimes(
+        handle,
+        ctypes.byref(creation_ft),
+        ctypes.byref(exit_ft),
+        ctypes.byref(kernel_ft),
+        ctypes.byref(user_ft),
+    ):
+        return None
+    return (int(creation_ft.dwHighDateTime) << 32) | int(creation_ft.dwLowDateTime)
 
 
 def _windows_processes() -> list[dict[str, Any]]:
@@ -283,20 +307,7 @@ def _windows_processes() -> list[dict[str, Any]]:
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if handle:
                 try:
-                    creation_ft = wintypes.FILETIME()
-                    exit_ft = wintypes.FILETIME()
-                    kernel_ft = wintypes.FILETIME()
-                    user_ft = wintypes.FILETIME()
-                    if kernel32.GetProcessTimes(
-                        handle,
-                        ctypes.byref(creation_ft),
-                        ctypes.byref(exit_ft),
-                        ctypes.byref(kernel_ft),
-                        ctypes.byref(user_ft),
-                    ):
-                        creation = (int(creation_ft.dwHighDateTime) << 32) | int(
-                            creation_ft.dwLowDateTime
-                        )
+                    creation = _windows_creation_filetime(kernel32, handle) or 0
                 finally:
                     kernel32.CloseHandle(handle)
             fingerprint = _fingerprint((pid, parent, image.lower(), creation))
@@ -404,6 +415,16 @@ def _current_process(identity: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _wait_linux_identity_gone(identity: dict[str, Any], fingerprint: str) -> bool:
+    deadline = time.monotonic() + PROCESS_EXIT_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        current = _linux_process(int(identity["pid"]))
+        if current is None or current["fingerprint"] != fingerprint:
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def terminate_process_by_handle(
     store: ResourceHandleStore,
     handle: str,
@@ -431,27 +452,64 @@ def terminate_process_by_handle(
     if _protected_process(current):
         raise ResourceError("process is protected from Response termination")
     pid = int(current["pid"])
+    verified = False
 
     if os.name == "nt":
         kernel32 = _windows_kernel32()
         PROCESS_TERMINATE = 0x0001
-        process_handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        process_handle = kernel32.OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid,
+        )
         if not process_handle:
             raise ResourceError("Windows denied process termination handle")
         try:
+            creation = _windows_creation_filetime(kernel32, process_handle)
+            if creation is None or creation != int(identity.get("creation_filetime") or 0):
+                raise ResourceError("Windows process identity changed before termination")
             if not kernel32.TerminateProcess(process_handle, 1):
                 raise ResourceError("Windows process termination failed")
+            WAIT_OBJECT_0 = 0x00000000
+            wait_result = kernel32.WaitForSingleObject(
+                process_handle,
+                int(PROCESS_EXIT_WAIT_SECONDS * 1000),
+            )
+            verified = wait_result == WAIT_OBJECT_0
         finally:
             kernel32.CloseHandle(process_handle)
+        if not verified:
+            raise ResourceError("Windows process did not exit within the bounded wait")
     else:
-        os.kill(pid, signal.SIGTERM)
+        if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+            raise ResourceError("safe Linux process termination requires pidfd support")
+        try:
+            pidfd = os.pidfd_open(pid, 0)
+        except OSError as exc:
+            raise ResourceError("Linux process disappeared before pidfd acquisition") from exc
+        try:
+            # Re-read identity after pidfd acquisition. The pidfd is bound to the
+            # process instance, removing the PID-reuse race between validation and signal.
+            rebound = _linux_process(pid)
+            if rebound is None or rebound["fingerprint"] != record.get("fingerprint"):
+                raise ResourceError("Linux process identity changed before pidfd signal")
+            signal.pidfd_send_signal(pidfd, signal.SIGTERM)
+        except ProcessLookupError as exc:
+            raise ResourceError("Linux process disappeared before termination signal") from exc
+        finally:
+            os.close(pidfd)
+        verified = _wait_linux_identity_gone(identity, str(record["fingerprint"]))
+        if not verified:
+            raise ResourceError("Linux process did not exit after SIGTERM within the bounded wait")
 
     result = {
         "resource_handle": handle,
         "pid": pid,
         "image": current["image"],
         "termination_requested": True,
-        "signal": "TerminateProcess" if os.name == "nt" else "SIGTERM",
+        "termination_verified": verified,
+        "signal": "TerminateProcess" if os.name == "nt" else "SIGTERM-via-pidfd",
         "system_state_changed": True,
         "reversible": False,
     }
@@ -470,6 +528,17 @@ def _within(path: Path, root: Path) -> bool:
         return False
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _file_identity(path: Path, root: Path) -> tuple[dict[str, Any], str, dict[str, Any]]:
     if path.is_symlink():
         raise ResourceError("symbolic links are not eligible for managed file actions")
@@ -477,23 +546,44 @@ def _file_identity(path: Path, root: Path) -> tuple[dict[str, Any], str, dict[st
     resolved_root = root.resolve(strict=True)
     if not _within(resolved, resolved_root):
         raise ResourceError("managed file escaped configured root")
-    info = resolved.stat()
-    if not stat.S_ISREG(info.st_mode):
+    before = resolved.stat()
+    if not stat.S_ISREG(before.st_mode):
         raise ResourceError("managed file action requires a regular file")
+    if int(before.st_size) > MAX_MANAGED_FILE_BYTES:
+        raise ResourceError(
+            f"managed file exceeds v1.2 handle size limit of {MAX_MANAGED_FILE_BYTES} bytes"
+        )
+    content_sha256 = _sha256_file(resolved)
+    after = resolved.stat()
+    stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    if any(getattr(before, field) != getattr(after, field) for field in stable_fields):
+        raise ResourceError("managed file changed while its identity was being hashed")
     identity = {
         "path": str(resolved),
         "root": str(resolved_root),
-        "device": int(info.st_dev),
-        "inode": int(info.st_ino),
-        "size": int(info.st_size),
-        "mtime_ns": int(info.st_mtime_ns),
+        "device": int(after.st_dev),
+        "inode": int(after.st_ino),
+        "size": int(after.st_size),
+        "mtime_ns": int(after.st_mtime_ns),
+        "sha256": content_sha256,
     }
-    fingerprint = _fingerprint(identity.values())
+    fingerprint = _fingerprint(
+        (
+            identity["path"],
+            identity["root"],
+            identity["device"],
+            identity["inode"],
+            identity["size"],
+            identity["mtime_ns"],
+            identity["sha256"],
+        )
+    )
     display = {
         "root": resolved_root.name or str(resolved_root),
         "relative_path": resolved.relative_to(resolved_root).as_posix(),
-        "size": int(info.st_size),
-        "modified_at": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
+        "size": int(after.st_size),
+        "sha256": content_sha256,
+        "modified_at": datetime.fromtimestamp(after.st_mtime, timezone.utc).isoformat(),
     }
     return identity, fingerprint, display
 
@@ -504,6 +594,7 @@ def collect_file_diagnostic(
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     visited_directories = 0
+    skipped_oversize = 0
     for root in managed_roots:
         try:
             resolved_root = root.resolve(strict=True)
@@ -526,7 +617,11 @@ def collect_file_diagnostic(
                 path = Path(directory) / filename
                 try:
                     identity, fingerprint, display = _file_identity(path, resolved_root)
-                except (OSError, ResourceError):
+                except ResourceError as exc:
+                    if "exceeds v1.2 handle size limit" in str(exc):
+                        skipped_oversize += 1
+                    continue
+                except OSError:
                     continue
                 row = dict(display)
                 row.update(
@@ -546,8 +641,10 @@ def collect_file_diagnostic(
         "read_only": True,
         "system_state_changed": False,
         "resource_handle_ttl_seconds": HANDLE_TTL_SECONDS,
+        "managed_file_max_bytes": MAX_MANAGED_FILE_BYTES,
         "managed_root_count": len(managed_roots),
         "files": rows,
+        "skipped_oversize_files": skipped_oversize,
         "truncated": len(rows) >= MAX_FILE_RESULTS
         or visited_directories > MAX_FILE_WALK_DIRECTORIES,
     }
@@ -560,6 +657,23 @@ def _quarantine_target(quarantine_dir: Path, handle: str) -> Path:
 
 def _rollback_handle(handle: str) -> str:
     return "qwrh1_rb_" + hashlib.sha256(handle.encode("utf-8")).hexdigest()[:40]
+
+
+def _file_content_matches(path: Path, identity: dict[str, Any]) -> bool:
+    if path.is_symlink() or not path.is_file():
+        return False
+    info = path.stat()
+    if int(info.st_size) != int(identity.get("size") or -1):
+        return False
+    return hmac_compare(_sha256_file(path), str(identity.get("sha256") or ""))
+
+
+def hmac_compare(left: str, right: str) -> bool:
+    # hashlib-only module deliberately avoids another dependency. compare_digest is
+    # exposed by hmac, imported lazily so this file's action surface remains obvious.
+    import hmac
+
+    return hmac.compare_digest(left, right)
 
 
 def quarantine_file_by_handle(
@@ -582,14 +696,8 @@ def quarantine_file_by_handle(
 
     recovered = False
     if not path.exists():
-        if not recover_after_started or not target.exists() or not target.is_file() or target.is_symlink():
+        if not recover_after_started or not target.exists() or not _file_content_matches(target, identity):
             raise ResourceError("managed file disappeared before quarantine")
-        target_info = target.stat()
-        if (
-            int(target_info.st_size) != int(identity.get("size") or -1)
-            or int(target_info.st_mtime_ns) != int(identity.get("mtime_ns") or -1)
-        ):
-            raise ResourceError("quarantine recovery target does not match original file identity")
         display = dict(record.get("display") or {})
         recovered = True
     else:
@@ -599,21 +707,31 @@ def quarantine_file_by_handle(
         if target.exists():
             raise ResourceError("quarantine target already exists while source still exists")
         shutil.move(str(path), str(target))
+        if not _file_content_matches(target, current_identity):
+            raise ResourceError("quarantined file content does not match the approved identity")
+        identity = current_identity
 
     target_info = target.stat()
+    target_sha256 = _sha256_file(target)
     rollback_identity = {
         "original_path": str(path),
         "quarantine_path": str(target),
         "root": str(root),
+        "size": int(target_info.st_size),
+        "sha256": target_sha256,
     }
     rollback_fingerprint = _fingerprint(
-        (str(target), int(target_info.st_size), int(target_info.st_mtime_ns))
+        (str(target), int(target_info.st_size), target_sha256)
     )
     rollback = store.issue(
         kind="quarantined_file",
         identity=rollback_identity,
         fingerprint=rollback_fingerprint,
-        display={"relative_path": display.get("relative_path", path.name)},
+        display={
+            "relative_path": display.get("relative_path", path.name),
+            "size": int(target_info.st_size),
+            "sha256": target_sha256,
+        },
         ttl_seconds=ROLLBACK_HANDLE_TTL_SECONDS,
         preferred_handle=_rollback_handle(handle),
     )
@@ -623,6 +741,7 @@ def quarantine_file_by_handle(
         "system_state_changed": True,
         "reversible": True,
         "original_relative_path": display.get("relative_path", path.name),
+        "sha256": target_sha256,
         "rollback_resource_handle": rollback["resource_handle"],
         "rollback_expires_at": rollback["expires_at"],
         "recovered_after_interruption": recovered,
@@ -659,16 +778,9 @@ def restore_quarantined_file(
         if (
             not recover_after_started
             or not destination.exists()
-            or not destination.is_file()
-            or destination.is_symlink()
+            or not _file_content_matches(destination, identity)
         ):
             raise ResourceError("quarantined file no longer exists")
-        destination_info = destination.stat()
-        recovery_fingerprint = _fingerprint(
-            (str(source), int(destination_info.st_size), int(destination_info.st_mtime_ns))
-        )
-        if recovery_fingerprint != record.get("fingerprint"):
-            raise ResourceError("restore recovery target does not match quarantined file identity")
         recovered = True
     else:
         if source.is_symlink() or not source.is_file():
@@ -676,11 +788,13 @@ def restore_quarantined_file(
         if destination.exists():
             raise ResourceError("original path is occupied; refusing restore")
         current_fingerprint = _fingerprint(
-            (str(source), int(source.stat().st_size), int(source.stat().st_mtime_ns))
+            (str(source), int(source.stat().st_size), _sha256_file(source))
         )
         if current_fingerprint != record.get("fingerprint"):
             raise ResourceError("quarantined file changed after quarantine")
         shutil.move(str(source), str(destination))
+        if not _file_content_matches(destination, identity):
+            raise ResourceError("restored file content does not match quarantine identity")
 
     try:
         relative = destination.resolve(strict=True).relative_to(resolved_root).as_posix()
@@ -691,6 +805,7 @@ def restore_quarantined_file(
         "restored": True,
         "system_state_changed": True,
         "restored_relative_path": relative,
+        "sha256": str(identity.get("sha256") or ""),
         "recovered_after_interruption": recovered,
     }
     store.consume(handle, result)
