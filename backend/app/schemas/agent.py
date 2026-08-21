@@ -22,10 +22,16 @@ class AgentEnrollResponse(BaseModel):
     created_at: datetime
 
 
-class AgentKeyRotateResponse(BaseModel):
+class AgentKeyRotationPrepareResponse(BaseModel):
+    agent_id: str
+    pending_key_id: str
+    secret: str
+    pending_key_expires_at: datetime
+
+
+class AgentKeyRotationActivateResponse(BaseModel):
     agent_id: str
     key_id: str
-    secret: str
     previous_key_expires_at: datetime
 
 
