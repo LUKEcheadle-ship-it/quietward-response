@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     correlation_window_seconds: int = Field(default=300, ge=30, le=3600)
     log_level: str = "INFO"
 
+    # Bound abuse before request parsing/persistence. v1/v1.1 qualify a single API
+    # process/worker, so the rate limiter is intentionally process-local. Multi-worker
+    # deployment still requires a shared atomic limiter and audit-chain head.
+    api_max_request_bytes: int = Field(default=1_048_576, ge=4_096, le=8_388_608)
+    api_rate_limit_per_minute: int = Field(default=600, ge=30, le=60_000)
+
     # Local development has a known loopback-only fallback so a fresh clone can
     # start without secret provisioning. Any non-loopback or non-development
     # runtime must set its own sufficiently long token.
@@ -63,8 +69,8 @@ class Settings(BaseSettings):
                     "QWR_ENROLLMENT_TOKEN must be replaced outside loopback development"
                 )
 
-        # Disabling authenticated QuietWard telemetry is a loopback-only development
-        # escape hatch. Never permit that setting on a remotely reachable bind.
+        # Disabling authenticated telemetry is a loopback-only development escape
+        # hatch. Never permit that setting on a remotely reachable bind.
         if not self.require_agent_auth_for_quietward_events:
             if environment != "development" or not loopback:
                 raise ValueError(
