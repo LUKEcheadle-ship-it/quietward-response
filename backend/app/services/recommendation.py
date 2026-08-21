@@ -13,6 +13,8 @@ def _action(
     controlled = registry_action_type is not None
     if registry_action_type == "restart_quietward_demo_service":
         phase = "v1 — approval required"
+    elif controlled:
+        phase = "v1.2 — approval required"
     elif action_type == "diagnostic":
         phase = "v1"
     else:
@@ -58,13 +60,15 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
-                    "Review process and privilege context",
-                    "Inspect process identity, parent/child relationships, execution account, privilege context, hashes, and adjacent telemetry supplied with the incident.",
+                    "Collect bounded process diagnostic",
+                    "Collect a bounded process snapshot. The Response agent issues short-lived opaque handles for non-protected process identities; it does not accept a server-supplied PID.",
+                    registry_action_type="collect_process_diagnostic",
                 ),
                 _action(
                     "remediation",
-                    "Contain the suspicious process",
-                    "Process suspension or termination is planned but is not executable in this alpha until exact process identity, preconditions, timeout, and rollback behavior are qualified.",
+                    "Terminate exact suspicious process by handle",
+                    "Terminate only a non-protected process that still matches an unexpired agent-issued resource handle. The agent revalidates process identity immediately before termination.",
+                    registry_action_type="terminate_process_by_handle",
                 ),
             ]
         )
@@ -80,13 +84,21 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
-                    "Review file and malware evidence",
-                    "Validate file identity, cryptographic hash, signer/ownership, scanner or rule evidence, creation/modification time, and related process activity.",
+                    "Collect managed-file diagnostic",
+                    "Enumerate only regular files inside explicitly configured Response-agent managed roots and issue short-lived opaque handles. No server-supplied path is accepted.",
+                    registry_action_type="collect_file_diagnostic",
                 ),
                 _action(
                     "remediation",
-                    "Quarantine suspicious artifact",
-                    "Artifact quarantine is planned but disabled until exact artifact identity, evidence preservation, rollback, and adversarial qualification are complete.",
+                    "Quarantine exact artifact by handle",
+                    "Move only the managed regular file represented by a current agent-issued handle into the private quarantine directory after identity revalidation.",
+                    registry_action_type="quarantine_artifact_by_handle",
+                ),
+                _action(
+                    "remediation",
+                    "Restore quarantined artifact by rollback handle",
+                    "Restore only a quarantine object represented by the rollback handle created by a prior quarantine execution; refuse restore when the original path is occupied or escapes the configured root.",
+                    registry_action_type="restore_quarantined_artifact_by_handle",
                 ),
             ]
         )
@@ -98,13 +110,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host/agent health context without invoking a shell or service manager.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Review persistence mechanism",
                     "Validate the exact task, service, startup entry, account, executable, creation time, fingerprint, and nearby execution/network evidence.",
                 ),
                 _action(
                     "remediation",
                     "Disable suspicious persistence",
-                    "Persistence modification is planned but disabled until each object type has an exact schema, preserved original state, and tested rollback path.",
+                    "Persistence modification remains disabled until each object type has an exact handle-backed schema, preserved original state, and tested rollback path.",
                 ),
             ]
         )
@@ -116,13 +134,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host/agent health context to pair with network evidence.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Review network and owning-process context",
                     "Correlate listener or destination scope, protocol, port, owning process, first-seen time, and adjacent endpoint evidence.",
                 ),
                 _action(
                     "remediation",
                     "Contain suspicious network activity",
-                    "Firewall and host-isolation changes remain disabled until bounded rules, rollback, and connectivity-preservation checks are qualified.",
+                    "Firewall and host-isolation changes remain disabled until bounded handle-backed rules, automatic expiry, rollback, and connectivity-preservation checks are qualified.",
                 ),
             ]
         )
@@ -136,13 +160,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host context before deciding whether container activity affected the host.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Review container security context",
                     "Validate container identity, image, privileges, capabilities, mounts, namespaces, network activity, restart behavior, and security-fingerprint changes.",
                 ),
                 _action(
                     "remediation",
                     "Contain suspicious container",
-                    "Container stop/network containment remains disabled until exact container identity and recovery semantics are qualified.",
+                    "Container stop/network containment remains disabled until exact handle-backed container identity and recovery semantics are qualified.",
                 ),
             ]
         )
@@ -155,13 +185,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host context to support authentication/privilege investigation.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Review identity and authentication context",
                     "Correlate account identity, authentication failures, source context, privilege changes, session activity, and affected hosts while preserving available privacy controls.",
                 ),
                 _action(
                     "remediation",
                     "Revoke or lock compromised identity",
-                    "Session revocation and temporary account lock are planned but disabled until provider-specific safeguards, recovery, and analyst-authentication controls are qualified.",
+                    "Session revocation and temporary account lock remain disabled until provider-specific handle/identity binding, recovery, and stronger analyst-authentication controls are qualified.",
                 ),
             ]
         )
@@ -174,13 +210,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host context before applying compensating controls or maintenance changes.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Review vulnerable component and exposure",
                     "Confirm the affected package or configuration, installed version, severity, exposure path, compensating controls, and whether exploitation evidence exists.",
                 ),
                 _action(
                     "remediation",
                     "Patch or harden affected component",
-                    "Package or configuration mutation is planned but disabled until platform-specific preconditions, maintenance-window handling, and rollback are qualified.",
+                    "Package or configuration mutation remains disabled until platform-specific preconditions, maintenance-window handling, and rollback are qualified.",
                 ),
             ]
         )
@@ -192,6 +234,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     } or "integrity" in categories:
         recommendations.extend(
             [
+                _action(
+                    "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host and agent state before trusting further endpoint assertions.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
                 _action(
                     "diagnostic",
                     "Review sensor and evidence integrity",
@@ -213,13 +261,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host/agent health before classifying the incident as operational or adversarial.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Assess service and resource health",
                     "Review health checks, resource pressure, dependency failures, and nearby security events before classifying the incident as operational or adversarial.",
                 ),
                 _action(
                     "remediation",
                     "Restore affected service safely",
-                    "General service control, cleanup, and deletion are not executable in this alpha; use the generated response plan to preserve evidence and define a bounded recovery action.",
+                    "General service control, cleanup, and deletion remain disabled; preserve evidence and define a narrow typed recovery action first.",
                 ),
             ]
         )
@@ -227,6 +281,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     if not recommendations:
         recommendations.extend(
             [
+                _action(
+                    "diagnostic",
+                    "Collect host diagnostic snapshot",
+                    "Collect bounded read-only host/agent context without invoking arbitrary host commands.",
+                    registry_action_type="collect_host_diagnostic",
+                ),
                 _action(
                     "diagnostic",
                     "Validate the original evidence",
