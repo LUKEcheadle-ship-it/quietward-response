@@ -87,6 +87,11 @@ _MUTATING_ACTIONS = {
     "quarantine_artifact_by_handle",
     "restore_quarantined_artifact_by_handle",
 }
+_HANDLE_ACTIONS = {
+    "terminate_process_by_handle",
+    "quarantine_artifact_by_handle",
+    "restore_quarantined_artifact_by_handle",
+}
 
 
 def _derive_hmac_key(secret: str) -> bytes:
@@ -193,6 +198,20 @@ def _path_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _extract_handles(value: Any) -> set[str]:
+    handles: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"resource_handle", "rollback_resource_handle"} and isinstance(item, str):
+                if item.startswith("qwrh1_") and len(item) <= 96:
+                    handles.add(item)
+            handles.update(_extract_handles(item))
+    elif isinstance(value, list):
+        for item in value:
+            handles.update(_extract_handles(item))
+    return handles
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +351,7 @@ class ResponseAgent:
         self.config = config
         self._key = _derive_hmac_key(config.secret)
         self.ledger_path = config.state_dir / "response-agent-ledger.json"
+        self.handle_context_path = config.state_dir / "response-agent-handle-context.json"
         self.demo_state_path = config.state_dir / "response-agent-demo.json"
         self.resources = ResourceHandleStore(config.state_dir)
 
@@ -351,6 +371,7 @@ class ResponseAgent:
             "managed_roots": [str(item) for item in self.config.managed_roots],
             "quarantine_dir": str(self.config.quarantine_dir),
             "arbitrary_command_execution": False,
+            "resource_handles_are_incident_bound": True,
         }
 
     def _signed_headers(self, method: str, target: str, body: bytes) -> dict[str, str]:
@@ -426,6 +447,61 @@ class ResponseAgent:
     def _save_ledger(self, value: dict[str, dict[str, Any]]) -> None:
         _atomic_json(self.ledger_path, value)
 
+    def _load_handle_context(self) -> dict[str, dict[str, Any]]:
+        value = _load_json(self.handle_context_path, dict)
+        if any(not isinstance(item, dict) for item in value.values()):
+            raise ResponseAgentError("Response agent handle-context state has invalid entries")
+        if len(value) > 4096:
+            ordered = sorted(
+                value.items(),
+                key=lambda item: str(item[1].get("bound_at") or ""),
+            )
+            value = dict(ordered[-4096:])
+            _atomic_json(self.handle_context_path, value)
+        return value
+
+    def _bind_result_handles(self, action: dict[str, Any], result: dict[str, Any]) -> None:
+        handles = _extract_handles(result)
+        if not handles:
+            return
+        context = self._load_handle_context()
+        now = datetime.now(timezone.utc).isoformat()
+        for handle in handles:
+            existing = context.get(handle)
+            binding = {
+                "incident_id": str(action["incident_id"]),
+                "source_action_id": str(action["action_id"]),
+                "source_action_type": str(action["action_type"]),
+                "host_id": self.config.host_id,
+                "agent_id": self.config.agent_id,
+                "bound_at": now,
+            }
+            if existing is not None and (
+                existing.get("incident_id") != binding["incident_id"]
+                or existing.get("host_id") != binding["host_id"]
+                or existing.get("agent_id") != binding["agent_id"]
+            ):
+                raise ResponseAgentError("resource handle context collision detected")
+            context[handle] = binding
+        _atomic_json(self.handle_context_path, context)
+
+    def _validate_handle_context(self, action: dict[str, Any]) -> None:
+        action_type = str(action["action_type"])
+        if action_type not in _HANDLE_ACTIONS:
+            return
+        handle = str((action.get("parameters") or {}).get("resource_handle") or "")
+        context = self._load_handle_context().get(handle)
+        if context is None:
+            raise ResponseAgentError(
+                "resource handle has no trusted local diagnostic/quarantine provenance"
+            )
+        if context.get("incident_id") != action.get("incident_id"):
+            raise ResponseAgentError("resource handle belongs to a different incident")
+        if context.get("host_id") != self.config.host_id:
+            raise ResponseAgentError("resource handle belongs to a different host")
+        if context.get("agent_id") != self.config.agent_id:
+            raise ResponseAgentError("resource handle belongs to a different agent")
+
     def _has_local_history(self, action_id: str, ledger: dict[str, dict[str, Any]]) -> bool:
         prior = ledger.get(action_id)
         if prior and prior.get("status") in {"executing", "succeeded", "failed"}:
@@ -497,6 +573,7 @@ class ResponseAgent:
             )
         if status == "dispatching" and expires <= datetime.now(timezone.utc) and not local_history:
             raise ResponseAgentError("action expired before local execution began")
+        self._validate_handle_context(action)
         return action_id
 
     def _apply_demo_action(self, action_id: str) -> dict[str, Any]:
@@ -637,6 +714,7 @@ class ResponseAgent:
                     action,
                     recover_after_started=bool(ledger[action_id].get("mutation_started") and recovering),
                 )
+                self._bind_result_handles(action, result)
                 final = {"status": "succeeded", "result": result, "error": None}
             except Exception as exc:
                 final = {"status": "failed", "result": {}, "error": str(exc)[:1000]}
