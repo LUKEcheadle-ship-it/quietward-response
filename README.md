@@ -1,51 +1,98 @@
 # QuietWard Response
 
-QuietWard Response is a standalone incident-investigation and controlled-response platform. It accepts validated security telemetry, correlates related observations into incidents, reconstructs timelines, generates structured response plans, manages analyst decisions, and records a tamper-evident audit trail.
+QuietWard Response is a standalone incident-investigation and controlled-response platform. It accepts validated security telemetry, correlates observations into incidents, reconstructs timelines, generates structured response plans, manages analyst decisions, dispatches narrowly typed actions to a Response-owned agent, and records a tamper-evident audit trail.
 
-It is a **separate product and repository from QuietWard**. Response does not require changes to QuietWard and does not modify the QuietWard repository. Any detector or sensor can integrate through a separately maintained adapter or the versioned event API.
+It is a **separate product and repository from QuietWard**. Response does not require Response code inside QuietWard and does not modify the QuietWard repository. Sensors integrate through the versioned event API or separately maintained adapters.
 
-> **Alpha candidate:** `v1.1.0-alpha.1` (`1.1.0a1`) on `feature/response-diagnostic-expansion`.
+> **Current hardening candidate:** `v1.2.0-alpha.1` (`1.2.0a1`) on `feature/response-v12-hardening`.
 >
-> The alpha adds broad response planning for malware/file, process/privilege, identity/authentication, persistence, network, container, vulnerability/configuration, sensor/evidence-integrity, and operational incidents. Planned/manual steps are clearly distinguished from executable actions.
->
-> The executable endpoint surface remains deliberately narrow: `restart_quietward_demo_service` is the only registered action. The alpha now includes a **Response-owned standalone agent** that can execute only that dedicated demo-fixture action. There is no generic remote command surface.
+> v1.2 adds bounded read-only host/process/file diagnostics, short-lived incident-bound opaque resource handles, opt-in exact-process termination, managed-file quarantine/restore, action-specific TTL ceilings, API abuse bounds, and remote analyst bearer RBAC. There is still **no generic remote command surface**.
 
-## What the alpha does
+## Response coverage
 
-For each incident, Response exposes a deterministic structured plan at:
+For each incident, Response exposes:
 
 `GET /api/v1/incidents/{incident_id}/response-plan`
 
-A plan contains:
+Plans can cover:
 
-- detected response families;
-- response priority;
-- evidence-preservation and scoping objectives;
-- investigation steps;
-- containment steps;
-- recovery steps;
-- escalation conditions;
-- explicit step state: `available`, `manual`, `planned`, or `blocked`;
-- the exact list of executable actions, which is normally empty;
-- product limitations so guidance cannot be mistaken for hidden automation.
+- malware, ransomware, and suspicious files;
+- process execution and privilege escalation;
+- identity/authentication compromise and credential attacks;
+- persistence;
+- C2, beaconing, suspicious listeners and outbound activity;
+- container/Kubernetes compromise;
+- vulnerabilities and security-relevant configuration weaknesses;
+- sensor/evidence integrity and defense evasion;
+- operational failures that may overlap security incidents.
 
-### Covered response families
+A plan contains priority, attack families, investigation steps, containment steps, recovery steps, escalation conditions, limitations, and the exact executable action list. Planned/manual/blocked steps remain visibly distinct from executable capabilities.
 
-| Family | Alpha response coverage |
-|---|---|
-| Malware / suspicious files | artifact validation, process/network correlation, quarantine plan, trusted-source recovery |
-| Process / privilege | process-tree review, privilege scoping, bounded process-containment plan |
-| Identity / authentication | session/account investigation, session-revocation plan, temporary lock plan, credential recovery |
-| Persistence | persistence-object review, disable plan with preserved original state, recurrence verification |
-| Network | listener/destination review, temporary block plan, future host-isolation boundary, connectivity recovery |
-| Containers | image/configuration/privilege review, stop-container plan, trusted recreation |
-| Vulnerabilities / configuration | exposure validation, compensating controls, patch/hardening recovery |
-| Sensor / evidence integrity | trust review, audit/collection integrity checks, manual credential revocation guidance |
-| Operational issues | separate operational failure from adversarial activity and preserve evidence before recovery |
+## v1.2 executable action surface
 
-The family mapper also recognizes common sensor terminology such as ransomware, credential spray/brute force, credential dumping, C2/beaconing, lateral movement, scheduled-task/autorun persistence, container/Kubernetes alerts, CVEs/misconfiguration, defense evasion/tamper, suspicious execution, file-integrity changes, and availability/resource failures.
+The registry is explicit and finite:
 
-These plans make the system useful across many incident types **without pretending unsupported host automation exists**.
+| Action | Type | Targeting |
+|---|---|---|
+| `restart_quietward_demo_service` | demo state change | no parameters |
+| `collect_host_diagnostic` | read-only | no parameters |
+| `collect_process_diagnostic` | read-only | no parameters; issues process handles |
+| `terminate_process_by_handle` | high-impact containment | short-lived opaque process handle only |
+| `collect_file_diagnostic` | read-only | configured managed roots only; issues file handles |
+| `quarantine_artifact_by_handle` | reversible containment | short-lived opaque managed-file handle only |
+| `restore_quarantined_artifact_by_handle` | rollback | quarantine rollback handle only |
+
+Every registered action still requires analyst approval and deterministic server policy.
+
+### What an opaque handle means
+
+A Response agent creates a random `qwrh1_...` handle from its own local observation of a resource. The server never gets permission to invent a PID or filesystem path.
+
+Before mutation the agent rechecks:
+
+- action schema/type;
+- target agent and host;
+- incident provenance of the handle;
+- handle kind and expiry;
+- exact local resource fingerprint;
+- local high-impact capability opt-in;
+- server policy allowance and approval lifecycle;
+- stale/replaced process/file conditions.
+
+Handles cannot be reused across incidents. Process handles expire after five minutes; process-termination and quarantine action requests are capped at 240 seconds so approval cannot outlive the identity that justified it.
+
+## File containment boundary
+
+File diagnostics and quarantine operate **only** inside explicitly configured Response-agent managed roots.
+
+The agent:
+
+- enumerates bounded regular files only;
+- does not issue handles for symbolic links;
+- never accepts a server-supplied path;
+- revalidates root membership, device/inode/size/mtime identity before quarantine;
+- moves the file into a private configured quarantine directory;
+- returns a separate rollback handle;
+- refuses restore if the original path is occupied, outside the managed root, or the quarantine object changed;
+- records consumption receipts so exact replay does not apply the mutation twice.
+
+The quarantine directory must be outside all managed roots.
+
+## Process containment boundary
+
+Process diagnostics are implemented on Linux and Windows without a shell command supplied by the server.
+
+The agent:
+
+- returns a bounded process snapshot;
+- protects its own process/parent and critical OS processes;
+- binds handles to process identity data, not only PID;
+- revalidates identity immediately before termination;
+- refuses a stale/reused PID target;
+- never accepts a raw PID from Response;
+- fails closed if recovery after an interrupted termination is indeterminate.
+
+High-impact process termination is disabled by default in the agent configuration and must be explicitly enabled.
 
 ## Architecture
 
@@ -54,19 +101,62 @@ flowchart TD
     S[Security sensors / adapters] -->|versioned event API| I[Validation + ingestion]
     I --> C[Deterministic correlation]
     C --> X[Incident]
-    X --> T[Timeline + evidence]
-    T --> R[Assessment + recommendations]
-    R --> P[Structured response plan]
-    P --> H[Analyst investigation / manual containment]
-    P --> A[Controlled action registry]
-    A --> G[Approval + deterministic policy]
+    X --> P[Structured response plan]
+    P --> R[Registered typed action]
+    R --> A[Analyst RBAC + explicit approval]
+    A --> G[Deterministic policy revalidation]
     G --> E[Response-owned outward-polling agent]
-    E -->|signed result| X
+    E --> D[Local diagnostic + opaque handle]
+    D --> G
+    E -->|signed result / rollback data| X
     X --> U[Tamper-evident audit]
-    G --> U
 ```
 
-The control plane never turns plan text into shell commands. An action must exist in the explicit action registry before the action API can create it, and the Response agent independently allowlists the action again.
+Plan text never becomes executable code. An action must exist in the registry, be enabled by the specific incident's persisted recommendation set, pass server parameter/host/OS/lifecycle checks, receive approval, pass deterministic policy again at dispatch, and then pass the agent's independent local checks.
+
+## Analyst authentication and RBAC
+
+Loopback `development` keeps the historical `X-Actor-ID` convenience path for local testing.
+
+Outside loopback development, Response **will not start without `QWR_ANALYST_CREDENTIALS`**. Human `/api/v1` requests require bearer authentication.
+
+Roles:
+
+- `viewer`: read-only API access;
+- `responder`: viewer access plus incident updates, action creation, approval and rejection;
+- `admin`: responder access plus agent enable/disable and future unclassified mutation endpoints.
+
+Credentials are configured as:
+
+`actor_id|role|sha256_token_hash`
+
+Response config contains only the SHA-256 hash of a high-entropy bearer token. Generate a token/entry with:
+
+```text
+python scripts/generate_analyst_token.py --actor-id alice --role admin
+```
+
+Store the displayed bearer token in a secret manager. Example environment value with one or more hashed entries:
+
+```text
+QWR_ANALYST_CREDENTIALS='["alice|admin|<64-hex-sha256>"]'
+```
+
+The browser console stores a supplied analyst bearer token only in `sessionStorage`; it is removed when the browser session is cleared. An authenticated identity overrides `X-Actor-ID`, preventing audit-name spoofing.
+
+Machine routes remain on separate protocols: enrollment token for enrollment, HMAC for Response-agent polling/results, and source-specific event authentication where configured.
+
+## API abuse bounds
+
+The current single-process/single-worker qualified runtime now also enforces:
+
+- configurable API request-size limit (`QWR_API_MAX_REQUEST_BYTES`, default 1 MiB);
+- configurable per-client `/api/v1` rate limit (`QWR_API_RATE_LIMIT_PER_MINUTE`, default 600/minute);
+- `413` rejection before schema persistence for oversized bodies;
+- `429` + `Retry-After` for rate-limit exhaustion;
+- `no-store`, `nosniff`, frame, referrer and permissions hardening headers.
+
+The limiter is process-local by design because multi-worker API execution is still outside the qualified boundary.
 
 ## Quick start
 
@@ -83,104 +173,86 @@ cd quietward-response
 python scripts/bootstrap_local.py
 ```
 
-On Windows, `py -3.12 scripts\bootstrap_local.py` is also supported when Python is installed through the Python launcher.
+On Windows, `py -3.12 scripts\bootstrap_local.py` is also supported.
 
-The bootstrap path creates local configuration, generates a private development enrollment token when needed, applies migrations, installs dependencies, and starts both product surfaces. It refuses to report ready unless the API and frontend are reachable and cleans up the process groups on shutdown.
+Local defaults:
 
-- Frontend: <http://localhost:3001>
-- API: <http://localhost:8002>
-- API docs: <http://localhost:8002/docs>
-- Health: <http://localhost:8002/health>
-- Audit verification: <http://localhost:8002/api/v1/audit/verify>
+- Frontend: `http://localhost:3001`
+- API: `http://localhost:8002`
+- API docs: `http://localhost:8002/docs`
+- Health: `http://localhost:8002/health`
+- Audit verification: `http://localhost:8002/api/v1/audit/verify`
 
-Press `Ctrl+C` to stop both services.
+## Enroll a Response agent
 
-### Populate local investigation data
-
-The existing safe demo seed remains available:
+Basic read-only/default agent:
 
 ```text
-python scripts/seed_demo.py --api-url http://localhost:8002
+python scripts/enroll_response_agent.py \
+  --host-id response-host \
+  --token YOUR_ENROLLMENT_TOKEN
 ```
 
-You can also submit versioned synthetic events directly to `POST /api/v1/events` in the loopback development environment. Unauthenticated generic sensor sources are intentionally rejected outside development until they have an authenticated adapter/trust contract.
-
-## Incident workflow
-
-1. Ingest validated telemetry.
-2. Correlate events into an incident.
-3. Review the timeline, evidence, probable cause, and correlation reasons.
-4. Review the structured response plan.
-5. Perform the available investigation steps.
-6. Choose manual/planned containment appropriate to the environment.
-7. Use the controlled-action API only when an action is explicitly registered and available for that incident.
-8. Move the incident through `new`, `investigating`, `contained`, `resolved`, or `dismissed`.
-9. Verify the audit chain.
-
-The incident UI clearly labels planned/manual guidance as **not executable**.
-
-## Controlled-action boundary
-
-The alpha action registry contains exactly one executable action:
-
-`restart_quietward_demo_service`
-
-The name is retained for v1 API compatibility. It is not a general service manager and accepts no service name, path, PID, IP address, command, script, or arbitrary parameters. The bundled Response agent maps it only to its own dedicated JSON demo fixture.
-
-All other response capabilities shown in a plan remain `manual`, `planned`, or `blocked`. Extending the Response agent to real containment requires:
-
-- exact target identity or an endpoint-validated opaque resource handle;
-- endpoint-side allowlisting;
-- preconditions and stale-target protection;
-- expiry;
-- analyst approval;
-- deterministic policy;
-- idempotency and a durable execution journal;
-- timeout/failure semantics;
-- evidence preservation;
-- rollback metadata where applicable;
-- least privilege;
-- adversarial validation.
-
-## Bundled Response agent — alpha demo boundary
-
-The repository includes `scripts/response_agent.py`, a standard-library outward-polling agent owned by this product. In this alpha it deliberately implements only the dedicated demo action.
-
-It does **not** import or invoke subprocess, PowerShell, cmd, shell commands, service managers, process-kill APIs, firewall tools, quarantine tools, account managers, container-control tools, or package managers.
-
-### Enroll the agent
-
-With Response running, provide the local enrollment token and a test host ID:
+Enable process termination explicitly:
 
 ```text
-python scripts/enroll_response_agent.py --host-id response-alpha-host --token YOUR_LOCAL_ENROLLMENT_TOKEN
+python scripts/enroll_response_agent.py \
+  --host-id response-host \
+  --token YOUR_ENROLLMENT_TOKEN \
+  --enable-process-termination
 ```
 
-The helper writes the one-time secret to a private local JSON config and does not echo it to the terminal. Override the config/state paths with `--config-file` and `--state-dir` if needed.
-
-The default config paths are user-local:
-
-- Windows: `%LOCALAPPDATA%\QuietWardResponse\agent.json`
-- Linux/macOS: `~/.config/quietward-response/agent.json` (or `$XDG_CONFIG_HOME`)
-
-Production credential storage should move to OS secret storage; the private JSON file is an alpha/local-development mechanism.
-
-### Exercise the demo fixture
-
-Initialize the dedicated fixture:
+Enable managed-file quarantine/restore explicitly and define one or more safe roots:
 
 ```text
-python scripts/response_agent.py init-demo-unhealthy --config PATH_TO_AGENT_JSON
+python scripts/enroll_response_agent.py \
+  --host-id response-host \
+  --token YOUR_ENROLLMENT_TOKEN \
+  --managed-root /absolute/path/to/managed/data \
+  --enable-file-quarantine
 ```
 
-After a matching demo incident/action is prepared and approved in Response:
+Use `--quarantine-dir` to select the private quarantine location. It must not be inside a managed root.
+
+The helper writes the one-time agent secret to a permission-hardened local JSON config and does not print it. OS secret storage remains a post-alpha hardening target.
+
+Inspect local agent capabilities:
+
+```text
+python scripts/response_agent.py capabilities --config PATH_TO_AGENT_JSON
+```
+
+Process pending approved actions once:
 
 ```text
 python scripts/response_agent.py poll-once --config PATH_TO_AGENT_JSON
-python scripts/response_agent.py status --config PATH_TO_AGENT_JSON
 ```
 
-The agent persists execution intent before changing the fixture, records the applied action ID/result, reports a signed terminal result, and does not apply the same action twice on retry.
+The agent initiates all network connections outward; it exposes no inbound command listener.
+
+## Typical containment workflow
+
+### Suspicious process
+
+1. Incident identifies process/privilege activity.
+2. Prepare and approve `collect_process_diagnostic`.
+3. Agent returns bounded process rows and opaque handles for eligible processes.
+4. Copy the desired `qwrh1_...` handle from the diagnostic result into `terminate_process_by_handle`.
+5. Approve before its short action TTL expires.
+6. Agent revalidates the exact local process identity and requests termination.
+7. Signed result and audit record return to Response.
+
+### Suspicious file
+
+1. Configure the relevant directory as an agent managed root.
+2. Prepare and approve `collect_file_diagnostic`.
+3. Select the opaque handle for the exact artifact.
+4. Prepare and approve `quarantine_artifact_by_handle`.
+5. Agent revalidates and quarantines the object.
+6. Preserve the returned rollback handle.
+7. Use `restore_quarantined_artifact_by_handle` only if restoration is appropriate.
+
+No workflow accepts a raw PID or path from the control plane.
 
 ## Core API
 
@@ -211,80 +283,64 @@ Controlled response:
 - `POST /api/v1/actions/{action_id}/result`
 - `GET /api/v1/audit/verify`
 
-Authenticated agent requests bind method, path/query, timestamp, nonce, and body digest with HMAC-SHA256. Replay nonces are persisted and consumed before later business validation.
+Authenticated agent requests bind method, path/query, timestamp, nonce and body digest with HMAC-SHA256. Replay nonces are persisted and consumed before later business validation.
 
-## Alpha verification
+## v1.2 qualification
 
-Run the static/local gate:
-
-```text
-python scripts/verify_v11_alpha.py
-```
-
-Run the standalone live HTTP acceptance:
+Static/local gate:
 
 ```text
-python scripts/verify_v11_alpha_live.py
+python scripts/verify_v12_alpha.py
 ```
 
-The live gate also proves the bundled Response agent completes the approved demo action exactly once and returns a signed result without any detector repository checkout.
-
-On an exact clean candidate checkout, the final automated wrapper is:
+Standalone live containment gate:
 
 ```text
-python scripts/finalize_v11_alpha.py
+python scripts/verify_v12_alpha_live.py
 ```
 
-No detector repository checkout is required or modified by these gates.
+Exact clean feature-branch wrapper:
 
-See:
+```text
+python scripts/finalize_v12_alpha.py
+```
 
-- `docs/V11_ALPHA_ACCEPTANCE.md`
-- `docs/V11_ALPHA_THREAT_MODEL.md`
-- `docs/V1_ACCEPTANCE.md` for the historical v1 qualification record
-- `docs/threat-model.md`
-- `docs/roadmap.md`
+The automated gate covers the full backend suite, migrations, public-release audit, typed action surface, disposable process/file containment, RBAC, API abuse bounds, frontend typecheck/build/high-severity npm audit, quick-start cleanup, live HMAC agent polling/results, exactly-once behavior and audit verification.
 
-## Safety boundary
+Then perform the browser smoke in `docs/V12_ALPHA_ACCEPTANCE.md` on the exact candidate SHA.
 
-The alpha is a controlled local/trusted-network response system, not unrestricted remote administration.
+Historical qualification docs remain under `docs/`.
 
-Not available:
+## What is still intentionally not executable
 
-- arbitrary shell / PowerShell / cmd / bash
-- generic command execution
-- arbitrary process termination
-- arbitrary service control
-- file deletion or quarantine automation
-- firewall modification automation
-- host isolation automation
-- arbitrary account mutation
-- package/configuration mutation
-- autonomous remediation
-- LLM-generated executable commands
+v1.2 still does **not** expose:
 
-Additional controls:
+- arbitrary shell / PowerShell / cmd / bash;
+- generic command or script execution;
+- raw PID/path targeting;
+- general service control;
+- firewall/network-rule modification;
+- host isolation;
+- arbitrary account/session mutation;
+- persistence-object mutation;
+- container stop/remove;
+- package/configuration mutation;
+- autonomous remediation;
+- LLM-generated executable commands.
 
-- strict Pydantic request envelopes;
-- action allowlist separate from response-plan guidance;
-- independent Response-agent allowlist;
-- explicit human approval for registered actions;
-- deterministic policy revalidation before dispatch;
-- action expiry and lifecycle checks;
-- bounded ActionResult/evidence serialized sizes;
-- replay-resistant authenticated agent requests;
-- durable demo execution ledger and action-id marker;
-- single-process/single-worker qualification boundary;
-- hash-chained audit verification at startup and on demand.
+Future actions must follow the same pattern: narrow schema, local opaque identity, stale-target protection, explicit opt-in when high impact, approval, deterministic policy, expiry, durable execution state, rollback/failure semantics, least privilege and adversarial qualification.
 
 ## Known alpha limitations
 
-- analyst identity is development-grade `X-Actor-ID`, not OIDC/RBAC;
-- HMAC transport assumes TLS outside loopback/trusted development;
-- agent secrets are stored in a permission-hardened local JSON file when using the alpha enrollment helper rather than OS secret storage;
-- the audit chain is tamper-evident, not immutable;
-- the API is qualified only as a single process/single worker;
-- the bundled agent implements only the demo fixture; real containment remains guidance until narrow agent executors are individually qualified;
-- the product is not a SIEM, EDR replacement, or autonomous remediation system.
+- analyst bearer authentication is a strong local/trusted-deployment improvement but is not a full enterprise OIDC/SSO integration yet;
+- the browser token is session-scoped JavaScript storage, so deployment still requires normal XSS/CSP hygiene and TLS;
+- HMAC transport requires TLS outside loopback/trusted local development;
+- Response-agent credentials use a permission-hardened JSON file unless the operator supplies stronger secret storage externally;
+- the audit chain is tamper-evident, not immutable external retention;
+- API qualification remains single process/single worker;
+- Linux process termination currently requests `SIGTERM`; Windows uses the native process-termination API;
+- file quarantine is limited to configured managed roots and is not an antivirus vault;
+- network, identity, persistence, container and package/configuration mutation remain future narrow executors;
+- this is not an autonomous remediation system.
 
 Licensed under Apache-2.0.
