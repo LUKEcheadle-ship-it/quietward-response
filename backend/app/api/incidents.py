@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.database.models import EventRecord, IncidentRecord
 from app.database.session import get_db
 from app.schemas.incident import IncidentDetail, IncidentPatch, IncidentSummary
 from app.schemas.response_plan import ResponsePlanRead
+from app.services.analyst_auth import analyst_actor_id
 from app.services.incident_service import (
     incident_to_detail,
     incident_to_summary,
@@ -19,11 +20,6 @@ from app.services.response_family import infer_response_family
 from app.services.response_plan_v12 import build_response_plan
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
-
-
-def _actor_id(value: str) -> str:
-    resolved = value.strip() or "local-analyst"
-    return resolved[:128]
 
 
 @router.get("", response_model=list[IncidentSummary])
@@ -85,11 +81,17 @@ def get_response_plan(
 def patch_incident(
     incident_id: str,
     patch: IncidentPatch,
+    request: Request,
     db: Session = Depends(get_db),
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
 ) -> dict[str, object]:
     incident = db.get(IncidentRecord, incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
-    updated = update_incident(db, incident, patch, actor_id=_actor_id(actor_id))
+    updated = update_incident(
+        db,
+        incident,
+        patch,
+        actor_id=analyst_actor_id(request, actor_id),
+    )
     return incident_to_detail(db, updated)
