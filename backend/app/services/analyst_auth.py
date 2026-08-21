@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse, Response
 
 _ROLE_RANK = {"viewer": 1, "responder": 2, "admin": 3}
 _PENDING_ACTION_RE = re.compile(r"^/api/v1/agents/[^/]+/actions/pending$")
+_CAPABILITIES_RE = re.compile(r"^/api/v1/agents/[^/]+/capabilities$")
 _RESULT_RE = re.compile(r"^/api/v1/actions/[^/]+/result$")
 _AGENT_PATCH_RE = re.compile(r"^/api/v1/agents/[^/]+$")
 _ACTION_DECISION_RE = re.compile(r"^/api/v1/actions/[^/]+/(?:approve|reject)$")
@@ -40,6 +41,8 @@ def _machine_authenticated_endpoint(method: str, path: str) -> bool:
     if method == "POST" and path == "/api/v1/events":
         return True
     if method == "POST" and path == "/api/v1/agents/enroll":
+        return True
+    if method == "POST" and _CAPABILITIES_RE.fullmatch(path):
         return True
     if method == "GET" and _PENDING_ACTION_RE.fullmatch(path):
         return True
