@@ -90,9 +90,11 @@ def _verify_trusted_handle_ui() -> None:
         "Only handles returned by this incident and selected agent are offered",
         "Raw PIDs and file paths cannot be entered",
         "Run the matching diagnostic/action first",
+        "agentEnablesAction",
+        "No affected Response agent has signed this action as enabled",
     ):
         if fragment not in text:
-            raise RuntimeError(f"trusted handle selector contract missing: {fragment}")
+            raise RuntimeError(f"trusted handle/capability selector contract missing: {fragment}")
     if 'placeholder="qwrh1_' in text:
         raise RuntimeError("free-form opaque-handle input returned to the analyst UI")
 
@@ -157,36 +159,48 @@ def _verify_agent_key_rotation() -> None:
     helper = (ROOT / "scripts" / "rotate_response_agent_key.py").read_text(encoding="utf-8")
 
     for fragment in (
+        "pending_key_id",
+        "pending_hmac_key_b64",
+        "pending_key_expires_at",
         "previous_key_id",
         "previous_hmac_key_b64",
         "previous_key_expires_at",
     ):
         if fragment not in model or fragment not in migration:
-            raise RuntimeError(f"key-rotation grace persistence missing: {fragment}")
+            raise RuntimeError(f"two-phase key-rotation persistence missing: {fragment}")
     for fragment in (
         "DEFAULT_KEY_ROTATION_GRACE_SECONDS = 300",
-        "rotate_agent_key",
-        "previous_key_expires_at",
-        "hmac.compare_digest(agent.previous_key_id, key_id)",
+        "DEFAULT_PENDING_KEY_SECONDS = 300",
+        "prepare_agent_key_rotation",
+        "activate_pending_agent_key",
+        "verify_pending_agent_request",
+        "allow_previous_key=False",
+        "invalid_pending_key",
     ):
-        if fragment not in agent_auth:
-            raise RuntimeError(f"agent key-rotation authentication hardening missing: {fragment}")
+        if fragment not in agent_auth and fragment not in agent_api:
+            raise RuntimeError(f"two-phase key-rotation authentication hardening missing: {fragment}")
     for fragment in (
         '@router.post("/{agent_id}/rotate-key"',
+        '@router.post("/{agent_id}/activate-key"',
+        'action="agent_key_rotation_prepared"',
         'action="agent_key_rotated"',
         'response.headers["Pragma"] = "no-cache"',
     ):
         if fragment not in agent_api:
             raise RuntimeError(f"agent key-rotation API contract missing: {fragment}")
-    if "_ROTATE_KEY_RE" not in analyst_auth:
-        raise RuntimeError("agent key rotation is not classified as a machine-auth endpoint")
+    if "_ROTATE_KEY_RE" not in analyst_auth or "_ACTIVATE_KEY_RE" not in analyst_auth:
+        raise RuntimeError("agent key prepare/activate routes are not machine-auth classified")
     for fragment in (
-        "write_agent_config(path, rotated, force=True)",
-        "sync_capabilities(ResponseAgent(rotated))",
+        "--recover-next",
+        'path.name + ".next"',
+        "write_agent_config(next_path, rotated, force=False)",
+        "_activate(rotated_agent)",
+        "sync_capabilities(rotated_agent)",
+        "os.replace(next_path, path)",
         "The new agent secret was not printed.",
     ):
         if fragment not in helper:
-            raise RuntimeError(f"local key-rotation helper contract missing: {fragment}")
+            raise RuntimeError(f"crash-recoverable local key-rotation helper missing: {fragment}")
 
 
 def main() -> int:
@@ -257,7 +271,7 @@ def main() -> int:
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
     print("signed_agent_capability_negotiation=present")
-    print("recoverable_agent_key_rotation=present")
+    print("two_phase_recoverable_agent_key_rotation=present")
     print("signed_audit_checkpoints=present")
     return 0
 
