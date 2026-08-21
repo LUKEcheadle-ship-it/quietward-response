@@ -112,14 +112,16 @@ class AgentRecord(Base):
     capabilities_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    # Pending replacement secret exists only until the new endpoint credential
+    # proves possession and activates itself. It expires automatically if unused.
     pending_key_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pending_hmac_key_b64: Mapped[str | None] = mapped_column(String(256), nullable=True)
     pending_key_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Retired credential metadata deliberately contains no previous HMAC key.
     previous_key_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    previous_hmac_key_b64: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    previous_key_expires_at: Mapped[datetime | None] = mapped_column(
+    previous_key_revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
