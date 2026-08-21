@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -17,9 +17,11 @@ from app.services.action_registry import get_action_definition
 RECOMMENDATION_BINDING_REASON = "action is not an enabled recommendation for incident"
 INCIDENT_STATUS_REASON = "incident status does not allow response actions"
 AGENT_CAPABILITY_MISSING_REASON = "target agent has not reported v1.2 capabilities"
+AGENT_CAPABILITY_STALE_REASON = "target agent capability report is stale"
 AGENT_CAPABILITY_DISABLED_REASON = "target agent has not enabled this action capability"
 _ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
 _LEGACY_CAPABILITY_EXEMPT_ACTIONS = {"restart_quietward_demo_service"}
+_CAPABILITY_REPORT_MAX_AGE = timedelta(minutes=15)
 
 
 def _utc(value: datetime) -> datetime:
@@ -58,12 +60,28 @@ def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
     return False
 
 
-def agent_capability_reason(agent: AgentRecord, action_type: str) -> str | None:
-    """Return the fail-closed capability reason for one target agent/action."""
+def agent_capability_reason(
+    agent: AgentRecord,
+    action_type: str,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Return the fail-closed capability reason for one target agent/action.
+
+    Every non-legacy v1.2 action requires a recent signed capability attestation.
+    This prevents a previously enabled high-impact capability from remaining usable
+    indefinitely if the endpoint stops polling, is reconfigured, or is taken offline.
+    """
     if action_type in _LEGACY_CAPABILITY_EXEMPT_ACTIONS:
         return None
     if agent.capabilities_updated_at is None:
         return AGENT_CAPABILITY_MISSING_REASON
+    resolved_now = _utc(now or datetime.now(timezone.utc))
+    updated_at = _utc(agent.capabilities_updated_at)
+    if updated_at > resolved_now + timedelta(seconds=30):
+        return AGENT_CAPABILITY_STALE_REASON
+    if updated_at < resolved_now - _CAPABILITY_REPORT_MAX_AGE:
+        return AGENT_CAPABILITY_STALE_REASON
     if action_type not in set(agent.enabled_actions or []):
         return AGENT_CAPABILITY_DISABLED_REASON
     return None
@@ -94,7 +112,11 @@ def evaluate_action_policy(
     elif agent.host_id != action.target_host_id:
         reasons.append("target agent is not enrolled for target host")
     else:
-        capability_reason = agent_capability_reason(agent, action.action_type)
+        capability_reason = agent_capability_reason(
+            agent,
+            action.action_type,
+            now=now,
+        )
         if capability_reason:
             reasons.append(capability_reason)
 
