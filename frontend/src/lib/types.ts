@@ -24,7 +24,7 @@ export interface ResponsePlanStep {
 }
 
 export interface ResponsePlan {
-  schema_version: "1.0";
+  schema_version: "1.0" | "1.1";
   plan_id: string;
   incident_id: string;
   mode: "advisory_with_controlled_actions";
