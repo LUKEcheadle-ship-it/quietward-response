@@ -20,10 +20,17 @@ HEADER_TIMESTAMP = "X-QWR-Timestamp"
 HEADER_NONCE = "X-QWR-Nonce"
 HEADER_SIGNATURE = "X-QWR-Signature"
 HEADER_KEY_ID = "X-QWR-Key-ID"
+DEFAULT_KEY_ROTATION_GRACE_SECONDS = 300
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def derive_hmac_key(secret: str) -> bytes:
@@ -89,11 +96,44 @@ def enroll_agent(
     return agent, secret
 
 
+def rotate_agent_key(
+    session: Session,
+    agent: AgentRecord,
+    *,
+    grace_seconds: int = DEFAULT_KEY_ROTATION_GRACE_SECONDS,
+) -> tuple[str, datetime]:
+    if not 60 <= grace_seconds <= 900:
+        raise ValueError("agent key-rotation grace must be between 60 and 900 seconds")
+    now = _utcnow()
+    agent.previous_key_id = agent.key_id
+    agent.previous_hmac_key_b64 = agent.hmac_key_b64
+    agent.previous_key_expires_at = now + timedelta(seconds=grace_seconds)
+    secret = secrets.token_urlsafe(32)
+    agent.key_id = str(uuid4())
+    agent.hmac_key_b64 = base64.b64encode(derive_hmac_key(secret)).decode("ascii")
+    session.flush()
+    return secret, agent.previous_key_expires_at
+
+
 def _auth_error(code: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"code": code, "message": message},
     )
+
+
+def _verification_key(agent: AgentRecord, key_id: str, now: datetime) -> bytes:
+    if hmac.compare_digest(agent.key_id, key_id):
+        return base64.b64decode(agent.hmac_key_b64)
+    if (
+        agent.previous_key_id
+        and agent.previous_hmac_key_b64
+        and agent.previous_key_expires_at is not None
+        and _as_utc(agent.previous_key_expires_at) > now
+        and hmac.compare_digest(agent.previous_key_id, key_id)
+    ):
+        return base64.b64decode(agent.previous_hmac_key_b64)
+    raise _auth_error("invalid_key_id", "credential key identifier does not match")
 
 
 def verify_agent_request(
@@ -117,8 +157,6 @@ def verify_agent_request(
         raise _auth_error("unknown_or_disabled_agent", "agent is unknown or disabled")
     if not agent.enabled and not allow_disabled:
         raise _auth_error("unknown_or_disabled_agent", "agent is unknown or disabled")
-    if not hmac.compare_digest(agent.key_id, key_id):
-        raise _auth_error("invalid_key_id", "credential key identifier does not match")
 
     try:
         request_epoch = int(timestamp_text)
@@ -126,15 +164,17 @@ def verify_agent_request(
         raise _auth_error("invalid_timestamp", "timestamp must be Unix epoch seconds") from exc
 
     now_epoch = int(time.time())
+    now = _utcnow()
     if abs(now_epoch - request_epoch) > replay_window_seconds:
         raise _auth_error("stale_request", "signed request is outside the replay window")
 
     if len(nonce) < 16 or len(nonce) > 128:
         raise _auth_error("invalid_nonce", "nonce length is invalid")
 
+    verification_key = _verification_key(agent, key_id, now)
     target = canonical_target(request.url.path, request.url.query)
     expected = hmac.new(
-        base64.b64decode(agent.hmac_key_b64),
+        verification_key,
         canonical_request(
             method=request.method,
             target=target,
@@ -147,16 +187,16 @@ def verify_agent_request(
     if not hmac.compare_digest(expected, signature):
         raise _auth_error("invalid_signature", "request signature is invalid")
 
-    cutoff = _utcnow() - timedelta(seconds=replay_window_seconds * 2)
+    cutoff = now - timedelta(seconds=replay_window_seconds * 2)
     session.execute(delete(AgentNonceRecord).where(AgentNonceRecord.timestamp < cutoff))
-    session.add(AgentNonceRecord(agent_id=agent.agent_id, nonce=nonce, timestamp=_utcnow()))
+    session.add(AgentNonceRecord(agent_id=agent.agent_id, nonce=nonce, timestamp=now))
     try:
         session.flush()
     except IntegrityError as exc:
         session.rollback()
         raise _auth_error("replayed_nonce", "nonce has already been used") from exc
 
-    agent.last_seen = _utcnow()
+    agent.last_seen = now
     session.flush()
 
     # Authentication state is committed before the business operation runs. This
