@@ -16,7 +16,7 @@ from app.services.incident_service import (
     update_incident,
 )
 from app.services.response_family import infer_response_family
-from app.services.response_plan import build_response_plan
+from app.services.response_plan_v12 import build_response_plan
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
 
@@ -68,8 +68,6 @@ def get_response_plan(
         )
     )
 
-    # Response plans are sensor-neutral. Normalize common external event vocabulary
-    # into the canonical plan families without rewriting persisted evidence.
     normalized_events = []
     for event in events:
         family = infer_response_family(event.event_type, event.category)
