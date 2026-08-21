@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_v11_ui_separates_response_guidance_from_executable_actions() -> None:
+def test_ui_separates_guidance_diagnostics_and_handle_bound_actions() -> None:
     action_text = (
         ROOT / "frontend" / "src" / "components" / "ResponseActions.tsx"
     ).read_text(encoding="utf-8")
@@ -14,10 +14,13 @@ def test_v11_ui_separates_response_guidance_from_executable_actions() -> None:
         ROOT / "frontend" / "src" / "components" / "ResponsePlanPanel.tsx"
     ).read_text(encoding="utf-8")
 
-    assert "State-changing demo · Approval required" in action_text
-    assert "only executable action" in action_text
-    assert "arbitrary command execution is not available" in action_text
-    assert "Guidance only" not in action_text
+    assert "Read-only diagnostic · Approval required" in action_text
+    assert "High-impact containment · Opaque handle · Approval required" in action_text
+    assert "Reversible containment · Opaque handle · Approval required" in action_text
+    assert "Rollback · Opaque handle · Approval required" in action_text
+    assert "Do not enter a PID or file path" in action_text
+    assert "raw PIDs, paths, commands, service names, firewall rules" in action_text
+    assert "qwrh1_" in action_text
 
     assert "Planned · not executable" in plan_text
     assert "Blocked · future capability" in plan_text
