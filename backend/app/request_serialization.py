@@ -11,11 +11,12 @@ from starlette.responses import JSONResponse, Response
 
 
 class SerializedRequestMiddleware(BaseHTTPMiddleware):
-    """Serialize API writes and apply shared response hardening/abuse bounds.
+    """Serialize API state transitions and apply response/abuse hardening.
 
-    The current qualified runtime is intentionally one API process/worker. The
-    process-local rate limiter therefore matches the existing audit-chain runtime
-    boundary; a future multi-worker deployment must use shared atomic state.
+    The qualified runtime remains one API process/worker. Rate-limit state is
+    intentionally process-local. Request bodies for methods that normally carry a
+    body are consumed incrementally and buffered only up to the configured limit;
+    the bounded buffer is then replayable by downstream FastAPI/Pydantic handlers.
     """
 
     def __init__(
@@ -24,7 +25,7 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
         *,
         max_request_bytes: int = 1_048_576,
         rate_limit_per_minute: int = 600,
-    ) -> None:  # type intentionally follows Starlette middleware API
+    ) -> None:
         super().__init__(app)
         self._lock = asyncio.Lock()
         self._max_request_bytes = max_request_bytes
@@ -41,6 +42,10 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
         return response
 
     def _rate_key(self, request: Request) -> str:
+        # Do not trust X-Forwarded-For directly. Proxy-aware deployments should
+        # terminate at a trusted proxy/server layer that supplies the real ASGI
+        # client address; accepting an arbitrary forwarding header here would let a
+        # remote caller manufacture unlimited rate-limit identities.
         client = request.client.host if request.client is not None else "unknown"
         return client[:128]
 
@@ -65,6 +70,40 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
                     values.popleft()
                 if not values:
                     self._requests.pop(candidate, None)
+        return True
+
+    def _too_large(self, request: Request) -> JSONResponse:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "detail": {
+                    "code": "request_too_large",
+                    "message": "request body exceeds configured limit",
+                }
+            },
+        )
+
+    async def _buffer_bounded_body(self, request: Request) -> bool:
+        """Buffer a downstream-replayable body without exceeding the app limit.
+
+        Starlette may hand us a transport chunk larger than the remaining allowance;
+        that chunk already exists in the ASGI server, but we do not append it to our
+        buffer. Application-level memory retained by this middleware therefore never
+        grows beyond the configured request limit.
+        """
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > self._max_request_bytes:
+                return False
+            chunks.append(bytes(chunk))
+        # Request.stream() checks for an already cached `_body` before consulting
+        # `_stream_consumed`, so setting the bounded cache makes the body replayable
+        # to FastAPI/Pydantic after this middleware has validated its size.
+        request._body = b"".join(chunks)  # type: ignore[attr-defined]
         return True
 
     async def dispatch(
@@ -92,31 +131,15 @@ class SerializedRequestMiddleware(BaseHTTPMiddleware):
             except ValueError:
                 advertised = -1
             if advertised < 0 or advertised > self._max_request_bytes:
-                response = JSONResponse(
-                    status_code=413,
-                    content={
-                        "detail": {
-                            "code": "request_too_large",
-                            "message": "request body exceeds configured limit",
-                        }
-                    },
-                )
-                return self._harden(request, response)
+                return self._harden(request, self._too_large(request))
 
         if request.method.upper() in {"POST", "PUT", "PATCH"}:
-            body = await request.body()
-            if len(body) > self._max_request_bytes:
-                response = JSONResponse(
-                    status_code=413,
-                    content={
-                        "detail": {
-                            "code": "request_too_large",
-                            "message": "request body exceeds configured limit",
-                        }
-                    },
-                )
-                return self._harden(request, response)
+            if not await self._buffer_bounded_body(request):
+                return self._harden(request, self._too_large(request))
 
+        # All current API reads/writes remain serialized because some GET routes
+        # intentionally advance lifecycle state (expiry/dispatch) and the audit
+        # chain is qualified only in this single-process serialized model.
         async with self._lock:
             response = await call_next(request)
         return self._harden(request, response)
