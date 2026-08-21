@@ -24,6 +24,10 @@ EXPECTED_ACTIONS = {
     "quarantine_artifact_by_handle",
     "restore_quarantined_artifact_by_handle",
 }
+SHORT_HANDLE_TTL_ACTIONS = {
+    "terminate_process_by_handle",
+    "quarantine_artifact_by_handle",
+}
 
 
 def _recommendation(action_type: str) -> dict[str, object]:
@@ -81,15 +85,42 @@ def _verify_checkpoint_surface() -> None:
         raise RuntimeError("audit checkpoint secret is below the configured minimum strength")
 
 
+def _verify_trusted_checkpoint_startup() -> None:
+    config = (BACKEND / "app" / "config.py").read_text(encoding="utf-8")
+    main = (BACKEND / "app" / "main.py").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    for fragment in (
+        "trusted_audit_checkpoint_path",
+        "QWR_TRUSTED_AUDIT_CHECKPOINT_PATH must be absolute",
+    ):
+        if fragment not in config:
+            raise RuntimeError(f"trusted checkpoint configuration missing: {fragment}")
+    for fragment in (
+        "_load_trusted_audit_checkpoint",
+        "verify_audit_checkpoint",
+        "trusted audit checkpoint verification failed at startup",
+        "trusted audit checkpoint is missing, unreadable, or invalid JSON",
+    ):
+        if fragment not in main:
+            raise RuntimeError(f"trusted checkpoint startup enforcement missing: {fragment}")
+    if "QWR_TRUSTED_AUDIT_CHECKPOINT_PATH" not in env_example:
+        raise RuntimeError("trusted checkpoint deployment setting is missing from .env.example")
+
+
 def _verify_trusted_handle_ui() -> None:
     text = (
         ROOT / "frontend" / "src" / "components" / "ResponseActions.tsx"
+    ).read_text(encoding="utf-8")
+    agents = (
+        ROOT / "frontend" / "src" / "app" / "agents" / "page.tsx"
     ).read_text(encoding="utf-8")
     for fragment in (
         "handleOptionsFor",
         "Only handles returned by this incident and selected agent are offered",
         "Raw PIDs and file paths cannot be entered",
         "Run the matching diagnostic/action first",
+        "agentCapabilityFresh",
+        "CAPABILITY_MAX_AGE_MS = 15 * 60 * 1000",
         "agentEnablesAction",
         "No affected Response agent has signed this action as enabled",
     ):
@@ -97,12 +128,19 @@ def _verify_trusted_handle_ui() -> None:
             raise RuntimeError(f"trusted handle/capability selector contract missing: {fragment}")
     if 'placeholder="qwrh1_' in text:
         raise RuntimeError("free-form opaque-handle input returned to the analyst UI")
+    for fragment in (
+        'type CapabilityStatus = "Fresh" | "Stale" | "Never reported"',
+        "Run the official Response-agent poll path to refresh before response actions",
+    ):
+        if fragment not in agents:
+            raise RuntimeError(f"agent capability freshness UI missing: {fragment}")
 
 
 def _verify_agent_capability_negotiation() -> None:
     model = (BACKEND / "app" / "database" / "models.py").read_text(encoding="utf-8")
     schema = (BACKEND / "app" / "schemas" / "agent.py").read_text(encoding="utf-8")
     api = (BACKEND / "app" / "api" / "agents.py").read_text(encoding="utf-8")
+    actions_api = (BACKEND / "app" / "api" / "actions.py").read_text(encoding="utf-8")
     policy = (BACKEND / "app" / "services" / "policy_service.py").read_text(encoding="utf-8")
     analyst_auth = (BACKEND / "app" / "services" / "analyst_auth.py").read_text(encoding="utf-8")
     migration = BACKEND / "alembic" / "versions" / "0003_agent_capabilities.py"
@@ -120,11 +158,14 @@ def _verify_agent_capability_negotiation() -> None:
     for fragment in (
         '@router.post("/{agent_id}/capabilities"',
         "verify_agent_request",
+        "allow_disabled=False",
         "unknown_agent_capability",
         "arbitrary_command_execution",
     ):
         if fragment not in api:
             raise RuntimeError(f"signed agent capability endpoint missing: {fragment}")
+    if "_reject_unavailable_registered_capability" not in actions_api:
+        raise RuntimeError("action creation does not preflight signed endpoint capability")
     for fragment in (
         "AGENT_CAPABILITY_MISSING_REASON",
         "AGENT_CAPABILITY_DISABLED_REASON",
@@ -201,10 +242,26 @@ def _verify_agent_key_rotation() -> None:
         "_activate(rotated_agent)",
         "sync_capabilities(rotated_agent)",
         "os.replace(next_path, path)",
+        "previous_key_revoked_at",
         "The new agent secret was not printed.",
     ):
         if fragment not in helper:
             raise RuntimeError(f"crash-recoverable local key-rotation helper missing: {fragment}")
+    if "previous_key_expires_at" in helper:
+        raise RuntimeError("rotation helper still expects the removed old-key grace response field")
+
+
+def _verify_integrity_trust_freeze() -> None:
+    policy = (BACKEND / "app" / "services" / "policy_service.py").read_text(encoding="utf-8")
+    for fragment in (
+        "INTEGRITY_TRUST_REASON",
+        "incident_integrity_compromised",
+        'definition.risk_level in {"medium", "high", "critical"}',
+        '"evidence_integrity_failure"',
+        '"self_integrity_change"',
+    ):
+        if fragment not in policy:
+            raise RuntimeError(f"integrity trust freeze missing: {fragment}")
 
 
 def main() -> int:
@@ -216,12 +273,15 @@ def main() -> int:
         if not definition.approval_required:
             raise RuntimeError(f"action unexpectedly bypasses approval: {action_type}")
         if definition.parameter_mode == "resource_handle":
-            if definition.max_ttl_seconds > 240:
-                raise RuntimeError(f"handle action TTL is too long: {action_type}")
             if definition.validate_parameters({"pid": 1234}) == []:
                 raise RuntimeError(f"raw PID unexpectedly accepted: {action_type}")
             if definition.validate_parameters({"path": "/tmp/a"}) == []:
                 raise RuntimeError(f"raw path unexpectedly accepted: {action_type}")
+        if action_type in SHORT_HANDLE_TTL_ACTIONS and definition.max_ttl_seconds > 240:
+            raise RuntimeError(f"containment action TTL is too long: {action_type}")
+    rollback = ACTION_REGISTRY["restore_quarantined_artifact_by_handle"]
+    if rollback.max_ttl_seconds > 600:
+        raise RuntimeError("rollback action TTL exceeds its bounded v1.2 window")
 
     process_plan = _plan(
         "privilege_escalation",
@@ -264,19 +324,24 @@ def main() -> int:
             raise RuntimeError(f"generic execution surface detected: {forbidden}")
 
     _verify_checkpoint_surface()
+    _verify_trusted_checkpoint_startup()
     _verify_trusted_handle_ui()
     _verify_agent_capability_negotiation()
     _verify_agent_key_rotation()
+    _verify_integrity_trust_freeze()
 
     print("V1.2 RESPONSE SURFACE: PASS")
     print("registered_actions=", len(EXPECTED_ACTIONS))
-    print("handle_actions_ttl_max_seconds=240")
+    print("containment_action_ttl_max_seconds=240")
+    print("rollback_action_ttl_max_seconds=600")
     print("legacy_policy_binding=fail-closed")
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
     print("signed_agent_capability_negotiation=fresh-and-required")
     print("two_phase_agent_key_rotation=immediate-old-key-revocation")
+    print("integrity_compromise_mutation_freeze=present")
     print("signed_audit_checkpoints=present")
+    print("trusted_checkpoint_startup=present")
     return 0
 
 
