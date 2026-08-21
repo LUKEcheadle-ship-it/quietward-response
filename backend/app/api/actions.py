@@ -19,6 +19,7 @@ from app.services.action_service import (
     pending_actions_for_agent,
 )
 from app.services.agent_auth import verify_agent_request
+from app.services.analyst_auth import analyst_actor_id
 from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/api/v1", tags=["response-actions"])
@@ -31,16 +32,11 @@ def _action_error(exc: ActionError) -> HTTPException:
     )
 
 
-def _actor_id(value: str) -> str:
-    resolved = value.strip() or "local-analyst"
-    return resolved[:128]
-
-
 def _require_pending_decision(db: Session, action_id: str) -> None:
     """Make analyst approval/rejection a single-shot public decision."""
     action = db.get(ActionRecord, action_id)
     if action is None:
-        return  # decide_action returns the canonical unknown-action conflict.
+        return
     if action.status != "pending":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -69,7 +65,7 @@ def _validate_result_transition(db: Session, action_id: str, payload: ActionResu
     """Require the endpoint to acknowledge execution before reporting a terminal result."""
     action = db.get(ActionRecord, action_id)
     if action is None:
-        return  # apply_action_result returns the canonical unknown-action conflict.
+        return
     if action.status == "dispatching" and payload.status in {"succeeded", "failed"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -89,7 +85,6 @@ def _validate_disabled_agent_reconciliation(
     action_id: str,
     payload: ActionResultCreate,
 ) -> None:
-    """Constrain the only result operation retained after agent disable."""
     if enabled:
         return
     action = db.get(ActionRecord, action_id)
@@ -158,7 +153,7 @@ def request_action(
             db,
             incident_id=incident_id,
             payload=payload,
-            actor_id=_actor_id(actor_id),
+            actor_id=analyst_actor_id(request, actor_id),
             default_ttl_seconds=request.app.state.settings.action_default_ttl_seconds,
         )
     except ActionError as exc:
@@ -176,6 +171,7 @@ def incident_actions(incident_id: str, db: Session = Depends(get_db)) -> list[di
 def approve_action(
     action_id: str,
     payload: ApprovalDecision,
+    request: Request,
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
@@ -184,15 +180,12 @@ def approve_action(
         action = decide_action(
             db,
             action_id=action_id,
-            actor_id=_actor_id(actor_id),
+            actor_id=analyst_actor_id(request, actor_id),
             approve=True,
             reason=payload.reason,
         )
     except ActionError as exc:
         raise _action_error(exc) from exc
-    # At the approval endpoint, an expired request also means the corresponding
-    # approval window is over. Keep that analyst-facing reason specific while the
-    # generic action-list path continues to surface action-request expiry.
     if action.status == "expired" and action.policy_reasons == ["action request has expired"]:
         action.policy_reasons = ["approval has expired"]
     db.commit()
@@ -203,6 +196,7 @@ def approve_action(
 def reject_action(
     action_id: str,
     payload: ApprovalDecision,
+    request: Request,
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
@@ -211,7 +205,7 @@ def reject_action(
         action = decide_action(
             db,
             action_id=action_id,
-            actor_id=_actor_id(actor_id),
+            actor_id=analyst_actor_id(request, actor_id),
             approve=False,
             reason=payload.reason,
         )
@@ -286,9 +280,6 @@ async def action_result(
     try:
         action = apply_action_result(db, agent=agent, payload=payload)
     except ActionError as exc:
-        # apply_action_result can perform tentative in-session lifecycle changes
-        # before detecting a later timestamp/content conflict. Discard all of those
-        # changes before committing the rejection audit record.
         db.rollback()
         _audit_result_rejection(
             db,
