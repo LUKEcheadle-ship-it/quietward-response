@@ -45,6 +45,26 @@ function humanStatus(status: ResponseAction["status"]): string {
   return map[status];
 }
 
+function requiresResourceHandle(actionType: string): boolean {
+  return actionType.endsWith("_by_handle");
+}
+
+function actionBadge(actionType: string): string {
+  if (actionType.startsWith("collect_")) return "Read-only diagnostic · Approval required";
+  if (actionType === "terminate_process_by_handle") return "High-impact containment · Opaque handle · Approval required";
+  if (actionType === "quarantine_artifact_by_handle") return "Reversible containment · Opaque handle · Approval required";
+  if (actionType === "restore_quarantined_artifact_by_handle") return "Rollback · Opaque handle · Approval required";
+  return "State-changing demo · Approval required";
+}
+
+function prepareLabel(actionType: string): string {
+  if (actionType.startsWith("collect_")) return "Prepare read-only diagnostic";
+  if (actionType === "terminate_process_by_handle") return "Prepare exact-process termination";
+  if (actionType === "quarantine_artifact_by_handle") return "Prepare artifact quarantine";
+  if (actionType === "restore_quarantined_artifact_by_handle") return "Prepare quarantine rollback";
+  return "Prepare controlled demo action";
+}
+
 export function ResponseActions({
   incident,
   onIncidentRefresh,
@@ -55,6 +75,7 @@ export function ResponseActions({
   const [agents, setAgents] = useState<Agent[]>([]);
   const [actions, setActions] = useState<ResponseAction[]>([]);
   const [selectedAgentIds, setSelectedAgentIds] = useState<Record<string, string>>({});
+  const [resourceHandles, setResourceHandles] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clock, setClock] = useState(() => Date.now());
@@ -121,9 +142,18 @@ export function ResponseActions({
 
   async function prepare(recommendation: RecommendedAction) {
     const agent = selectedAgentFor(recommendation);
-    if (!agent || !recommendation.registry_action_type || !incidentAllowsResponse) return;
+    const actionType = recommendation.registry_action_type;
+    if (!agent || !actionType || !incidentAllowsResponse) return;
     if (activeActionFor(recommendation, agent)) return;
-    setBusy(`prepare:${recommendation.registry_action_type}`);
+
+    const needsHandle = requiresResourceHandle(actionType);
+    const resourceHandle = (resourceHandles[actionType] ?? "").trim();
+    if (needsHandle && (!resourceHandle.startsWith("qwrh1_") || resourceHandle.length > 96)) {
+      setError("This action requires a valid qwrh1_ opaque resource handle from a prior Response-agent diagnostic/result.");
+      return;
+    }
+
+    setBusy(`prepare:${actionType}`);
     try {
       await apiFetch<ResponseAction>(`/api/v1/incidents/${incident.incident_id}/actions`, {
         method: "POST",
@@ -131,8 +161,8 @@ export function ResponseActions({
         body: JSON.stringify({
           target_agent_id: agent.agent_id,
           target_host_id: agent.host_id,
-          action_type: recommendation.registry_action_type,
-          parameters: {},
+          action_type: actionType,
+          parameters: needsHandle ? { resource_handle: resourceHandle } : {},
         }),
       });
       await load();
@@ -166,11 +196,11 @@ export function ResponseActions({
         <div>
           <p className="eyebrow">Controlled actions</p>
           <h2 className="mt-2 text-lg font-semibold text-white">Approval-gated execution</h2>
-          <p className="muted mt-2 max-w-2xl text-sm">
-            The response plan above covers broad investigation, containment, and recovery. This alpha keeps endpoint execution deliberately narrow: the dedicated demo-fixture reset is the only executable action, and arbitrary command execution is not available.
+          <p className="muted mt-2 max-w-3xl text-sm">
+            v1.2 adds bounded read-only diagnostics plus opt-in handle-bound process termination and managed-file quarantine/restore. High-impact actions accept only short-lived opaque handles issued by the same Response agent; raw PIDs, paths, commands, service names, firewall rules and arbitrary shell input remain unavailable.
           </p>
         </div>
-        <span className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-xs text-cyan">Observe → Plan → Approve → Act</span>
+        <span className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-xs text-cyan">Observe → Diagnose → Handle → Approve → Act</span>
       </div>
 
       {error && <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</div>}
@@ -181,13 +211,14 @@ export function ResponseActions({
             const agent = selectedAgentFor(recommendation);
             const activeAction = activeActionFor(recommendation, agent);
             const actionType = recommendation.registry_action_type!;
-            return <div key={actionType} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
+            const needsHandle = requiresResourceHandle(actionType);
+            return <div key={`${actionType}:${recommendation.title}`} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-medium text-white">{recommendation.title}</p>
                   <p className="mt-1 text-xs leading-5 text-slate-400">{recommendation.description}</p>
                 </div>
-                <span className="text-[10px] uppercase tracking-wider text-amber-200">State-changing demo · Approval required</span>
+                <span className="text-[10px] uppercase tracking-wider text-amber-200">{actionBadge(actionType)}</span>
               </div>
               {eligibleAgents.length > 1 ? (
                 <label className="mt-3 block text-xs text-slate-500">Target agent
@@ -203,12 +234,26 @@ export function ResponseActions({
               ) : (
                 <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
               )}
+              {needsHandle && (
+                <label className="mt-3 block text-xs text-slate-500">Opaque resource handle
+                  <input
+                    value={resourceHandles[actionType] ?? ""}
+                    onChange={(event) => setResourceHandles((current) => ({ ...current, [actionType]: event.target.value }))}
+                    placeholder="qwrh1_… from a prior diagnostic or quarantine result"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={busy !== null}
+                    className="mt-2 block w-full rounded-lg border border-line bg-slate-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span className="mt-1 block text-[11px] text-slate-600">Only opaque handles are accepted. Do not enter a PID or file path.</span>
+                </label>
+              )}
               {!incidentAllowsResponse ? (
                 <span className="mt-3 inline-block rounded border border-slate-500/20 bg-slate-500/10 px-3 py-1.5 text-xs text-slate-400">Incident is closed — controlled actions disabled</span>
               ) : activeAction ? (
                 <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">Active action on {activeAction.target_host_id}: {humanStatus(effectiveStatus(activeAction))}</span>
               ) : (
-                <button disabled={!agent || busy !== null} onClick={() => void prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">Prepare controlled demo action</button>
+                <button disabled={!agent || busy !== null || (needsHandle && !(resourceHandles[actionType] ?? "").trim())} onClick={() => void prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">{prepareLabel(actionType)}</button>
               )}
             </div>;
           })}
@@ -218,10 +263,14 @@ export function ResponseActions({
       {actions.length > 0 && <div className="mt-5 space-y-4">{actions.map((action) => {
         const shownStatus = effectiveStatus(action);
         const canDecide = incidentAllowsResponse && shownStatus === "pending";
+        const diagnostic = action.action_type.startsWith("collect_");
         return (
         <div key={action.action_id} className="rounded-xl border border-line bg-slate-950/40 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="font-medium text-white">{action.action_type.replaceAll("_", " ")}</p><p className="mt-1 font-mono text-[11px] text-slate-500">{action.action_id}</p></div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2"><p className="font-medium text-white">{action.action_type.replaceAll("_", " ")}</p>{diagnostic && <span className="rounded border border-cyan/20 bg-cyan/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-cyan">Read-only</span>}</div>
+              <p className="mt-1 font-mono text-[11px] text-slate-500">{action.action_id}</p>
+            </div>
             <span className={`rounded-full border px-2.5 py-1 text-xs ${statusClass(shownStatus)}`}>{humanStatus(shownStatus)}</span>
           </div>
           <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
@@ -229,9 +278,10 @@ export function ResponseActions({
             <div><p className="text-slate-500">Requested</p><p className="mt-1 text-slate-300">{formatTime(action.requested_at)}</p></div>
             <div><p className="text-slate-500">Policy</p><p className={`mt-1 ${shownStatus === "expired" || action.policy_allowed === false ? "text-rose-300" : action.policy_allowed === true ? "text-emerald-300" : "text-slate-400"}`}>{shownStatus === "expired" ? "Expired" : action.policy_allowed === null ? "Pending approval" : action.policy_allowed ? "Allowed" : "Blocked"}</p></div>
           </div>
+          {Object.keys(action.parameters).length > 0 && <div className="mt-3 rounded border border-line bg-black/20 p-2 font-mono text-[11px] text-slate-500">Parameters: {JSON.stringify(action.parameters)}</div>}
           {action.policy_reasons.length > 0 && <ul className="mt-3 space-y-1 text-xs text-rose-300">{action.policy_reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul>}
           {canDecide && <div className="mt-4 flex gap-2"><button disabled={busy !== null} onClick={() => void decide(action, true)} className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-40">Approve</button><button disabled={busy !== null} onClick={() => void decide(action, false)} className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 disabled:opacity-40">Reject</button></div>}
-          {action.result && <details className="mt-4"><summary className="cursor-pointer text-xs font-medium text-slate-300">Execution result</summary><pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-400">{JSON.stringify({ result: action.result, evidence: action.evidence, error: action.error }, null, 2)}</pre></details>}
+          {(action.result || action.error) && <details className="mt-4"><summary className="cursor-pointer text-xs font-medium text-slate-300">{diagnostic ? "Diagnostic result / resource handles" : "Execution result / rollback data"}</summary><pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-400">{JSON.stringify({ result: action.result, evidence: action.evidence, error: action.error }, null, 2)}</pre></details>}
         </div>
       );})}</div>}
 
