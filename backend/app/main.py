@@ -15,6 +15,7 @@ from app.config import Settings, get_settings
 from app.database.session import Database
 from app.logging import configure_logging
 from app.request_serialization import SerializedRequestMiddleware
+from app.services.analyst_auth import AnalystAuthMiddleware
 from app.services.audit_service import (
     backfill_legacy_audit_chain,
     record_audit,
@@ -65,7 +66,8 @@ def create_app(
         version=__version__,
         description=(
             "Deterministic event ingestion, incident correlation, investigation, "
-            "authenticated agents, policy-controlled response actions, and tamper-evident audit."
+            "authenticated agents, analyst RBAC, policy-controlled response actions, "
+            "and tamper-evident audit."
         ),
         lifespan=lifespan,
     )
@@ -77,6 +79,7 @@ def create_app(
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=[
+            "Authorization",
             "Content-Type",
             "X-Actor-ID",
             "X-QWR-Enrollment-Token",
@@ -87,6 +90,10 @@ def create_app(
             "X-QWR-Signature",
         ],
     )
+    # Human API routes are RBAC-protected outside loopback development. Machine
+    # routes retain their enrollment/HMAC/sensor authentication instead of sharing
+    # analyst credentials.
+    application.add_middleware(AnalystAuthMiddleware)
     # Current qualification is one API process/worker. The same middleware keeps
     # the linear audit chain serialized and enforces process-local request/rate
     # bounds until a future shared multi-worker control plane is qualified.
