@@ -13,13 +13,20 @@ from app.schemas.agent import (
     AgentCapabilitiesReport,
     AgentEnrollRequest,
     AgentEnrollResponse,
-    AgentKeyRotateResponse,
+    AgentKeyRotationActivateResponse,
+    AgentKeyRotationPrepareResponse,
     AgentPatch,
     AgentRead,
 )
 from app.services.action_registry import ACTION_REGISTRY
 from app.services.action_service import cancel_undispatched_actions_for_agent
-from app.services.agent_auth import enroll_agent, rotate_agent_key, verify_agent_request
+from app.services.agent_auth import (
+    activate_pending_agent_key,
+    enroll_agent,
+    prepare_agent_key_rotation,
+    verify_agent_request,
+    verify_pending_agent_request,
+)
 from app.services.analyst_auth import analyst_actor_id
 from app.services.audit_service import record_audit
 
@@ -84,26 +91,81 @@ def enroll(
     }
 
 
-@router.post("/{agent_id}/rotate-key", response_model=AgentKeyRotateResponse)
-async def rotate_key(
+@router.post("/{agent_id}/rotate-key", response_model=AgentKeyRotationPrepareResponse)
+async def prepare_key_rotation(
     agent_id: str,
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
+    # Rotation preparation accepts only the current credential. A previous grace
+    # credential cannot mint another future credential.
     agent = verify_agent_request(
         db,
         request,
         raw,
         replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
         allow_disabled=False,
+        allow_previous_key=False,
     )
     if agent.agent_id != agent_id:
         raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
 
-    old_key_id = agent.key_id
-    secret, previous_key_expires_at = rotate_agent_key(db, agent)
+    secret, pending_key_id, pending_key_expires_at = prepare_agent_key_rotation(db, agent)
+    record_audit(
+        db,
+        actor_type="agent",
+        actor_id=agent.agent_id,
+        action="agent_key_rotation_prepared",
+        resource_type="agent",
+        resource_id=agent.agent_id,
+        details={
+            "host_id": agent.host_id,
+            "current_key_id": agent.key_id,
+            "pending_key_id": pending_key_id,
+            "pending_key_expires_at": pending_key_expires_at.isoformat(),
+        },
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "agent_id": agent.agent_id,
+        "pending_key_id": pending_key_id,
+        "secret": secret,
+        "pending_key_expires_at": pending_key_expires_at,
+    }
+
+
+@router.post("/{agent_id}/activate-key", response_model=AgentKeyRotationActivateResponse)
+async def activate_key_rotation(
+    agent_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    raw = await request.body()
+    # Only the prepared pending credential can activate itself. Current/previous
+    # credentials cannot skip this proof-of-possession step.
+    agent = verify_pending_agent_request(
+        db,
+        request,
+        raw,
+        replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+    )
+    if agent.agent_id != agent_id:
+        raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
+
+    previous_key_id = agent.key_id
+    pending_key_id = agent.pending_key_id
+    try:
+        previous_key_expires_at = activate_pending_agent_key(db, agent)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "pending_key_unavailable", "message": str(exc)},
+        ) from exc
     record_audit(
         db,
         actor_type="agent",
@@ -113,8 +175,8 @@ async def rotate_key(
         resource_id=agent.agent_id,
         details={
             "host_id": agent.host_id,
-            "previous_key_id": old_key_id,
-            "new_key_id": agent.key_id,
+            "previous_key_id": previous_key_id,
+            "new_key_id": pending_key_id,
             "previous_key_expires_at": previous_key_expires_at.isoformat(),
         },
     )
@@ -124,7 +186,6 @@ async def rotate_key(
     return {
         "agent_id": agent.agent_id,
         "key_id": agent.key_id,
-        "secret": secret,
         "previous_key_expires_at": previous_key_expires_at,
     }
 
