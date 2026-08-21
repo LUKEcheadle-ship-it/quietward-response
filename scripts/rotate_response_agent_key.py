@@ -43,6 +43,8 @@ def _activate(agent: ResponseAgent) -> dict:
         raise ResponseAgentError("agent key activation response targets another agent")
     if value.get("key_id") != agent.config.key_id:
         raise ResponseAgentError("agent key activation did not promote the staged key")
+    if not value.get("previous_key_revoked_at"):
+        raise ResponseAgentError("agent key activation did not confirm old-key revocation")
     return value
 
 
@@ -54,8 +56,12 @@ def _recover(path: Path, next_path: Path) -> int:
 
     activation: dict | None = None
     try:
+        # If activation already succeeded before the local crash, the staged new key
+        # can authenticate immediately and no second activation is needed.
         capability_state = sync_capabilities(rotated_agent)
     except ResponseAgentError:
+        # Otherwise prove possession of the staged pending secret, activate it, then
+        # verify that the promoted credential can sign normal traffic.
         activation = _activate(rotated_agent)
         capability_state = sync_capabilities(rotated_agent)
 
@@ -63,7 +69,7 @@ def _recover(path: Path, next_path: Path) -> int:
     print(f"Response agent key recovery completed: {rotated.agent_id}")
     print(f"Active key ID: {rotated.key_id}")
     if activation is not None:
-        print(f"Previous key grace expires: {activation['previous_key_expires_at']}")
+        print(f"Previous key revoked at: {activation['previous_key_revoked_at']}")
     print(f"Private config promoted atomically: {path}")
     print(f"New key verified by capability sync: {bool(capability_state.get('capabilities_updated_at'))}")
     print("The agent secret was not printed.")
@@ -111,7 +117,8 @@ def main() -> int:
     )
 
     # Persist the pending credential before activation. If activation or promotion is
-    # interrupted, --recover-next can finish without exposing the secret.
+    # interrupted, --recover-next can finish with the staged NEW credential. The old
+    # key is revoked immediately once activation succeeds.
     write_agent_config(next_path, rotated, force=False)
     rotated_agent = ResponseAgent(rotated)
     activation = _activate(rotated_agent)
@@ -121,7 +128,7 @@ def main() -> int:
     print(f"Response agent key rotated: {rotated.agent_id}")
     print(f"New key ID: {rotated.key_id}")
     print(f"Pending key deadline was: {prepared['pending_key_expires_at']}")
-    print(f"Previous key grace expires: {activation['previous_key_expires_at']}")
+    print(f"Previous key revoked at: {activation['previous_key_revoked_at']}")
     print(f"Private config updated atomically: {path}")
     print(f"New key verified by capability sync: {bool(capability_state.get('capabilities_updated_at'))}")
     print("The new agent secret was not printed.")
