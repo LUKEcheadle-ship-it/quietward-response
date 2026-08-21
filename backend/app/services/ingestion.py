@@ -10,14 +10,15 @@ from app.database.models import EventRecord, HostRecord
 from app.schemas.event import EventCreate
 from app.services.audit_service import record_audit
 from app.services.correlation import correlate_event
+from app.services.redaction import redact_sensitive, redact_sensitive_text
 
 
 class DuplicateEventError(ValueError):
-    """The same event ID and accepted payload were already persisted."""
+    """The same event ID and accepted redacted payload were already persisted."""
 
 
 class EventIdConflictError(ValueError):
-    """An existing event ID was reused with different event content."""
+    """An existing event ID was reused with different accepted event content."""
 
 
 def _record_event_rejection(
@@ -40,10 +41,14 @@ def _record_event_rejection(
 
 
 def _incoming_payload(event: EventCreate) -> dict[str, Any]:
-    # Pydantic has already normalized compatibility aliases (for example QuietWard
-    # `info` -> canonical `informational`), so this representation is stable across
-    # wire-compatible retries.
-    return event.model_dump(mode="json")
+    # Pydantic has already normalized compatibility aliases. Redaction happens
+    # before either raw-compatible or normalized copies are persisted so obvious
+    # credential values never become durable event evidence.
+    dumped = event.model_dump(mode="json")
+    redacted = redact_sensitive(dumped)
+    if not isinstance(redacted, dict):
+        raise TypeError("validated event payload redaction did not return an object")
+    return redacted
 
 
 def _raise_duplicate_or_conflict(
@@ -79,7 +84,7 @@ def normalize_event(event: EventCreate) -> dict[str, Any]:
     payload["category"] = (
         event.category.strip().lower().replace(" ", "_") if event.category else None
     )
-    payload["summary"] = " ".join(event.summary.split())
+    payload["summary"] = redact_sensitive_text(" ".join(event.summary.split()))
     payload["timestamp"] = event.timestamp.astimezone(timezone.utc).isoformat()
     return payload
 
@@ -95,6 +100,7 @@ def ingest_event(
     if existing is not None:
         _raise_duplicate_or_conflict(session, existing=existing, event=event)
 
+    redacted_payload = _incoming_payload(event)
     normalized = normalize_event(event)
     host = session.get(HostRecord, event.host_id)
     hostname = event.host_name or event.host_id
@@ -139,7 +145,7 @@ def ingest_event(
         severity=event.severity.value,
         confidence=event.confidence,
         summary=str(normalized["summary"]),
-        payload=_incoming_payload(event),
+        payload=redacted_payload,
         normalized=normalized,
     )
     session.add(record)
