@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 from pathlib import Path
@@ -9,6 +10,19 @@ from pydantic import ValidationError
 
 from app.config import DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN, Settings
 from app.database.session import Database
+
+
+_TEST_ANALYST_CREDENTIALS = [
+    "config-admin|admin|" + hashlib.sha256(b"config-admin-token").hexdigest()
+]
+_TEST_AUDIT_SECRET = "test-audit-checkpoint-secret-config-boundary-0123456789"
+
+
+def _remote_prerequisites() -> dict[str, object]:
+    return {
+        "analyst_credentials": _TEST_ANALYST_CREDENTIALS,
+        "audit_checkpoint_secret": _TEST_AUDIT_SECRET,
+    }
 
 
 def test_development_fallback_token_is_loopback_only() -> None:
@@ -23,6 +37,7 @@ def test_development_fallback_token_is_loopback_only() -> None:
         Settings(
             environment="production",
             enrollment_token=DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN,
+            **_remote_prerequisites(),
         )
 
     with pytest.raises(ValidationError, match="QWR_ENROLLMENT_TOKEN"):
@@ -30,6 +45,7 @@ def test_development_fallback_token_is_loopback_only() -> None:
             environment="development",
             api_host="0.0.0.0",
             enrollment_token=DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN,
+            **_remote_prerequisites(),
         )
 
 
@@ -54,6 +70,7 @@ def test_quietward_auth_can_be_disabled_only_on_loopback_development() -> None:
             environment="production",
             enrollment_token="production-enrollment-token-for-test",
             require_agent_auth_for_quietward_events=False,
+            **_remote_prerequisites(),
         )
 
     with pytest.raises(
@@ -65,6 +82,7 @@ def test_quietward_auth_can_be_disabled_only_on_loopback_development() -> None:
             api_host="0.0.0.0",
             enrollment_token="remote-development-enrollment-token",
             require_agent_auth_for_quietward_events=False,
+            **_remote_prerequisites(),
         )
 
 
@@ -75,6 +93,7 @@ def test_non_loopback_bind_rejects_wildcard_cors() -> None:
             api_host="0.0.0.0",
             enrollment_token="remote-development-enrollment-token",
             cors_origins=["*"],
+            **_remote_prerequisites(),
         )
 
 
