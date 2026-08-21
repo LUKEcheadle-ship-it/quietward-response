@@ -16,7 +16,10 @@ from app.services.action_registry import get_action_definition
 
 RECOMMENDATION_BINDING_REASON = "action is not an enabled recommendation for incident"
 INCIDENT_STATUS_REASON = "incident status does not allow response actions"
+AGENT_CAPABILITY_MISSING_REASON = "target agent has not reported v1.2 capabilities"
+AGENT_CAPABILITY_DISABLED_REASON = "target agent has not enabled this action capability"
 _ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
+_LEGACY_CAPABILITY_EXEMPT_ACTIONS = {"restart_quietward_demo_service"}
 
 
 def _utc(value: datetime) -> datetime:
@@ -79,6 +82,11 @@ def evaluate_action_policy(
         reasons.append("target agent is disabled")
     elif agent.host_id != action.target_host_id:
         reasons.append("target agent is not enrolled for target host")
+    elif action.action_type not in _LEGACY_CAPABILITY_EXEMPT_ACTIONS:
+        if agent.capabilities_updated_at is None:
+            reasons.append(AGENT_CAPABILITY_MISSING_REASON)
+        elif action.action_type not in set(agent.enabled_actions or []):
+            reasons.append(AGENT_CAPABILITY_DISABLED_REASON)
 
     incident = session.get(IncidentRecord, action.incident_id)
     if incident is None:
@@ -108,18 +116,14 @@ def evaluate_action_policy(
             if approval is None or approval.action_id != action.action_id:
                 reasons.append("approval record is invalid")
             else:
-                # Bind the approval to the exact action/incident/request lifecycle,
-                # not just to a status string. These fields are redundant by design
-                # so policy can detect accidental/corrupt cross-linking before dispatch.
                 if approval.incident_id != action.incident_id:
                     reasons.append("approval incident does not match action incident")
                 if approval.requested_by != action.requested_by:
                     reasons.append("approval requester does not match action requester")
                 if approval.status != "approved":
                     reasons.append("approval is not approved")
-                else:
-                    if not approval.approved_by or approval.approved_at is None:
-                        reasons.append("approval decision metadata is incomplete")
+                elif not approval.approved_by or approval.approved_at is None:
+                    reasons.append("approval decision metadata is incomplete")
                 if _utc(approval.expires_at) <= _utc(now):
                     reasons.append("approval has expired")
 
