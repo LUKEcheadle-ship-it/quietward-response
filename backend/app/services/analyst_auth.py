@@ -14,6 +14,7 @@ _ROLE_RANK = {"viewer": 1, "responder": 2, "admin": 3}
 _PENDING_ACTION_RE = re.compile(r"^/api/v1/agents/[^/]+/actions/pending$")
 _CAPABILITIES_RE = re.compile(r"^/api/v1/agents/[^/]+/capabilities$")
 _ROTATE_KEY_RE = re.compile(r"^/api/v1/agents/[^/]+/rotate-key$")
+_ACTIVATE_KEY_RE = re.compile(r"^/api/v1/agents/[^/]+/activate-key$")
 _RESULT_RE = re.compile(r"^/api/v1/actions/[^/]+/result$")
 _AGENT_PATCH_RE = re.compile(r"^/api/v1/agents/[^/]+$")
 _ACTION_DECISION_RE = re.compile(r"^/api/v1/actions/[^/]+/(?:approve|reject)$")
@@ -46,6 +47,8 @@ def _machine_authenticated_endpoint(method: str, path: str) -> bool:
     if method == "POST" and _CAPABILITIES_RE.fullmatch(path):
         return True
     if method == "POST" and _ROTATE_KEY_RE.fullmatch(path):
+        return True
+    if method == "POST" and _ACTIVATE_KEY_RE.fullmatch(path):
         return True
     if method == "GET" and _PENDING_ACTION_RE.fullmatch(path):
         return True
