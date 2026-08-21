@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+
+ParameterMode = Literal["none", "resource_handle"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,12 +16,21 @@ class ActionDefinition:
     supported_os: tuple[str, ...]
     reversible: bool
     implementation_version: str
+    parameter_mode: ParameterMode = "none"
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
-        # The released QuietWard endpoint recognizes no arbitrary target/service/path
-        # parameter. Keep the alpha endpoint-executed surface exactly compatible.
-        if parameters:
-            return ["this action accepts no parameters"]
+        if self.parameter_mode == "none":
+            if parameters:
+                return ["this action accepts no parameters"]
+            return []
+
+        if set(parameters) != {"resource_handle"}:
+            return ["this action requires exactly one resource_handle parameter"]
+        handle = parameters.get("resource_handle")
+        if not isinstance(handle, str):
+            return ["resource_handle must be a string"]
+        if not handle.startswith("qwrh1_") or len(handle) < 16 or len(handle) > 96:
+            return ["resource_handle format is invalid"]
         return []
 
 
@@ -32,11 +44,81 @@ RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
     implementation_version="1",
 )
 
-# Alpha rule: executable endpoint actions must remain compatible with the finished
-# public QuietWard release. Broad cyber-response coverage lives in the response-plan
-# engine until each future endpoint action has its own versioned typed contract.
+COLLECT_HOST_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_host_diagnostic",
+    description="Collect a bounded read-only host/agent health snapshot without running shell commands.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="2",
+)
+
+COLLECT_PROCESS_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_process_diagnostic",
+    description="Collect a bounded process snapshot and short-lived opaque process handles.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows"),
+    reversible=True,
+    implementation_version="2",
+)
+
+TERMINATE_PROCESS_BY_HANDLE = ActionDefinition(
+    action_type="terminate_process_by_handle",
+    description="Terminate only the exact process identity represented by an unexpired agent-issued handle.",
+    risk_level="high",
+    approval_required=True,
+    supported_os=("linux", "windows"),
+    reversible=False,
+    implementation_version="2",
+    parameter_mode="resource_handle",
+)
+
+COLLECT_FILE_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_file_diagnostic",
+    description="Enumerate bounded regular files only within explicitly configured Response-agent managed roots and issue short-lived opaque handles.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="2",
+)
+
+QUARANTINE_ARTIFACT_BY_HANDLE = ActionDefinition(
+    action_type="quarantine_artifact_by_handle",
+    description="Move only the exact managed regular file represented by an unexpired agent-issued handle into the private Response quarantine directory.",
+    risk_level="high",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="2",
+    parameter_mode="resource_handle",
+)
+
+RESTORE_QUARANTINED_ARTIFACT_BY_HANDLE = ActionDefinition(
+    action_type="restore_quarantined_artifact_by_handle",
+    description="Restore a quarantined artifact only through the rollback handle created by the matching quarantine execution.",
+    risk_level="medium",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="2",
+    parameter_mode="resource_handle",
+)
+
+
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
-    RESTART_QUIETWARD_DEMO_SERVICE.action_type: RESTART_QUIETWARD_DEMO_SERVICE,
+    item.action_type: item
+    for item in (
+        RESTART_QUIETWARD_DEMO_SERVICE,
+        COLLECT_HOST_DIAGNOSTIC,
+        COLLECT_PROCESS_DIAGNOSTIC,
+        TERMINATE_PROCESS_BY_HANDLE,
+        COLLECT_FILE_DIAGNOSTIC,
+        QUARANTINE_ARTIFACT_BY_HANDLE,
+        RESTORE_QUARANTINED_ARTIFACT_BY_HANDLE,
+    )
 }
 
 
@@ -54,6 +136,7 @@ def public_action_registry() -> list[dict[str, object]]:
             "supported_os": list(item.supported_os),
             "reversible": item.reversible,
             "implementation_version": item.implementation_version,
+            "parameter_mode": item.parameter_mode,
         }
         for item in ACTION_REGISTRY.values()
     ]
