@@ -85,6 +85,13 @@ class ApprovalDecision(BaseModel):
 
     reason: str | None = Field(default=None, max_length=1024)
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def redact_reason_credentials(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return redact_sensitive_text(str(value))
+
 
 class ActionResultCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
