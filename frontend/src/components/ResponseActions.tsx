@@ -12,6 +12,12 @@ const ACTIVE_ACTION_STATUSES = new Set<ResponseAction["status"]>([
 ]);
 const ACTIONABLE_INCIDENT_STATUSES = new Set(["new", "investigating", "contained"]);
 
+type HandleOption = {
+  handle: string;
+  label: string;
+  expiresAt: string | null;
+};
+
 function locallyExpired(action: ResponseAction): boolean {
   if (action.status === "executing") return false;
   if (!["pending", "approved", "dispatching"].includes(action.status)) return false;
@@ -63,6 +69,92 @@ function prepareLabel(actionType: string): string {
   if (actionType === "quarantine_artifact_by_handle") return "Prepare artifact quarantine";
   if (actionType === "restore_quarantined_artifact_by_handle") return "Prepare quarantine rollback";
   return "Prepare controlled demo action";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function validHandle(value: unknown): string | null {
+  if (typeof value !== "string" || !value.startsWith("qwrh1_") || value.length > 96) return null;
+  return value;
+}
+
+function stillValid(expiresAt: unknown): boolean {
+  if (typeof expiresAt !== "string" || !expiresAt) return true;
+  const epoch = new Date(expiresAt).getTime();
+  return Number.isFinite(epoch) && epoch > Date.now();
+}
+
+function handleOptionsFor(
+  actionType: string,
+  agent: Agent | undefined,
+  actions: ResponseAction[],
+): HandleOption[] {
+  if (!agent || !requiresResourceHandle(actionType)) return [];
+  const options: HandleOption[] = [];
+  const seen = new Set<string>();
+
+  const add = (handleValue: unknown, label: string, expiresAt: unknown) => {
+    const handle = validHandle(handleValue);
+    if (!handle || seen.has(handle) || !stillValid(expiresAt)) return;
+    seen.add(handle);
+    options.push({
+      handle,
+      label,
+      expiresAt: typeof expiresAt === "string" ? expiresAt : null,
+    });
+  };
+
+  for (const action of actions) {
+    if (
+      action.status !== "succeeded" ||
+      action.target_agent_id !== agent.agent_id ||
+      action.target_host_id !== agent.host_id
+    ) continue;
+    const result = asRecord(action.result);
+    if (!result) continue;
+
+    if (actionType === "terminate_process_by_handle" && action.action_type === "collect_process_diagnostic") {
+      const rows = Array.isArray(result.processes) ? result.processes : [];
+      for (const value of rows) {
+        const row = asRecord(value);
+        if (!row) continue;
+        const pid = typeof row.pid === "number" || typeof row.pid === "string" ? String(row.pid) : "?";
+        const image = typeof row.image === "string" ? row.image : "process";
+        add(row.resource_handle, `PID ${pid} · ${image}`, row.expires_at);
+      }
+    }
+
+    if (actionType === "quarantine_artifact_by_handle" && action.action_type === "collect_file_diagnostic") {
+      const rows = Array.isArray(result.files) ? result.files : [];
+      for (const value of rows) {
+        const row = asRecord(value);
+        if (!row) continue;
+        const relative = typeof row.relative_path === "string" ? row.relative_path : "managed file";
+        const digest = typeof row.sha256 === "string" ? ` · ${row.sha256.slice(0, 12)}…` : "";
+        add(row.resource_handle, `${relative}${digest}`, row.expires_at);
+      }
+    }
+
+    if (
+      actionType === "restore_quarantined_artifact_by_handle" &&
+      action.action_type === "quarantine_artifact_by_handle"
+    ) {
+      const relative = typeof result.original_relative_path === "string"
+        ? result.original_relative_path
+        : "quarantined artifact";
+      add(
+        result.rollback_resource_handle,
+        `Restore ${relative}`,
+        result.rollback_expires_at,
+      );
+    }
+  }
+
+  return options;
 }
 
 export function ResponseActions({
@@ -125,6 +217,10 @@ export function ResponseActions({
     return eligibleAgents.find((agent) => agent.agent_id === selectedId) ?? eligibleAgents[0];
   }
 
+  function selectionKey(actionType: string, agent: Agent | undefined): string {
+    return `${actionType}:${agent?.agent_id ?? "none"}`;
+  }
+
   function activeActionFor(
     recommendation: RecommendedAction,
     targetAgent: Agent | undefined,
@@ -147,9 +243,11 @@ export function ResponseActions({
     if (activeActionFor(recommendation, agent)) return;
 
     const needsHandle = requiresResourceHandle(actionType);
-    const resourceHandle = (resourceHandles[actionType] ?? "").trim();
-    if (needsHandle && (!resourceHandle.startsWith("qwrh1_") || resourceHandle.length > 96)) {
-      setError("This action requires a valid qwrh1_ opaque resource handle from a prior Response-agent diagnostic/result.");
+    const key = selectionKey(actionType, agent);
+    const resourceHandle = (resourceHandles[key] ?? "").trim();
+    const available = handleOptionsFor(actionType, agent, actions);
+    if (needsHandle && !available.some((item) => item.handle === resourceHandle)) {
+      setError("Select an unexpired opaque handle produced by this incident and target agent before preparing the action.");
       return;
     }
 
@@ -212,6 +310,9 @@ export function ResponseActions({
             const activeAction = activeActionFor(recommendation, agent);
             const actionType = recommendation.registry_action_type!;
             const needsHandle = requiresResourceHandle(actionType);
+            const availableHandles = handleOptionsFor(actionType, agent, actions);
+            const key = selectionKey(actionType, agent);
+            const selectedHandle = resourceHandles[key] ?? "";
             return <div key={`${actionType}:${recommendation.title}`} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -235,17 +336,19 @@ export function ResponseActions({
                 <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
               )}
               {needsHandle && (
-                <label className="mt-3 block text-xs text-slate-500">Opaque resource handle
-                  <input
-                    value={resourceHandles[actionType] ?? ""}
-                    onChange={(event) => setResourceHandles((current) => ({ ...current, [actionType]: event.target.value }))}
-                    placeholder="qwrh1_… from a prior diagnostic or quarantine result"
-                    autoComplete="off"
-                    spellCheck={false}
-                    disabled={busy !== null}
+                <label className="mt-3 block text-xs text-slate-500">Verified resource from prior Response-agent result
+                  <select
+                    value={selectedHandle}
+                    onChange={(event) => setResourceHandles((current) => ({ ...current, [key]: event.target.value }))}
+                    disabled={busy !== null || availableHandles.length === 0}
                     className="mt-2 block w-full rounded-lg border border-line bg-slate-950 px-3 py-2 font-mono text-xs text-white outline-none focus:border-cyan disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                  <span className="mt-1 block text-[11px] text-slate-600">Only opaque handles are accepted. Do not enter a PID or file path.</span>
+                  >
+                    <option value="">{availableHandles.length ? "Select an unexpired opaque handle…" : "Run the matching diagnostic/action first"}</option>
+                    {availableHandles.map((item) => (
+                      <option key={item.handle} value={item.handle}>{item.label} · {item.handle.slice(0, 18)}…</option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-[11px] text-slate-600">Only handles returned by this incident and selected agent are offered. Raw PIDs and file paths cannot be entered.</span>
                 </label>
               )}
               {!incidentAllowsResponse ? (
@@ -253,7 +356,7 @@ export function ResponseActions({
               ) : activeAction ? (
                 <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">Active action on {activeAction.target_host_id}: {humanStatus(effectiveStatus(activeAction))}</span>
               ) : (
-                <button disabled={!agent || busy !== null || (needsHandle && !(resourceHandles[actionType] ?? "").trim())} onClick={() => void prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">{prepareLabel(actionType)}</button>
+                <button disabled={!agent || busy !== null || (needsHandle && !selectedHandle)} onClick={() => void prepare(recommendation)} className="mt-3 rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs font-medium text-cyan disabled:cursor-not-allowed disabled:opacity-40">{prepareLabel(actionType)}</button>
               )}
             </div>;
           })}
