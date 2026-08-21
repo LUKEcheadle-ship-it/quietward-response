@@ -1,5 +1,20 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from app.database.models import AgentRecord
+
+
+V12_ACTIONS = [
+    "restart_quietward_demo_service",
+    "collect_host_diagnostic",
+    "collect_process_diagnostic",
+    "terminate_process_by_handle",
+    "collect_file_diagnostic",
+    "quarantine_artifact_by_handle",
+    "restore_quarantined_artifact_by_handle",
+]
+
 
 def _enroll(client, host_id: str) -> dict:
     response = client.post(
@@ -12,7 +27,16 @@ def _enroll(client, host_id: str) -> dict:
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    enrollment = response.json()
+    # This file tests action shape/binding, not capability-report transport.
+    with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrollment["agent_id"])
+        assert agent is not None
+        agent.supported_actions = list(V12_ACTIONS)
+        agent.enabled_actions = list(V12_ACTIONS)
+        agent.capabilities_updated_at = datetime.now(timezone.utc)
+        session.commit()
+    return enrollment
 
 
 def test_file_diagnostic_is_registered_but_raw_path_containment_is_impossible(
