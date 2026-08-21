@@ -5,6 +5,12 @@ import { ErrorState, LoadingState } from "@/components/States";
 import { apiFetch, formatTime } from "@/lib/api";
 import type { Agent } from "@/lib/types";
 
+function capabilitySummary(agent: Agent): string {
+  if (!agent.capabilities_updated_at) return "Not reported";
+  if (agent.enabled_actions.length === 0) return "No enabled actions";
+  return agent.enabled_actions.join(", ");
+}
+
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,16 +50,16 @@ export default function AgentsPage() {
     <div className="space-y-7">
       <section>
         <p className="eyebrow">Endpoint identities</p>
-        <h1 className="mt-2 text-3xl font-semibold text-white">QuietWard agents</h1>
+        <h1 className="mt-2 text-3xl font-semibold text-white">Response agents</h1>
         <p className="muted mt-3 max-w-3xl">
-          Enrolled sensors authenticate event delivery and poll for typed, policy-approved response actions. Enrollment secrets are shown only once at enrollment. Disable an agent immediately if its credential or endpoint is no longer trusted.
+          Response agents authenticate outward polling and signed results independently from security sensors. Each agent also signs its locally enabled action capabilities; server policy will not dispatch a v1.2 action the endpoint has not reported as enabled. Disable an agent immediately if its credential or endpoint is no longer trusted.
         </p>
       </section>
       {error && <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</div>}
       <section className="panel">
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>Agent</th><th>Host</th><th>Version</th><th>Last seen</th><th>State</th><th>Key ID</th><th>Control</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Host</th><th>Version</th><th>Last seen</th><th>Capabilities</th><th>State</th><th>Key ID</th><th>Control</th></tr></thead>
             <tbody>
               {agents.map((agent) => (
                 <tr key={agent.agent_id}>
@@ -61,6 +67,10 @@ export default function AgentsPage() {
                   <td className="font-mono text-xs">{agent.host_id}</td>
                   <td>{agent.agent_version ?? "—"}</td>
                   <td>{agent.last_seen ? formatTime(agent.last_seen) : "Never"}</td>
+                  <td className="max-w-80 text-xs">
+                    <div className={agent.capabilities_updated_at ? "text-slate-300" : "text-amber-300"}>{capabilitySummary(agent)}</div>
+                    <div className="mt-1 text-[10px] text-slate-600">{agent.capabilities_updated_at ? `Signed ${formatTime(agent.capabilities_updated_at)}` : "Run the official Response-agent poll path to sync"}</div>
+                  </td>
                   <td><span className={`rounded-full px-2.5 py-1 text-xs ${agent.enabled ? "bg-emerald-500/10 text-emerald-300" : "bg-rose-500/10 text-rose-300"}`}>{agent.enabled ? "Enabled" : "Disabled"}</span></td>
                   <td className="max-w-52 truncate font-mono text-xs text-slate-500">{agent.key_id}</td>
                   <td>
@@ -74,7 +84,7 @@ export default function AgentsPage() {
                   </td>
                 </tr>
               ))}
-              {agents.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-slate-500">No QuietWard agents enrolled yet.</td></tr>}
+              {agents.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-slate-500">No Response agents enrolled yet.</td></tr>}
             </tbody>
           </table>
         </div>
