@@ -22,21 +22,29 @@ First handle-bound containment alpha candidate.
 - authenticated analyst identity binding for audit records; `X-Actor-ID` cannot override a bearer identity
 - session-only browser bearer-token support
 - one-time analyst token/hash generator
+- trusted handle selection in the incident console: high-impact actions can be prepared only from unexpired handles returned by successful prior actions for the same incident and selected agent
+- independently signed audit checkpoints that can be retained outside the Response database to anchor historical audit prefixes
+- checkpoint verification that detects signature tamper, full historical chain recomputation, and deletion/truncation of already-checkpointed audit history
 - v1.2 static/local, live containment, and exact-branch finalization gates
 
 ### Hardened
 
 - raw PID and filesystem-path targeting remains impossible through the action API
 - generic shell/PowerShell/cmd/script execution remains absent
+- normal UI no longer exposes free-form opaque-handle entry for containment actions
 - process handles bind more than PID and protect agent/parent/critical OS processes
+- Linux process termination uses pidfd-bound signaling and verifies exact target exit
+- Windows process termination revalidates creation identity on the termination handle and performs a bounded exit wait
 - file actions are limited to configured regular-file roots; symbolic links are excluded
+- file identity includes SHA-256 content plus filesystem metadata, revalidated before mutation and verified again after quarantine/restore
 - quarantine directory must be outside managed roots
 - quarantine/restore has consumption receipts, deterministic rollback handles, stale-file checks, occupied-target checks, and interrupted-recovery validation
 - interrupted process termination fails closed when the final outcome is indeterminate or a PID has been replaced
 - pre-v1.2 incidents cannot gain new executable actions retroactively unless their persisted recommendation set authorizes them
-- remote/non-development Response refuses startup without analyst credentials
+- remote/non-development Response refuses startup without analyst credentials, a non-default enrollment token, and an independent non-development audit-checkpoint secret
 - machine enrollment/HMAC/event routes remain separate from human analyst authentication
 - CORS/security headers remain present on analyst 401/403 responses
+- legacy production-boundary tests explicitly provide unrelated v1.2 prerequisites so each security test continues to isolate the control it claims to verify
 
 ### Still intentionally unavailable
 
@@ -48,6 +56,9 @@ First handle-bound containment alpha candidate.
 - container stop/remove
 - service/package/configuration mutation
 - autonomous remediation or LLM-generated executable commands
+- multi-worker API qualification/shared rate limiting
+- enterprise OIDC/SSO analyst identity
+- immutable/WORM external audit storage (signed checkpoints provide externally retainable tamper anchors, not immutable storage)
 
 ## 1.1.0-alpha.1 — candidate 2026-08-20
 
