@@ -17,6 +17,7 @@ from typing import Any, Iterable
 
 
 HANDLE_TTL_SECONDS = 300
+ROLLBACK_HANDLE_TTL_SECONDS = 86_400
 MAX_PROCESS_RESULTS = 128
 MAX_FILE_RESULTS = 128
 MAX_FILE_WALK_DIRECTORIES = 256
@@ -74,7 +75,10 @@ class ResourceHandleStore:
         changed = False
         for handle, record in list(records.items()):
             expires_at = float(record.get("expires_at_epoch") or 0)
-            if expires_at <= now - 3600:
+            consumed_epoch = float(record.get("consumed_at_epoch") or 0)
+            old_expired = bool(expires_at and expires_at <= now - 86_400)
+            old_consumed = bool(consumed_epoch and consumed_epoch <= now - 86_400)
+            if old_expired or old_consumed:
                 records.pop(handle, None)
                 changed = True
         if changed:
@@ -89,10 +93,22 @@ class ResourceHandleStore:
         fingerprint: str,
         display: dict[str, Any],
         ttl_seconds: int = HANDLE_TTL_SECONDS,
+        preferred_handle: str | None = None,
     ) -> dict[str, Any]:
-        ttl = max(30, min(900, int(ttl_seconds)))
+        ttl = max(30, min(86_400, int(ttl_seconds)))
         records = self._load()
-        handle = "qwrh1_" + secrets.token_urlsafe(24)
+        handle = preferred_handle or ("qwrh1_" + secrets.token_urlsafe(24))
+        existing = records.get(handle)
+        if existing is not None:
+            if existing.get("kind") != kind or existing.get("fingerprint") != fingerprint:
+                raise ResourceError("deterministic resource handle collided with different identity")
+            return {
+                "resource_handle": handle,
+                "resource_kind": kind,
+                "expires_at": datetime.fromtimestamp(
+                    float(existing["expires_at_epoch"]), timezone.utc
+                ).isoformat(),
+            }
         expires_epoch = time.time() + ttl
         records[handle] = {
             "kind": kind,
@@ -102,6 +118,8 @@ class ResourceHandleStore:
             "issued_at": _utc_now_text(),
             "expires_at_epoch": expires_epoch,
             "consumed_at": None,
+            "consumed_at_epoch": None,
+            "consumption_result": None,
         }
         _atomic_json(self.path, records)
         return {
@@ -110,27 +128,42 @@ class ResourceHandleStore:
             "expires_at": datetime.fromtimestamp(expires_epoch, timezone.utc).isoformat(),
         }
 
-    def resolve(self, handle: str, *, kind: str) -> dict[str, Any]:
+    def inspect(self, handle: str, *, kind: str) -> dict[str, Any]:
         if not isinstance(handle, str) or not handle.startswith("qwrh1_") or len(handle) > 96:
             raise ResourceError("resource handle is malformed")
-        records = self._load()
-        record = records.get(handle)
+        record = self._load().get(handle)
         if record is None:
             raise ResourceError("resource handle is unknown or expired")
         if record.get("kind") != kind:
             raise ResourceError("resource handle kind does not match action")
+        return dict(record)
+
+    def resolve(self, handle: str, *, kind: str) -> dict[str, Any]:
+        record = self.inspect(handle, kind=kind)
         if record.get("consumed_at"):
             raise ResourceError("resource handle has already been consumed")
         if float(record.get("expires_at_epoch") or 0) <= time.time():
             raise ResourceError("resource handle has expired")
-        return dict(record)
+        return record
 
-    def consume(self, handle: str) -> None:
+    def consumed_result(self, handle: str, *, kind: str) -> dict[str, Any] | None:
+        record = self.inspect(handle, kind=kind)
+        result = record.get("consumption_result")
+        return dict(result) if record.get("consumed_at") and isinstance(result, dict) else None
+
+    def consume(self, handle: str, result: dict[str, Any]) -> None:
         records = self._load()
         record = records.get(handle)
         if record is None:
             raise ResourceError("resource handle disappeared before completion")
+        if record.get("consumed_at"):
+            stored = record.get("consumption_result")
+            if stored != result:
+                raise ResourceError("consumed resource handle result conflict")
+            return
         record["consumed_at"] = _utc_now_text()
+        record["consumed_at_epoch"] = time.time()
+        record["consumption_result"] = result
         records[handle] = record
         _atomic_json(self.path, records)
 
@@ -148,9 +181,10 @@ def _linux_process(pid: int) -> dict[str, Any] | None:
     try:
         stat_text = (proc / "stat").read_text(encoding="utf-8", errors="replace")
         close = stat_text.rfind(")")
-        if close < 0:
+        open_paren = stat_text.find("(")
+        if close < 0 or open_paren < 0:
             return None
-        name = stat_text[stat_text.find("(") + 1 : close][:128]
+        name = stat_text[open_paren + 1 : close][:128]
         fields = stat_text[close + 2 :].split()
         if len(fields) < 20:
             return None
@@ -182,20 +216,45 @@ def _linux_process(pid: int) -> dict[str, Any] | None:
         return None
 
 
+def _windows_kernel32():
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
 def _windows_processes() -> list[dict[str, Any]]:
     if os.name != "nt":
         return []
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = _windows_kernel32()
     TH32CS_SNAPPROCESS = 0x00000002
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+    invalid_handle = ctypes.c_void_p(-1).value
 
     class PROCESSENTRY32W(ctypes.Structure):
         _fields_ = [
             ("dwSize", wintypes.DWORD),
             ("cntUsage", wintypes.DWORD),
             ("th32ProcessID", wintypes.DWORD),
-            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32DefaultHeapID", ctypes.c_size_t),
             ("th32ModuleID", wintypes.DWORD),
             ("cntThreads", wintypes.DWORD),
             ("th32ParentProcessID", wintypes.DWORD),
@@ -205,7 +264,8 @@ def _windows_processes() -> list[dict[str, Any]]:
         ]
 
     snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if snapshot == INVALID_HANDLE_VALUE:
+    snapshot_value = ctypes.cast(snapshot, ctypes.c_void_p).value
+    if snapshot_value == invalid_handle:
         raise ResourceError("Windows process snapshot failed")
     result: list[dict[str, Any]] = []
     try:
@@ -257,6 +317,10 @@ def _windows_processes() -> list[dict[str, Any]]:
     return result
 
 
+def sys_platform() -> str:
+    return platform.system().lower()
+
+
 def _processes() -> list[dict[str, Any]]:
     if os.name == "nt":
         return _windows_processes()
@@ -270,10 +334,6 @@ def _processes() -> list[dict[str, Any]]:
                 result.append(item)
         return result
     raise ResourceError("process diagnostics are supported only on Windows and Linux")
-
-
-def sys_platform() -> str:
-    return platform.system().lower()
 
 
 def _protected_process(item: dict[str, Any]) -> bool:
@@ -296,7 +356,8 @@ def _protected_process(item: dict[str, Any]) -> bool:
 
 
 def collect_process_diagnostic(store: ResourceHandleStore) -> dict[str, Any]:
-    records = sorted(_processes(), key=lambda item: int(item["pid"]))[:MAX_PROCESS_RESULTS]
+    all_records = sorted(_processes(), key=lambda item: int(item["pid"]))
+    records = all_records[:MAX_PROCESS_RESULTS]
     returned: list[dict[str, Any]] = []
     for item in records:
         protected = _protected_process(item)
@@ -325,7 +386,7 @@ def collect_process_diagnostic(store: ResourceHandleStore) -> dict[str, Any]:
         "system_state_changed": False,
         "resource_handle_ttl_seconds": HANDLE_TTL_SECONDS,
         "processes": returned,
-        "truncated": len(records) >= MAX_PROCESS_RESULTS,
+        "truncated": len(all_records) > MAX_PROCESS_RESULTS,
     }
 
 
@@ -340,20 +401,42 @@ def _current_process(identity: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def terminate_process_by_handle(store: ResourceHandleStore, handle: str) -> dict[str, Any]:
+def terminate_process_by_handle(
+    store: ResourceHandleStore,
+    handle: str,
+    *,
+    recover_after_started: bool = False,
+) -> dict[str, Any]:
+    prior = store.consumed_result(handle, kind="process")
+    if prior is not None:
+        return prior
     record = store.resolve(handle, kind="process")
     identity = dict(record.get("identity") or {})
     current = _current_process(identity)
-    if current is None:
-        raise ResourceError("process no longer exists")
-    if current["fingerprint"] != record.get("fingerprint"):
-        raise ResourceError("process identity changed after handle issuance")
+    if current is None or current["fingerprint"] != record.get("fingerprint"):
+        if not recover_after_started:
+            if current is None:
+                raise ResourceError("process no longer exists")
+            raise ResourceError("process identity changed after handle issuance")
+        result = {
+            "resource_handle": handle,
+            "pid": int(identity.get("pid") or -1),
+            "image": str(record.get("display", {}).get("image") or "unknown"),
+            "termination_requested": True,
+            "original_process_no_longer_present": True,
+            "replacement_process_was_not_touched": current is not None,
+            "system_state_changed": True,
+            "reversible": False,
+            "recovered_after_interruption": True,
+        }
+        store.consume(handle, result)
+        return result
     if _protected_process(current):
         raise ResourceError("process is protected from Response termination")
     pid = int(current["pid"])
 
     if os.name == "nt":
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32 = _windows_kernel32()
         PROCESS_TERMINATE = 0x0001
         process_handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
         if not process_handle:
@@ -366,8 +449,7 @@ def terminate_process_by_handle(store: ResourceHandleStore, handle: str) -> dict
     else:
         os.kill(pid, signal.SIGTERM)
 
-    store.consume(handle)
-    return {
+    result = {
         "resource_handle": handle,
         "pid": pid,
         "image": current["image"],
@@ -376,6 +458,8 @@ def terminate_process_by_handle(store: ResourceHandleStore, handle: str) -> dict
         "system_state_changed": True,
         "reversible": False,
     }
+    store.consume(handle, result)
+    return result
 
 
 # ----- Managed-file resources ---------------------------------------------
@@ -390,12 +474,12 @@ def _within(path: Path, root: Path) -> bool:
 
 
 def _file_identity(path: Path, root: Path) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    if path.is_symlink():
+        raise ResourceError("symbolic links are not eligible for managed file actions")
     resolved = path.resolve(strict=True)
     resolved_root = root.resolve(strict=True)
     if not _within(resolved, resolved_root):
         raise ResourceError("managed file escaped configured root")
-    if resolved.is_symlink():
-        raise ResourceError("symbolic links are not eligible for managed file actions")
     info = resolved.stat()
     if not stat.S_ISREG(info.st_mode):
         raise ResourceError("managed file action requires a regular file")
@@ -434,7 +518,11 @@ def collect_file_diagnostic(
             visited_directories += 1
             if visited_directories > MAX_FILE_WALK_DIRECTORIES:
                 break
-            dirnames[:] = sorted(dirnames)[:64]
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)[:64]
+                if not (Path(directory) / name).is_symlink()
+            ]
             for filename in sorted(filenames):
                 if len(rows) >= MAX_FILE_RESULTS:
                     break
@@ -468,87 +556,130 @@ def collect_file_diagnostic(
     }
 
 
+def _quarantine_target(quarantine_dir: Path, handle: str) -> Path:
+    name = "quarantined-" + hashlib.sha256(handle.encode("utf-8")).hexdigest()[:24]
+    return quarantine_dir / name
+
+
+def _rollback_handle(handle: str) -> str:
+    return "qwrh1_rb_" + hashlib.sha256(handle.encode("utf-8")).hexdigest()[:40]
+
+
 def quarantine_file_by_handle(
     store: ResourceHandleStore,
     handle: str,
     quarantine_dir: Path,
+    *,
+    recover_after_started: bool = False,
 ) -> dict[str, Any]:
+    prior = store.consumed_result(handle, kind="managed_file")
+    if prior is not None:
+        return prior
     record = store.resolve(handle, kind="managed_file")
     identity = dict(record.get("identity") or {})
     path = Path(str(identity.get("path") or ""))
     root = Path(str(identity.get("root") or ""))
-    current_identity, fingerprint, display = _file_identity(path, root)
-    if fingerprint != record.get("fingerprint"):
-        raise ResourceError("file identity changed after handle issuance")
-
     quarantine_dir = quarantine_dir.resolve()
     quarantine_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    quarantine_name = "quarantined-" + hashlib.sha256(handle.encode("utf-8")).hexdigest()[:24]
-    target = quarantine_dir / quarantine_name
-    if target.exists():
-        raise ResourceError("quarantine target already exists")
+    target = _quarantine_target(quarantine_dir, handle)
 
-    original_parent = path.parent
-    original_name = path.name
-    shutil.move(str(path), str(target))
-    rollback = {
+    recovered = False
+    if not path.exists():
+        if not recover_after_started or not target.exists() or not target.is_file():
+            raise ResourceError("managed file disappeared before quarantine")
+        display = dict(record.get("display") or {})
+        recovered = True
+    else:
+        current_identity, fingerprint, display = _file_identity(path, root)
+        if fingerprint != record.get("fingerprint"):
+            raise ResourceError("file identity changed after handle issuance")
+        if target.exists():
+            raise ResourceError("quarantine target already exists while source still exists")
+        shutil.move(str(path), str(target))
+        identity = current_identity
+
+    target_info = target.stat()
+    rollback_identity = {
         "original_path": str(path),
-        "original_parent": str(original_parent),
-        "original_name": original_name,
         "quarantine_path": str(target),
         "root": str(root),
-        "original_identity": current_identity,
     }
-    rollback_handle = store.issue(
-        kind="quarantined_file",
-        identity=rollback,
-        fingerprint=_fingerprint((target, target.stat().st_size, target.stat().st_mtime_ns)),
-        display={"relative_path": display["relative_path"]},
-        ttl_seconds=900,
+    rollback_fingerprint = _fingerprint(
+        (str(target), int(target_info.st_size), int(target_info.st_mtime_ns))
     )
-    store.consume(handle)
-    return {
+    rollback = store.issue(
+        kind="quarantined_file",
+        identity=rollback_identity,
+        fingerprint=rollback_fingerprint,
+        display={"relative_path": display.get("relative_path", path.name)},
+        ttl_seconds=ROLLBACK_HANDLE_TTL_SECONDS,
+        preferred_handle=_rollback_handle(handle),
+    )
+    result = {
         "resource_handle": handle,
         "quarantined": True,
         "system_state_changed": True,
         "reversible": True,
-        "original_relative_path": display["relative_path"],
-        "rollback_resource_handle": rollback_handle["resource_handle"],
-        "rollback_expires_at": rollback_handle["expires_at"],
+        "original_relative_path": display.get("relative_path", path.name),
+        "rollback_resource_handle": rollback["resource_handle"],
+        "rollback_expires_at": rollback["expires_at"],
+        "recovered_after_interruption": recovered,
     }
+    store.consume(handle, result)
+    return result
 
 
 def restore_quarantined_file(
     store: ResourceHandleStore,
     handle: str,
+    *,
+    recover_after_started: bool = False,
 ) -> dict[str, Any]:
+    prior = store.consumed_result(handle, kind="quarantined_file")
+    if prior is not None:
+        return prior
     record = store.resolve(handle, kind="quarantined_file")
     identity = dict(record.get("identity") or {})
     source = Path(str(identity.get("quarantine_path") or ""))
     destination = Path(str(identity.get("original_path") or ""))
     root = Path(str(identity.get("root") or ""))
-    if not source.exists() or not source.is_file():
-        raise ResourceError("quarantined file no longer exists")
-    if destination.exists():
-        raise ResourceError("original path is occupied; refusing restore")
+
+    recovered = False
+    if not source.exists():
+        if not recover_after_started or not destination.exists() or not destination.is_file():
+            raise ResourceError("quarantined file no longer exists")
+        recovered = True
+    else:
+        if destination.exists():
+            raise ResourceError("original path is occupied; refusing restore")
+        try:
+            resolved_parent = destination.parent.resolve(strict=True)
+            resolved_root = root.resolve(strict=True)
+        except OSError as exc:
+            raise ResourceError("restore parent/root is unavailable") from exc
+        if not _within(resolved_parent, resolved_root):
+            raise ResourceError("restore target escaped configured managed root")
+        current_fingerprint = _fingerprint(
+            (str(source), int(source.stat().st_size), int(source.stat().st_mtime_ns))
+        )
+        if current_fingerprint != record.get("fingerprint"):
+            raise ResourceError("quarantined file changed after quarantine")
+        shutil.move(str(source), str(destination))
+
     try:
-        resolved_parent = destination.parent.resolve(strict=True)
         resolved_root = root.resolve(strict=True)
-    except OSError as exc:
-        raise ResourceError("restore parent/root is unavailable") from exc
-    if not _within(resolved_parent, resolved_root):
-        raise ResourceError("restore target escaped configured managed root")
-    current_fingerprint = _fingerprint((source, source.stat().st_size, source.stat().st_mtime_ns))
-    if current_fingerprint != record.get("fingerprint"):
-        raise ResourceError("quarantined file changed after quarantine")
-    shutil.move(str(source), str(destination))
-    store.consume(handle)
-    return {
+        relative = destination.resolve(strict=True).relative_to(resolved_root).as_posix()
+    except (OSError, ValueError):
+        relative = destination.name
+    result = {
         "rollback_resource_handle": handle,
         "restored": True,
         "system_state_changed": True,
-        "restored_relative_path": destination.relative_to(resolved_root).as_posix(),
+        "restored_relative_path": relative,
+        "recovered_after_interruption": recovered,
     }
+    store.consume(handle, result)
+    return result
 
 
 # ----- Host diagnostic -----------------------------------------------------
