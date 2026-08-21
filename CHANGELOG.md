@@ -2,107 +2,63 @@
 
 All notable changes to QuietWard Response are documented here.
 
-## 1.1.0-alpha.1 — candidate 2026-08-20
+## 1.2.0-alpha.1 — candidate 2026-08-21
 
-First broad incident-response planning alpha candidate. Publication remains blocked until the standalone automated wrapper and browser smoke in `docs/V11_ALPHA_ACCEPTANCE.md` pass on the exact pushed candidate SHA.
+First handle-bound containment alpha candidate.
 
 ### Added
 
-- standalone deterministic response-plan API at `GET /api/v1/incidents/{incident_id}/response-plan`
-- response-plan coverage for malware/file, process/privilege, identity/authentication, persistence, network, container, vulnerability/configuration, sensor/evidence-integrity, and operational incidents
-- explicit plan priority, objectives, investigation steps, containment steps, recovery steps, escalation conditions, and limitations
-- step-state contract distinguishing `available`, `manual`, `planned`, and `blocked` capabilities
-- exact `executable_actions` list so advisory containment cannot be mistaken for hidden endpoint automation
-- incident-console Response Plan panel with explicit planned/blocked/manual labels
-- shared response-family classifier for canonical and common vendor vocabulary including ransomware, credential spray, C2/beaconing, tamper/defense-evasion, Kubernetes/container, CVE, persistence, execution, and outage signals
-- bundled Response-owned outward-polling alpha agent implementing only the dedicated demo-fixture action
-- private local Response-agent enrollment/config helper that does not print the one-time secret
-- standalone live HTTP alpha acceptance using synthetic development telemetry rather than a companion detector checkout
-- standalone alpha finalizer and static/local gate
+- bounded `collect_host_diagnostic`, `collect_process_diagnostic`, and `collect_file_diagnostic` Response-agent actions
+- short-lived opaque `qwrh1_...` local resource handles
+- incident-bound handle provenance so a handle cannot be moved between incidents, hosts, or agents
+- opt-in `terminate_process_by_handle` on Windows/Linux
+- opt-in managed-root `quarantine_artifact_by_handle`
+- `restore_quarantined_artifact_by_handle` rollback using a separate rollback handle
+- local resource fingerprint/stale-target revalidation immediately before mutation
+- disposable process/file containment qualification tests
+- action-specific TTL ceilings; process termination and quarantine approvals are capped below resource-handle expiry
+- API request-size and per-client rate limits
+- hashed analyst bearer credentials with viewer/responder/admin RBAC outside loopback development
+- authenticated analyst identity binding for audit records; `X-Actor-ID` cannot override a bearer identity
+- session-only browser bearer-token support
+- one-time analyst token/hash generator
+- v1.2 static/local, live containment, and exact-branch finalization gates
 
 ### Hardened
 
-- executable action registry remains exactly the released demo-fixture action
-- advisory diagnostic/containment names are rejected if submitted to the action API
-- generic command/shell execution remains absent from the bundled Response agent
-- Response-agent target, action type, parameters, policy allowance, lifecycle state, expiry, and local recovery history are independently revalidated before execution
-- Response-agent demo execution is durable and exactly-once across terminal replay/crash-recovery paths
-- ActionResult `result` is capped at 256 KiB serialized and `evidence` at 64 KiB before persistence
-- release audit rejects common Response-agent credential/config filenames in tracked files/history
-- release-facing docs and gates no longer require or modify any detector repository
-- recommendations and probable-cause text are sensor-neutral rather than assuming one detector implementation
-- the response-plan API, unit tests, static gate, and live gate share/verify the same high-signal response-family mapping so vendor event names cannot silently downgrade to `unknown`
+- raw PID and filesystem-path targeting remains impossible through the action API
+- generic shell/PowerShell/cmd/script execution remains absent
+- process handles bind more than PID and protect agent/parent/critical OS processes
+- file actions are limited to configured regular-file roots; symbolic links are excluded
+- quarantine directory must be outside managed roots
+- quarantine/restore has consumption receipts, deterministic rollback handles, stale-file checks, occupied-target checks, and interrupted-recovery validation
+- interrupted process termination fails closed when the final outcome is indeterminate or a PID has been replaced
+- pre-v1.2 incidents cannot gain new executable actions retroactively unless their persisted recommendation set authorizes them
+- remote/non-development Response refuses startup without analyst credentials
+- machine enrollment/HMAC/event routes remain separate from human analyst authentication
+- CORS/security headers remain present on analyst 401/403 responses
 
-### Safety boundary
+### Still intentionally unavailable
 
-The alpha can recommend broad investigation, containment, and recovery procedures, but those procedures remain clearly manual/planned/blocked. The bundled Response agent exists only to execute the dedicated v1 JSON demo fixture. Real quarantine, process termination, network blocking/isolation, persistence modification, account/session actions, container control, service control, and package/configuration mutation require separate narrow typed executors plus preconditions, rollback/failure semantics, least privilege, and adversarial qualification. There is still no generic shell/PowerShell/cmd/bash, autonomous remediation, or LLM-generated executable command surface.
+- generic command execution
+- raw PID/path action targets
+- firewall/network-rule modification and host isolation
+- persistence mutation
+- account/session mutation
+- container stop/remove
+- service/package/configuration mutation
+- autonomous remediation or LLM-generated executable commands
+
+## 1.1.0-alpha.1 — candidate 2026-08-20
+
+Broad incident-response planning alpha. Added the standalone deterministic Response Plan API, response families for malware/file, process/privilege, identity/authentication, persistence, network, container, vulnerability/configuration, evidence integrity, and operational incidents; sensor-neutral vendor vocabulary mapping; Response Plan UI; bounded ActionResult/evidence payloads; and a standalone outward-polling Response-owned demo agent. Endpoint execution remained demo-only in this release line.
+
+Historical acceptance: `docs/V11_ALPHA_ACCEPTANCE.md` and `docs/releases/v1.1.0-alpha.1.md`.
 
 ## 1.0.0 — 2026-08-19
 
-First public release of the end-to-end controlled-response system.
+First end-to-end controlled-response release. Added versioned sensor-neutral event ingestion, deterministic correlation/timelines/recommendations, HMAC-authenticated agents and replay protection, typed action/result protocol, human approval and deterministic policy, outward polling, one demo-fixture action, durable idempotency, agent revocation, tamper-evident audit verification, analyst UI, PostgreSQL-ready migrations/Compose, and reproducible release gates.
 
-### Added
+The v1 safety boundary prohibited generic shell/PowerShell/cmd/bash, arbitrary process/service/file/firewall/host-isolation actions, and autonomous remediation.
 
-- versioned sensor-neutral event protocol
-- deterministic host/event correlation into explainable incidents
-- incident timelines, cause assessment, and rule-based recommendations
-- authenticated agent enrollment
-- HMAC-SHA256 signed agent events, polling, and action results
-- persisted nonce replay protection and host binding
-- typed, separately versioned ActionRequest / ActionResult protocol
-- explicit analyst approval and deterministic action policy
-- agent-initiated action polling
-- one executable allowlisted demo-fixture action with no arbitrary parameters
-- endpoint retry/crash idempotency and duplicate terminal-result checks
-- agent disable/re-enable API and console control
-- tamper-evident hash-chained audit verification
-- Agents and Response Actions analyst UI
-- selectable target agent when multiple enabled credentials exist for affected hosts
-- PostgreSQL-ready Alembic schema and Docker Compose path
-- deterministic v1 release gate and real HTTP acceptance harness
-- one-command local bootstrap that generates a private enrollment token and starts both product surfaces
-
-### Hardened
-
-- frozen Alembic revisions instead of importing mutable current ORM metadata
-- normal API startup relies on Alembic instead of silently creating missing schema from mutable ORM metadata
-- API startup verifies the existing audit chain and fails closed if tamper evidence is already broken
-- consistent runtime/migration `.env` database selection
-- combined launcher honors repository `.env` API-port selection
-- frontend launcher and enrollment helper follow repository API URL/port overrides instead of silently falling back to port 8002
-- combined launcher fails if either backend or frontend exits or never becomes reachable
-- native bootstrap isolates and terminates product process groups, and the Unix frontend launcher executes Next directly, so shutdown releases the UI port instead of leaving an orphan server
-- the release gate verifies that public quick-start smoke leaves frontend port 3001 available after shutdown
-- reproducible qualification bootstraps the Python venv/requirements and rebuilds frontend dependencies from `package-lock.json` with `npm ci`
-- release-gate npm execution is cross-platform, including Windows `npm.cmd` launch semantics
-- finalizer verifies the exact expected GitHub owner/repository, branch, clean tracked state, and untracked `.env` boundary before qualification
-- final release qualification cannot silently skip npm audit
-- the known development enrollment token is accepted only on a loopback development bind
-- event authentication may be disabled only on a loopback development bind
-- wildcard CORS is rejected on non-loopback API binds
-- unauthenticated generic sensor sources remain development-only
-- single-use authenticated nonces even when later business validation rejects the request
-- bounded analyst identity headers before database persistence
-- authenticated events and ActionResults reject timestamps too far in the future while still allowing legitimate queued older telemetry
-- executable actions must be enabled controlled recommendations on the specific incident, with the same binding rechecked before dispatch
-- only one active action lifecycle is allowed per incident + host + action type, including during agent credential rotation
-- resolved or dismissed incidents reject new response actions and cancel pending/approved/pre-execution-dispatching lifecycles so stale approvals cannot revive later
-- disabling an agent cancels pending/approved/pre-execution-dispatching actions so re-enabling the credential cannot revive prior approval state
-- expired pending/approved/dispatching actions are surfaced as expired immediately and persisted as expired before a replacement action is created
-- private local SQLite and endpoint integration state files where POSIX modes are supported
-- request serialization for single-process v1 audit-chain consistency
-- `/api/v1` responses are marked `no-store`; one-time enrollment-secret responses also include `Pragma: no-cache`
-- frontend API errors preserve useful server conflict/policy details instead of reducing failures to only an HTTP status
-- controlled recommendation metadata is preserved through FastAPI response serialization
-- dedicated demo incidents keep their response recommendations focused on the demo fixture rather than unrelated operational/disk guidance
-- endpoint response state fails closed on corrupt outbox/ledger/demo data and does not silently discard older queued events when the bounded outbox fills
-- Docker Compose waits for backend health before starting the frontend service
-- release version promotion stamps the actual promotion date instead of a hard-coded development date
-
-### Safety boundary
-
-v1 has no generic shell, PowerShell, cmd, bash, arbitrary process termination, arbitrary service control, file deletion/quarantine, firewall modification, host isolation, or autonomous remediation. The only executable action changes a dedicated JSON demo fixture after human approval, deterministic policy validation, and endpoint-side allowlist validation.
-
-### Release qualification
-
-The historical v1 release qualification used its documented `scripts/finalize_v1.py` wrapper and UI smoke record. v1.1 and later have their own standalone qualification documents and do not require a detector repository checkout.
+Historical acceptance: `docs/V1_ACCEPTANCE.md`.
