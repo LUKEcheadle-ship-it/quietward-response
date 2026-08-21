@@ -51,6 +51,9 @@ It runs:
 - the report explicitly attests `arbitrary_command_execution=false` and the `qwrh1` handle protocol;
 - non-demo v1.2 actions fail policy when the target agent has never reported capabilities;
 - a reported-but-locally-disabled high-impact action fails policy;
+- capability state older than 15 minutes fails policy;
+- implausibly future-dated capability state fails policy;
+- a fresh signed report re-enables capability evaluation after stale/future state is corrected;
 - the same action passes this capability portion of policy only after the agent signs it as enabled;
 - enrollment performs the first signed capability sync;
 - the qualified poll path refreshes capabilities before action polling;
@@ -59,18 +62,19 @@ It runs:
 
 ### Two-phase agent credential rotation
 
-- only the current active key may sign `rotate-key` preparation; a previous grace key cannot prepare another rotation;
+- only the current active key may sign `rotate-key` preparation;
 - preparation creates a bounded pending credential but does not replace the current active key;
 - the pending credential cannot authenticate normal agent routes before activation;
 - only the pending credential may sign `activate-key` and prove possession of the replacement secret;
-- the current/previous key cannot activate the pending credential;
+- the current key cannot activate the pending credential;
 - pending credential expiry fails closed without replacing the current key;
-- after activation, the old current key is accepted only during a bounded five-minute recovery grace;
-- an expired previous key fails with `invalid_key_id`;
+- activation promotes the pending credential and immediately revokes the old key for normal HMAC traffic;
+- the old key cannot report capabilities, poll actions, submit results, or prepare another rotation after activation;
 - disabled agents cannot prepare or activate rotation;
 - one-time pending secrets are returned only on no-store responses and never appear in normal agent listings or audit details;
+- server state retains no usable previous HMAC key material after activation;
 - the local helper writes the pending credential to a private `.next` sidecar before activation, proves the promoted key by capability sync, and atomically promotes the sidecar;
-- `--recover-next` can finish an interrupted activation/promotion without printing the secret;
+- `--recover-next` can finish an interrupted activation/promotion using the staged new credential without printing the secret;
 - the rotation helper does not print current, pending, or promoted secret material.
 
 ### Analyst authentication/RBAC
@@ -160,11 +164,12 @@ After the automated finalizer passes on the exact candidate SHA:
 8. Confirm process handle choices show bounded process context (PID/image) and managed-file choices show relative path/hash context without exposing an absolute managed path.
 9. Confirm a quarantine result makes its rollback handle available to the restore selector.
 10. Rotate an enrolled Response-agent key with `scripts/rotate_response_agent_key.py`, confirm the new key ID appears in Agents, and confirm the agent can still sync/poll without printing the secret.
-11. Simulate an interrupted rotation by retaining a staged `.next` config and confirm `--recover-next` completes activation/promotion without exposing the secret.
-12. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
-13. Confirm clearing the browser session token removes authenticated UI access.
-14. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
-15. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
+11. Confirm the old pre-rotation credential is rejected immediately after activation.
+12. Simulate an interrupted rotation by retaining a staged `.next` config and confirm `--recover-next` completes activation/promotion without exposing the secret.
+13. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
+14. Confirm clearing the browser session token removes authenticated UI access.
+15. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
+16. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
 
 Record the exact candidate SHA and PASS/FAIL for this smoke before tagging/publishing the alpha.
 
