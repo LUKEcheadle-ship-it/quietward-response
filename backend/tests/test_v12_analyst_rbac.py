@@ -27,6 +27,7 @@ CREDENTIALS = [
     f"response-user|responder|{_hash(TOKENS['responder'])}",
     f"admin-user|admin|{_hash(TOKENS['admin'])}",
 ]
+AUDIT_SECRET = "production-audit-checkpoint-secret-v12-test-only"
 
 
 def _headers(role: str, **extra: str) -> dict[str, str]:
@@ -44,6 +45,7 @@ def _production_client(tmp_path: Path) -> TestClient:
         enrollment_token="production-enrollment-token-v12-change-me",
         analyst_credentials=CREDENTIALS,
         require_agent_auth_for_quietward_events=True,
+        audit_checkpoint_secret=AUDIT_SECRET,
     )
     return TestClient(create_app(settings=settings))
 
@@ -56,6 +58,18 @@ def test_remote_runtime_requires_hashed_analyst_credentials(tmp_path: Path) -> N
             api_host="0.0.0.0",
             enrollment_token="production-enrollment-token-v12-change-me",
             analyst_credentials=[],
+            audit_checkpoint_secret=AUDIT_SECRET,
+        )
+
+
+def test_remote_runtime_requires_independent_audit_checkpoint_secret(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="QWR_AUDIT_CHECKPOINT_SECRET must be replaced"):
+        Settings(
+            environment="production",
+            database_url=f"sqlite:///{(tmp_path / 'audit-secret.db').as_posix()}",
+            api_host="0.0.0.0",
+            enrollment_token="production-enrollment-token-v12-change-me",
+            analyst_credentials=CREDENTIALS,
         )
 
 
@@ -67,6 +81,7 @@ def test_invalid_or_duplicate_credential_hashes_fail_startup(tmp_path: Path) -> 
             api_host="0.0.0.0",
             enrollment_token="production-enrollment-token-v12-change-me",
             analyst_credentials=["alice|admin|not-a-hash"],
+            audit_checkpoint_secret=AUDIT_SECRET,
         )
 
     duplicate = _hash("same-token")
@@ -80,6 +95,7 @@ def test_invalid_or_duplicate_credential_hashes_fail_startup(tmp_path: Path) -> 
                 f"alice|admin|{duplicate}",
                 f"bob|viewer|{duplicate}",
             ],
+            audit_checkpoint_secret=AUDIT_SECRET,
         )
 
 
@@ -187,6 +203,23 @@ def test_responder_can_change_incident_but_viewer_cannot(tmp_path: Path) -> None
             assert audit is not None
             assert audit.actor_id == "response-user"
             assert audit.actor_id != "spoofed-responder"
+
+
+def test_viewer_can_export_and_verify_signed_audit_checkpoint(tmp_path: Path) -> None:
+    with _production_client(tmp_path) as client:
+        checkpoint = client.get(
+            "/api/v1/audit/checkpoint",
+            headers=_headers("viewer"),
+        )
+        assert checkpoint.status_code == 200, checkpoint.text
+        verified = client.post(
+            "/api/v1/audit/checkpoint/verify",
+            headers=_headers("viewer"),
+            json=checkpoint.json(),
+        )
+        assert verified.status_code == 200, verified.text
+        assert verified.json()["valid"] is True
+        assert verified.headers["x-qwr-analyst-role"] == "viewer"
 
 
 def test_invalid_bearer_does_not_fall_back_to_actor_header_remotely(tmp_path: Path) -> None:
