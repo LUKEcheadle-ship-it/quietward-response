@@ -206,23 +206,28 @@ def _verify_agent_key_rotation() -> None:
         "pending_hmac_key_b64",
         "pending_key_expires_at",
         "previous_key_id",
-        "previous_hmac_key_b64",
-        "previous_key_expires_at",
+        "previous_key_revoked_at",
     ):
         if fragment not in model or fragment not in migration:
             raise RuntimeError(f"two-phase key-rotation persistence missing: {fragment}")
+    for forbidden_secret_field in ("previous_hmac_key_b64", "previous_key_expires_at"):
+        if forbidden_secret_field in model or forbidden_secret_field in migration:
+            raise RuntimeError(
+                f"retired credential storage returned unexpectedly: {forbidden_secret_field}"
+            )
     for fragment in (
         "DEFAULT_PENDING_KEY_SECONDS = 300",
         "prepare_agent_key_rotation",
         "activate_pending_agent_key",
         "verify_pending_agent_request",
-        "allow_previous_key: bool = False",
-        "agent.previous_hmac_key_b64 = None",
-        "agent.previous_key_expires_at = now",
+        "agent.previous_key_revoked_at = now",
+        "Retired key material is not stored",
         "invalid_pending_key",
     ):
         if fragment not in agent_auth:
             raise RuntimeError(f"immediate-revocation key-rotation hardening missing: {fragment}")
+    if "allow_previous_key" in agent_auth:
+        raise RuntimeError("old-key fallback returned to agent authentication")
     for fragment in (
         '@router.post("/{agent_id}/rotate-key"',
         '@router.post("/{agent_id}/activate-key"',
@@ -375,7 +380,7 @@ def main() -> int:
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
     print("signed_agent_capability_negotiation=fresh-and-required")
-    print("two_phase_agent_key_rotation=single-flight-immediate-old-key-revocation")
+    print("two_phase_agent_key_rotation=single-flight-immediate-revocation-no-retired-key-storage")
     print("integrity_compromise_mutation_freeze=present")
     print("credential_redaction_before_persistence=present")
     print("signed_audit_checkpoints=present")
