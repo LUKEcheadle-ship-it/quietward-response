@@ -190,12 +190,14 @@ def test_rotation_requires_pending_key_proof_and_immediately_revokes_old_key(cli
         agent = session.get(AgentRecord, enrolled["agent_id"])
         assert agent is not None
         assert agent.previous_key_id == enrolled["key_id"]
-        assert agent.previous_hmac_key_b64 is None
-        assert agent.previous_key_expires_at is not None
-        revoked_at = agent.previous_key_expires_at
+        assert agent.previous_key_revoked_at is not None
+        revoked_at = agent.previous_key_revoked_at
         if revoked_at.tzinfo is None:
             revoked_at = revoked_at.replace(tzinfo=timezone.utc)
         assert revoked_at <= datetime.now(timezone.utc)
+        # The ORM schema itself must not expose any retired HMAC material field.
+        assert not hasattr(agent, "previous_hmac_key_b64")
+        assert not hasattr(agent, "previous_key_expires_at")
 
         rotation_audits = list(
             session.scalars(
@@ -227,7 +229,6 @@ def test_rotation_preparation_is_single_flight_and_preserves_first_pending_key(c
     assert "activate or recover" in detail["message"]
     assert detail["pending_key_expires_at"] == first["pending_key_expires_at"]
 
-    # The rejected second prepare must not replace the original staged credential.
     activated = _activate(client, enrolled, first)
     assert activated.status_code == 200, activated.text
     assert activated.json()["key_id"] == first["pending_key_id"]
