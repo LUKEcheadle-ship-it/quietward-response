@@ -43,6 +43,30 @@ def test_v12_alpha_release_metadata_is_consistent() -> None:
     assert "qwr_audit_checkpoint_secret" in combined_checkpoint_docs
     assert "free-form pid, path, command, or opaque-handle input" in acceptance.lower()
 
+    combined_agent_docs = "\n".join((acceptance, threat_model, release_notes)).lower()
+    assert "signed agent capability" in combined_agent_docs or "signed endpoint capability" in combined_agent_docs
+    assert "arbitrary_command_execution=false" in combined_agent_docs
+    assert "two-phase" in combined_agent_docs
+    assert "pending credential" in combined_agent_docs
+    assert "previous" in combined_agent_docs and "recovery" in combined_agent_docs
+    assert "--recover-next" in combined_agent_docs
+    assert "cannot prepare another rotation" in combined_agent_docs
+    assert "poll_response_agent.py" in release_notes
+
+
+def test_v12_agent_hardening_files_are_release_tracked() -> None:
+    required = (
+        "backend/alembic/versions/0003_agent_capabilities.py",
+        "backend/tests/test_v12_agent_capabilities.py",
+        "backend/tests/test_v12_agent_key_rotation.py",
+        "scripts/poll_response_agent.py",
+        "scripts/response_agent_capabilities.py",
+        "scripts/rotate_response_agent_key.py",
+        "scripts/verify_v12_alpha_live_capabilities.py",
+    )
+    for relative in required:
+        assert (ROOT / relative).is_file(), relative
+
 
 def test_v12_docs_keep_detector_repository_separation_explicit() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
