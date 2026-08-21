@@ -48,12 +48,14 @@ It runs:
 Outside loopback development:
 
 - Response refuses startup without `QWR_ANALYST_CREDENTIALS`;
+- Response refuses startup with the known development audit-checkpoint signing key;
 - invalid bearer token returns 401 and cannot fall back to `X-Actor-ID`;
 - viewer can read but cannot mutate;
 - responder can change incidents and create/approve/reject actions;
 - only admin can enable/disable agents;
 - authenticated actor identity is used in audit records even when a conflicting `X-Actor-ID` is supplied;
-- machine enrollment and HMAC agent routes do not require analyst bearer credentials.
+- machine enrollment and HMAC agent routes do not require analyst bearer credentials;
+- viewer may export and verify a signed audit checkpoint because those operations do not mutate product state.
 
 ### API abuse bounds
 
@@ -102,11 +104,17 @@ The live gate must create and terminate only its own disposable child process.
 - successful live gate terminates only the test-owned child and verifies it exited;
 - terminal replay does not terminate again.
 
-### Audit
+### Audit and signed checkpoints
 
 - action results remain HMAC-authenticated;
 - terminal result conflict protection remains intact;
-- final audit-chain verification returns `valid: true`.
+- ordinary final audit-chain verification returns `valid: true`;
+- checkpoint creation refuses an already-invalid chain;
+- checkpoint signatures use the independent configured audit-checkpoint secret;
+- a retained checkpoint remains valid after legitimate later audit appends;
+- checkpoint signature modification fails closed;
+- a fully recomputed/re-hashed historical chain that is internally valid still fails the retained checkpoint with a historical-prefix mismatch;
+- deleting a suffix that was already covered by the retained checkpoint fails verification as missing/truncated history.
 
 ## Browser smoke
 
@@ -122,7 +130,8 @@ After the automated finalizer passes on the exact candidate SHA:
 8. Confirm a quarantine result makes its rollback handle available to the restore selector.
 9. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
 10. Confirm clearing the browser session token removes authenticated UI access.
-11. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
+11. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
+12. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
 
 Record the exact candidate SHA and PASS/FAIL for this smoke before tagging/publishing the alpha.
 
