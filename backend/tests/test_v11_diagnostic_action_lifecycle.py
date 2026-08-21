@@ -15,11 +15,11 @@ def _enroll(client, host_id: str) -> dict:
     return response.json()
 
 
-def test_advisory_file_plan_cannot_be_submitted_as_endpoint_action(
+def test_file_diagnostic_is_registered_but_raw_path_containment_is_impossible(
     client,
     event_factory,
 ) -> None:
-    host_id = "host-advisory-file"
+    host_id = "host-file-response"
     event = client.post(
         "/api/v1/events",
         json=event_factory(
@@ -37,13 +37,10 @@ def test_advisory_file_plan_cannot_be_submitted_as_endpoint_action(
     plan = client.get(f"/api/v1/incidents/{incident_id}/response-plan")
     assert plan.status_code == 200, plan.text
     assert "malware" in plan.json()["attack_families"]
-    assert plan.json()["executable_actions"] == []
-    assert any(
-        step["step_id"] == "quarantine-artifact" and step["state"] == "planned"
-        for step in plan.json()["containment_steps"]
-    )
+    assert "collect_file_diagnostic" in plan.json()["executable_actions"]
+    assert "quarantine_artifact_by_handle" in plan.json()["executable_actions"]
 
-    rejected = client.post(
+    diagnostic = client.post(
         f"/api/v1/incidents/{incident_id}/actions",
         headers={"X-Actor-ID": "analyst-alpha-test"},
         json={
@@ -53,8 +50,21 @@ def test_advisory_file_plan_cannot_be_submitted_as_endpoint_action(
             "parameters": {},
         },
     )
-    assert rejected.status_code == 409
-    assert "unsupported action type" in rejected.text
+    assert diagnostic.status_code == 201, diagnostic.text
+    assert diagnostic.json()["status"] == "pending"
+
+    raw_path = client.post(
+        f"/api/v1/incidents/{incident_id}/actions",
+        headers={"X-Actor-ID": "analyst-alpha-test"},
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": host_id,
+            "action_type": "quarantine_artifact_by_handle",
+            "parameters": {"path": "/tmp/suspicious"},
+        },
+    )
+    assert raw_path.status_code == 409
+    assert "exactly one resource_handle" in raw_path.text
 
     command_shape = client.post(
         f"/api/v1/incidents/{incident_id}/actions",
@@ -70,7 +80,50 @@ def test_advisory_file_plan_cannot_be_submitted_as_endpoint_action(
     assert "unsupported action type" in command_shape.text
 
 
-def test_demo_action_remains_separate_from_advisory_response_plans(
+def test_process_termination_requires_opaque_handle_not_pid(client, event_factory) -> None:
+    host_id = "host-process-response"
+    event = client.post(
+        "/api/v1/events",
+        json=event_factory(
+            host_id=host_id,
+            event_type="privilege_escalation",
+            category="privilege",
+            severity="high",
+            metadata={"operating_system": "Linux"},
+        ),
+    )
+    assert event.status_code == 201, event.text
+    incident_id = event.json()["incident_id"]
+    enrollment = _enroll(client, host_id)
+
+    rejected = client.post(
+        f"/api/v1/incidents/{incident_id}/actions",
+        headers={"X-Actor-ID": "analyst-alpha-test"},
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": host_id,
+            "action_type": "terminate_process_by_handle",
+            "parameters": {"pid": 1234},
+        },
+    )
+    assert rejected.status_code == 409
+    assert "exactly one resource_handle" in rejected.text
+
+    accepted_shape = client.post(
+        f"/api/v1/incidents/{incident_id}/actions",
+        headers={"X-Actor-ID": "analyst-alpha-test"},
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": host_id,
+            "action_type": "terminate_process_by_handle",
+            "parameters": {"resource_handle": "qwrh1_1234567890abcdef"},
+        },
+    )
+    assert accepted_shape.status_code == 201, accepted_shape.text
+    assert accepted_shape.json()["status"] == "pending"
+
+
+def test_demo_action_remains_separate_from_real_containment(
     client,
     event_factory,
 ) -> None:
