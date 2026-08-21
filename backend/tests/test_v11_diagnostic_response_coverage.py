@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.database.models import IncidentRecord
 from app.services.action_registry import ACTION_REGISTRY
 
 
@@ -115,10 +116,7 @@ def test_demo_plan_stays_separate_from_real_containment(client, event_factory) -
     plan = client.get(
         f"/api/v1/incidents/{created.json()['incident_id']}/response-plan"
     ).json()
-    assert "restart_quietward_demo_service" in plan["executable_actions"]
-    assert "collect_host_diagnostic" in plan["executable_actions"]
-    assert "terminate_process_by_handle" not in plan["executable_actions"]
-    assert "quarantine_artifact_by_handle" not in plan["executable_actions"]
+    assert plan["executable_actions"] == ["restart_quietward_demo_service"]
 
 
 def test_unknown_event_family_gets_only_safe_host_diagnostic(client, event_factory) -> None:
@@ -138,3 +136,45 @@ def test_unknown_event_family_gets_only_safe_host_diagnostic(client, event_facto
     assert plan["attack_families"] == ["unknown"]
     assert plan["executable_actions"] == ["collect_host_diagnostic"]
     assert any("cannot be mapped" in item for item in plan["escalation_conditions"])
+
+
+def test_pre_v12_incident_does_not_gain_new_executable_actions_retroactively(
+    client,
+    event_factory,
+) -> None:
+    created = client.post(
+        "/api/v1/events",
+        json=event_factory(
+            host_id="host-legacy-policy",
+            event_type="malware_signature",
+            category="malware",
+            severity="high",
+        ),
+    )
+    assert created.status_code == 201, created.text
+    incident_id = created.json()["incident_id"]
+
+    with client.app.state.database.session_factory() as session:
+        incident = session.get(IncidentRecord, incident_id)
+        assert incident is not None
+        incident.recommended_actions = [
+            {
+                "action_type": "diagnostic",
+                "title": "Legacy advisory",
+                "description": "Historical non-executable recommendation",
+                "enabled": True,
+                "phase": "v1",
+                "registry_action_type": None,
+                "requires_approval": False,
+            }
+        ]
+        session.commit()
+
+    plan = client.get(f"/api/v1/incidents/{incident_id}/response-plan").json()
+    assert plan["attack_families"] == ["malware"]
+    assert plan["executable_actions"] == []
+    assert all(
+        step.get("executable_action_type") is None
+        for section in ("investigation_steps", "containment_steps", "recovery_steps")
+        for step in plan[section]
+    )
