@@ -21,6 +21,7 @@ ROLLBACK_HANDLE_TTL_SECONDS = 86_400
 MAX_PROCESS_RESULTS = 128
 MAX_FILE_RESULTS = 128
 MAX_FILE_WALK_DIRECTORIES = 256
+MAX_HANDLE_RECORDS = 8192
 
 
 class ResourceError(RuntimeError):
@@ -109,6 +110,8 @@ class ResourceHandleStore:
                     float(existing["expires_at_epoch"]), timezone.utc
                 ).isoformat(),
             }
+        if len(records) >= MAX_HANDLE_RECORDS:
+            raise ResourceError("resource handle capacity reached; refusing to issue more handles")
         expires_epoch = time.time() + ttl
         records[handle] = {
             "kind": kind,
@@ -413,24 +416,18 @@ def terminate_process_by_handle(
     record = store.resolve(handle, kind="process")
     identity = dict(record.get("identity") or {})
     current = _current_process(identity)
-    if current is None or current["fingerprint"] != record.get("fingerprint"):
-        if not recover_after_started:
-            if current is None:
-                raise ResourceError("process no longer exists")
-            raise ResourceError("process identity changed after handle issuance")
-        result = {
-            "resource_handle": handle,
-            "pid": int(identity.get("pid") or -1),
-            "image": str(record.get("display", {}).get("image") or "unknown"),
-            "termination_requested": True,
-            "original_process_no_longer_present": True,
-            "replacement_process_was_not_touched": current is not None,
-            "system_state_changed": True,
-            "reversible": False,
-            "recovered_after_interruption": True,
-        }
-        store.consume(handle, result)
-        return result
+    if current is None:
+        if recover_after_started:
+            raise ResourceError(
+                "interrupted process termination outcome is indeterminate because the original target is no longer present"
+            )
+        raise ResourceError("process no longer exists")
+    if current["fingerprint"] != record.get("fingerprint"):
+        if recover_after_started:
+            raise ResourceError(
+                "process identity changed after interrupted termination; replacement process was not touched"
+            )
+        raise ResourceError("process identity changed after handle issuance")
     if _protected_process(current):
         raise ResourceError("process is protected from Response termination")
     pid = int(current["pid"])
@@ -585,8 +582,14 @@ def quarantine_file_by_handle(
 
     recovered = False
     if not path.exists():
-        if not recover_after_started or not target.exists() or not target.is_file():
+        if not recover_after_started or not target.exists() or not target.is_file() or target.is_symlink():
             raise ResourceError("managed file disappeared before quarantine")
+        target_info = target.stat()
+        if (
+            int(target_info.st_size) != int(identity.get("size") or -1)
+            or int(target_info.st_mtime_ns) != int(identity.get("mtime_ns") or -1)
+        ):
+            raise ResourceError("quarantine recovery target does not match original file identity")
         display = dict(record.get("display") or {})
         recovered = True
     else:
@@ -596,7 +599,6 @@ def quarantine_file_by_handle(
         if target.exists():
             raise ResourceError("quarantine target already exists while source still exists")
         shutil.move(str(path), str(target))
-        identity = current_identity
 
     target_info = target.stat()
     rollback_identity = {
@@ -644,21 +646,35 @@ def restore_quarantined_file(
     destination = Path(str(identity.get("original_path") or ""))
     root = Path(str(identity.get("root") or ""))
 
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_parent = destination.parent.resolve(strict=True)
+    except OSError as exc:
+        raise ResourceError("restore parent/root is unavailable") from exc
+    if not _within(resolved_parent, resolved_root):
+        raise ResourceError("restore target escaped configured managed root")
+
     recovered = False
     if not source.exists():
-        if not recover_after_started or not destination.exists() or not destination.is_file():
+        if (
+            not recover_after_started
+            or not destination.exists()
+            or not destination.is_file()
+            or destination.is_symlink()
+        ):
             raise ResourceError("quarantined file no longer exists")
+        destination_info = destination.stat()
+        recovery_fingerprint = _fingerprint(
+            (str(source), int(destination_info.st_size), int(destination_info.st_mtime_ns))
+        )
+        if recovery_fingerprint != record.get("fingerprint"):
+            raise ResourceError("restore recovery target does not match quarantined file identity")
         recovered = True
     else:
+        if source.is_symlink() or not source.is_file():
+            raise ResourceError("quarantine source is not a regular file")
         if destination.exists():
             raise ResourceError("original path is occupied; refusing restore")
-        try:
-            resolved_parent = destination.parent.resolve(strict=True)
-            resolved_root = root.resolve(strict=True)
-        except OSError as exc:
-            raise ResourceError("restore parent/root is unavailable") from exc
-        if not _within(resolved_parent, resolved_root):
-            raise ResourceError("restore target escaped configured managed root")
         current_fingerprint = _fingerprint(
             (str(source), int(source.stat().st_size), int(source.stat().st_mtime_ns))
         )
@@ -667,7 +683,6 @@ def restore_quarantined_file(
         shutil.move(str(source), str(destination))
 
     try:
-        resolved_root = root.resolve(strict=True)
         relative = destination.resolve(strict=True).relative_to(resolved_root).as_posix()
     except (OSError, ValueError):
         relative = destination.name
@@ -686,6 +701,7 @@ def restore_quarantined_file(
 
 
 def collect_host_diagnostic(state_dir: Path) -> dict[str, Any]:
+    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     disk = shutil.disk_usage(state_dir)
     uptime_seconds: float | None = None
     if sys_platform() == "linux":
