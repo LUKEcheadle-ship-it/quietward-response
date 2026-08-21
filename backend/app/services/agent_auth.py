@@ -118,13 +118,7 @@ def activate_pending_agent_key(
     session: Session,
     agent: AgentRecord,
 ) -> datetime:
-    """Promote a pending key and revoke the old credential immediately.
-
-    The replacement secret is staged on the endpoint before activation, so post-
-    activation crash recovery uses that staged credential. Keeping the old secret
-    valid after activation would weaken rotation precisely when the old key may be
-    suspected compromised.
-    """
+    """Promote a pending key and revoke the old credential immediately."""
     now = _utcnow()
     if (
         not agent.pending_key_id
@@ -140,12 +134,8 @@ def activate_pending_agent_key(
     agent.pending_key_id = None
     agent.pending_hmac_key_b64 = None
     agent.pending_key_expires_at = None
-
-    # Preserve only the old identifier for audit/debug correlation. The previous
-    # HMAC key material is deliberately not retained or accepted after activation.
     agent.previous_key_id = old_key_id
-    agent.previous_hmac_key_b64 = None
-    agent.previous_key_expires_at = now
+    agent.previous_key_revoked_at = now
     session.flush()
     return now
 
@@ -157,27 +147,10 @@ def _auth_error(code: str, message: str) -> HTTPException:
     )
 
 
-def _normal_verification_key(
-    agent: AgentRecord,
-    key_id: str,
-    now: datetime,
-    *,
-    allow_previous_key: bool,
-) -> bytes:
+def _normal_verification_key(agent: AgentRecord, key_id: str, _now: datetime) -> bytes:
     if hmac.compare_digest(agent.key_id, key_id):
         return base64.b64decode(agent.hmac_key_b64)
-    # `allow_previous_key` is retained only as a compatibility argument for callers
-    # while v1.2 hardening is in flight. Activated previous secrets are erased, so
-    # normal traffic cannot authenticate with an old credential.
-    if (
-        allow_previous_key
-        and agent.previous_key_id
-        and agent.previous_hmac_key_b64
-        and agent.previous_key_expires_at is not None
-        and _as_utc(agent.previous_key_expires_at) > now
-        and hmac.compare_digest(agent.previous_key_id, key_id)
-    ):
-        return base64.b64decode(agent.previous_hmac_key_b64)
+    # Retired key material is not stored, so normal traffic has no old-key fallback.
     raise _auth_error("invalid_key_id", "credential key identifier does not match")
 
 
@@ -256,7 +229,7 @@ def _verify_agent_request_with_key_selector(
     agent.last_seen = now
     session.flush()
     # Consume authentication state before business logic so a valid signed nonce is
-    # single-use even if the following capability/action/activation request fails.
+    # single-use even if later capability/action/schema validation fails.
     session.commit()
     return agent
 
@@ -268,7 +241,6 @@ def verify_agent_request(
     *,
     replay_window_seconds: int,
     allow_disabled: bool = False,
-    allow_previous_key: bool = False,
 ) -> AgentRecord:
     return _verify_agent_request_with_key_selector(
         session,
@@ -276,12 +248,7 @@ def verify_agent_request(
         body,
         replay_window_seconds=replay_window_seconds,
         allow_disabled=allow_disabled,
-        selector=lambda agent, key_id, now: _normal_verification_key(
-            agent,
-            key_id,
-            now,
-            allow_previous_key=allow_previous_key,
-        ),
+        selector=_normal_verification_key,
     )
 
 
