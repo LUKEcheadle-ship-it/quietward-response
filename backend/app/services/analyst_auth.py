@@ -17,6 +17,7 @@ _AGENT_PATCH_RE = re.compile(r"^/api/v1/agents/[^/]+$")
 _ACTION_DECISION_RE = re.compile(r"^/api/v1/actions/[^/]+/(?:approve|reject)$")
 _INCIDENT_ACTION_RE = re.compile(r"^/api/v1/incidents/[^/]+/actions$")
 _INCIDENT_RE = re.compile(r"^/api/v1/incidents/[^/]+$")
+_AUDIT_CHECKPOINT_VERIFY = "/api/v1/audit/checkpoint/verify"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,8 @@ def _machine_authenticated_endpoint(method: str, path: str) -> bool:
 
 
 def _required_role(method: str, path: str) -> str:
+    if method == "POST" and path == _AUDIT_CHECKPOINT_VERIFY:
+        return "viewer"
     if method == "PATCH" and _AGENT_PATCH_RE.fullmatch(path):
         return "admin"
     if method == "PATCH" and _INCIDENT_RE.fullmatch(path):
@@ -88,8 +91,6 @@ def analyst_actor_id(request: Request, fallback_header: str | None = None) -> st
     identity = getattr(request.state, "analyst_identity", None)
     if isinstance(identity, AnalystIdentity):
         return identity.actor_id
-    # This path exists only for explicit loopback-development fallback. The auth
-    # middleware never allows it outside that boundary.
     fallback = str(fallback_header or "").strip() or "local-analyst"
     return fallback[:128]
 
