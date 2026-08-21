@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -20,7 +21,23 @@ from app.services.audit_service import (
     backfill_legacy_audit_chain,
     record_audit,
     verify_audit_chain,
+    verify_audit_checkpoint,
 )
+
+
+def _load_trusted_audit_checkpoint(path) -> dict[str, object]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+        value = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "trusted audit checkpoint is missing, unreadable, or invalid JSON; refusing startup"
+        ) from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("trusted audit checkpoint must be a JSON object; refusing startup")
+    if len(raw.encode("utf-8")) > 16_384:
+        raise RuntimeError("trusted audit checkpoint file is unexpectedly large; refusing startup")
+    return value
 
 
 def create_app(
@@ -57,6 +74,20 @@ def create_app(
                     raise RuntimeError(
                         "audit chain verification failed at startup; refusing to serve requests"
                     )
+                if resolved.trusted_audit_checkpoint_path is not None:
+                    checkpoint = _load_trusted_audit_checkpoint(
+                        resolved.trusted_audit_checkpoint_path
+                    )
+                    checkpoint_state = verify_audit_checkpoint(
+                        session,
+                        checkpoint=checkpoint,
+                        secret=resolved.audit_checkpoint_secret,
+                    )
+                    if checkpoint_state["valid"] is not True:
+                        raise RuntimeError(
+                            "trusted audit checkpoint verification failed at startup "
+                            f"({checkpoint_state.get('error')}); refusing to serve requests"
+                        )
             yield
         finally:
             database.dispose()
@@ -74,10 +105,6 @@ def create_app(
     application.state.database = database
     application.state.settings = resolved
 
-    # Middleware is registered from inner to outer because Starlette prepends each
-    # newly added middleware. Analyst auth therefore runs inside request hardening,
-    # while CORS remains outermost so browser clients still receive CORS headers on
-    # 401/403 responses.
     application.add_middleware(AnalystAuthMiddleware)
     application.add_middleware(
         SerializedRequestMiddleware,
