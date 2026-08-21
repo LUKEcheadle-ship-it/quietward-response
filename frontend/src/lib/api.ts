@@ -1,4 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+const ANALYST_SESSION_KEY = "qwr.analyst.bearer";
 
 function errorMessageFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -14,12 +15,37 @@ function errorMessageFromPayload(payload: unknown): string | null {
   return null;
 }
 
+export function analystTokenConfigured(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.sessionStorage.getItem(ANALYST_SESSION_KEY));
+}
+
+export function setAnalystToken(token: string): void {
+  if (typeof window === "undefined") return;
+  const value = token.trim();
+  if (!value) throw new Error("Analyst token cannot be empty");
+  if (value.length > 512) throw new Error("Analyst token is too long");
+  window.sessionStorage.setItem(ANALYST_SESSION_KEY, value);
+}
+
+export function clearAnalystToken(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(ANALYST_SESSION_KEY);
+}
+
+function analystAuthorizationHeader(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = window.sessionStorage.getItem(ANALYST_SESSION_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...analystAuthorizationHeader(),
       ...(init?.headers || {})
     }
   });
