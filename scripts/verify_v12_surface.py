@@ -144,6 +144,51 @@ def _verify_agent_capability_negotiation() -> None:
             raise RuntimeError(f"capability attestation helper missing: {fragment}")
 
 
+def _verify_agent_key_rotation() -> None:
+    model = (BACKEND / "app" / "database" / "models.py").read_text(encoding="utf-8")
+    migration = (BACKEND / "alembic" / "versions" / "0003_agent_capabilities.py").read_text(
+        encoding="utf-8"
+    )
+    agent_auth = (BACKEND / "app" / "services" / "agent_auth.py").read_text(encoding="utf-8")
+    agent_api = (BACKEND / "app" / "api" / "agents.py").read_text(encoding="utf-8")
+    analyst_auth = (BACKEND / "app" / "services" / "analyst_auth.py").read_text(
+        encoding="utf-8"
+    )
+    helper = (ROOT / "scripts" / "rotate_response_agent_key.py").read_text(encoding="utf-8")
+
+    for fragment in (
+        "previous_key_id",
+        "previous_hmac_key_b64",
+        "previous_key_expires_at",
+    ):
+        if fragment not in model or fragment not in migration:
+            raise RuntimeError(f"key-rotation grace persistence missing: {fragment}")
+    for fragment in (
+        "DEFAULT_KEY_ROTATION_GRACE_SECONDS = 300",
+        "rotate_agent_key",
+        "previous_key_expires_at",
+        "hmac.compare_digest(agent.previous_key_id, key_id)",
+    ):
+        if fragment not in agent_auth:
+            raise RuntimeError(f"agent key-rotation authentication hardening missing: {fragment}")
+    for fragment in (
+        '@router.post("/{agent_id}/rotate-key"',
+        'action="agent_key_rotated"',
+        'response.headers["Pragma"] = "no-cache"',
+    ):
+        if fragment not in agent_api:
+            raise RuntimeError(f"agent key-rotation API contract missing: {fragment}")
+    if "_ROTATE_KEY_RE" not in analyst_auth:
+        raise RuntimeError("agent key rotation is not classified as a machine-auth endpoint")
+    for fragment in (
+        "write_agent_config(path, rotated, force=True)",
+        "sync_capabilities(ResponseAgent(rotated))",
+        "The new agent secret was not printed.",
+    ):
+        if fragment not in helper:
+            raise RuntimeError(f"local key-rotation helper contract missing: {fragment}")
+
+
 def main() -> int:
     actual = set(ACTION_REGISTRY)
     if actual != EXPECTED_ACTIONS:
@@ -203,6 +248,7 @@ def main() -> int:
     _verify_checkpoint_surface()
     _verify_trusted_handle_ui()
     _verify_agent_capability_negotiation()
+    _verify_agent_key_rotation()
 
     print("V1.2 RESPONSE SURFACE: PASS")
     print("registered_actions=", len(EXPECTED_ACTIONS))
@@ -211,6 +257,7 @@ def main() -> int:
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
     print("signed_agent_capability_negotiation=present")
+    print("recoverable_agent_key_rotation=present")
     print("signed_audit_checkpoints=present")
     return 0
 
