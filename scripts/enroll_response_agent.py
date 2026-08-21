@@ -9,7 +9,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from response_agent import AgentConfig, ResponseAgentError, write_agent_config
+from response_agent import AgentConfig, ResponseAgent, ResponseAgentError, write_agent_config
+from response_agent_capabilities import sync_capabilities
 
 
 def _default_state_dir() -> Path:
@@ -138,6 +139,7 @@ def main() -> int:
         enable_file_quarantine=args.enable_file_quarantine,
     )
     written = write_agent_config(config_file, config, force=args.force)
+    capability_state = sync_capabilities(ResponseAgent(config))
 
     print(f"Response agent enrolled: {config.agent_id}")
     print(f"Host: {config.host_id}")
@@ -146,6 +148,7 @@ def main() -> int:
     print(f"Managed roots: {len(config.managed_roots)}")
     print(f"Process termination enabled: {config.enable_process_termination}")
     print(f"File quarantine enabled: {config.enable_file_quarantine}")
+    print(f"Signed enabled capabilities: {', '.join(capability_state.get('enabled_actions', []))}")
     print("The enrollment secret was written to the private config and was not printed.")
     return 0
 
