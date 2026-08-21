@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 
+from app.database.models import AgentRecord
 from app.services.agent_auth import sign_request
 from app.services.policy_service import (
     AGENT_CAPABILITY_DISABLED_REASON,
     AGENT_CAPABILITY_MISSING_REASON,
+    AGENT_CAPABILITY_STALE_REASON,
 )
 
 
@@ -181,8 +184,6 @@ def test_action_creation_and_approval_both_recheck_signed_agent_capability(clien
     assert created.status_code == 201, created.text
     action_id = created.json()["action_id"]
 
-    # Endpoint capability changed after action creation: approval must recheck and
-    # cancel rather than relying on the earlier preflight.
     disabled_again = _report(client, enrollment, enabled=baseline_enabled)
     assert disabled_again.status_code == 200, disabled_again.text
     cancelled = _approve(client, action_id)
@@ -198,3 +199,53 @@ def test_action_creation_and_approval_both_recheck_signed_agent_capability(clien
     assert allowed["status"] == "approved"
     assert allowed["policy_allowed"] is True
     assert allowed["policy_reasons"] == []
+
+
+def test_stale_or_future_capability_attestation_fails_closed(client, event_factory) -> None:
+    host_id = "host-capability-stale"
+    event = client.post(
+        "/api/v1/events",
+        json=event_factory(
+            host_id=host_id,
+            event_type="privilege_escalation",
+            category="privilege",
+            severity="high",
+            metadata={"operating_system": "Linux"},
+        ),
+    )
+    assert event.status_code == 201, event.text
+    incident_id = event.json()["incident_id"]
+    enrollment = _enroll(client, host_id)
+    enabled = [
+        "restart_quietward_demo_service",
+        "collect_host_diagnostic",
+        "collect_process_diagnostic",
+        "terminate_process_by_handle",
+        "collect_file_diagnostic",
+    ]
+    assert _report(client, enrollment, enabled=enabled).status_code == 200
+
+    with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrollment["agent_id"])
+        assert agent is not None
+        agent.capabilities_updated_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+        session.commit()
+
+    stale = _request_process_action(client, incident_id, enrollment)
+    assert stale.status_code == 409
+    assert AGENT_CAPABILITY_STALE_REASON in stale.text
+
+    with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrollment["agent_id"])
+        assert agent is not None
+        agent.capabilities_updated_at = datetime.now(timezone.utc) + timedelta(minutes=2)
+        session.commit()
+
+    future = _request_process_action(client, incident_id, enrollment)
+    assert future.status_code == 409
+    assert AGENT_CAPABILITY_STALE_REASON in future.text
+
+    refreshed = _report(client, enrollment, enabled=enabled)
+    assert refreshed.status_code == 200, refreshed.text
+    accepted = _request_process_action(client, incident_id, enrollment)
+    assert accepted.status_code == 201, accepted.text
