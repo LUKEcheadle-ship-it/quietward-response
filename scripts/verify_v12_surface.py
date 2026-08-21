@@ -229,6 +229,8 @@ def _verify_agent_key_rotation() -> None:
         'action="agent_key_rotation_prepared"',
         'action="agent_key_rotated"',
         '"previous_key_revoked_at"',
+        '"pending_key_rotation_exists"',
+        "activate or recover the existing pending agent key before preparing another rotation",
         'response.headers["Pragma"] = "no-cache"',
     ):
         if fragment not in agent_api:
@@ -262,6 +264,40 @@ def _verify_integrity_trust_freeze() -> None:
     ):
         if fragment not in policy:
             raise RuntimeError(f"integrity trust freeze missing: {fragment}")
+
+
+def _verify_sensitive_redaction() -> None:
+    redaction = (BACKEND / "app" / "services" / "redaction.py").read_text(encoding="utf-8")
+    ingestion = (BACKEND / "app" / "services" / "ingestion.py").read_text(encoding="utf-8")
+    action_schema = (BACKEND / "app" / "schemas" / "action.py").read_text(encoding="utf-8")
+    for fragment in (
+        'REDACTED = "[REDACTED]"',
+        '"authorization"',
+        '"client_secret"',
+        '"access_token"',
+        '"refresh_token"',
+        '"private_key"',
+        "_MAX_REDACTION_DEPTH = 20",
+        "redact_sensitive_text",
+        "redact_sensitive",
+    ):
+        if fragment not in redaction:
+            raise RuntimeError(f"credential redaction surface missing: {fragment}")
+    for fragment in (
+        "redact_sensitive(dumped)",
+        "redact_sensitive_text",
+        "payload=redacted_payload",
+    ):
+        if fragment not in ingestion:
+            raise RuntimeError(f"event redaction-before-persistence missing: {fragment}")
+    for fragment in (
+        '@field_validator("result", "evidence", mode="before")',
+        "redact_credential_fields",
+        "redact_error_credentials",
+        "redact_reason_credentials",
+    ):
+        if fragment not in action_schema:
+            raise RuntimeError(f"action/approval credential redaction missing: {fragment}")
 
 
 def main() -> int:
@@ -329,6 +365,7 @@ def main() -> int:
     _verify_agent_capability_negotiation()
     _verify_agent_key_rotation()
     _verify_integrity_trust_freeze()
+    _verify_sensitive_redaction()
 
     print("V1.2 RESPONSE SURFACE: PASS")
     print("registered_actions=", len(EXPECTED_ACTIONS))
@@ -338,8 +375,9 @@ def main() -> int:
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
     print("signed_agent_capability_negotiation=fresh-and-required")
-    print("two_phase_agent_key_rotation=immediate-old-key-revocation")
+    print("two_phase_agent_key_rotation=single-flight-immediate-old-key-revocation")
     print("integrity_compromise_mutation_freeze=present")
+    print("credential_redaction_before_persistence=present")
     print("signed_audit_checkpoints=present")
     print("trusted_checkpoint_startup=present")
     return 0
