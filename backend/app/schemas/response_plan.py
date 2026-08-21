@@ -24,7 +24,7 @@ class ResponsePlanStep(BaseModel):
 class ResponsePlanRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1"] = "1.1"
     plan_id: str
     incident_id: str
     mode: Literal["advisory_with_controlled_actions"] = "advisory_with_controlled_actions"
