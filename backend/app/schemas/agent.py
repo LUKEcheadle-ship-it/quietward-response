@@ -22,6 +22,13 @@ class AgentEnrollResponse(BaseModel):
     created_at: datetime
 
 
+class AgentKeyRotateResponse(BaseModel):
+    agent_id: str
+    key_id: str
+    secret: str
+    previous_key_expires_at: datetime
+
+
 class AgentCapabilitiesReport(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
