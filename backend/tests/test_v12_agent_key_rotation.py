@@ -6,7 +6,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.database.models import AgentRecord
+from sqlalchemy import select
+
+from app.database.models import AgentRecord, AuditRecord
 from app.services.agent_auth import sign_request
 
 
@@ -71,27 +73,42 @@ def _capability_payload() -> dict:
     }
 
 
-def test_rotation_returns_one_time_new_credential_and_both_keys_work_during_grace(client) -> None:
-    enrolled = _enroll(client, "host-key-rotation")
-    target = f"/api/v1/agents/{enrolled['agent_id']}/rotate-key"
-    rotated = _signed_post(
+def _prepare(client, enrolled: dict):
+    return _signed_post(
         client,
         agent_id=enrolled["agent_id"],
         key_id=enrolled["key_id"],
         secret=enrolled["secret"],
-        target=target,
+        target=f"/api/v1/agents/{enrolled['agent_id']}/rotate-key",
         payload={},
     )
-    assert rotated.status_code == 200, rotated.text
-    assert rotated.headers["cache-control"].startswith("no-store")
-    assert rotated.headers["pragma"] == "no-cache"
-    value = rotated.json()
-    assert value["agent_id"] == enrolled["agent_id"]
-    assert value["key_id"] != enrolled["key_id"]
-    assert value["secret"] != enrolled["secret"]
 
+
+def _activate(client, enrolled: dict, prepared: dict):
+    return _signed_post(
+        client,
+        agent_id=enrolled["agent_id"],
+        key_id=prepared["pending_key_id"],
+        secret=prepared["secret"],
+        target=f"/api/v1/agents/{enrolled['agent_id']}/activate-key",
+        payload={},
+    )
+
+
+def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
+    enrolled = _enroll(client, "host-key-rotation")
+    prepared_response = _prepare(client, enrolled)
+    assert prepared_response.status_code == 200, prepared_response.text
+    assert prepared_response.headers["cache-control"].startswith("no-store")
+    assert prepared_response.headers["pragma"] == "no-cache"
+    prepared = prepared_response.json()
+    assert prepared["agent_id"] == enrolled["agent_id"]
+    assert prepared["pending_key_id"] != enrolled["key_id"]
+    assert prepared["secret"] != enrolled["secret"]
+
+    # Preparation does not silently replace the active credential.
     capability_target = f"/api/v1/agents/{enrolled['agent_id']}/capabilities"
-    old_key = _signed_post(
+    current_still_active = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
         key_id=enrolled["key_id"],
@@ -99,37 +116,128 @@ def test_rotation_returns_one_time_new_credential_and_both_keys_work_during_grac
         target=capability_target,
         payload=_capability_payload(),
     )
-    assert old_key.status_code == 200, old_key.text
+    assert current_still_active.status_code == 200, current_still_active.text
+
+    pending_cannot_use_normal_api = _signed_post(
+        client,
+        agent_id=enrolled["agent_id"],
+        key_id=prepared["pending_key_id"],
+        secret=prepared["secret"],
+        target=capability_target,
+        payload=_capability_payload(),
+    )
+    assert pending_cannot_use_normal_api.status_code == 401
+    assert pending_cannot_use_normal_api.json()["detail"]["code"] == "invalid_key_id"
+
+    # Current key cannot activate a pending credential; activation proves possession
+    # of the staged secret itself.
+    current_cannot_activate = _signed_post(
+        client,
+        agent_id=enrolled["agent_id"],
+        key_id=enrolled["key_id"],
+        secret=enrolled["secret"],
+        target=f"/api/v1/agents/{enrolled['agent_id']}/activate-key",
+        payload={},
+    )
+    assert current_cannot_activate.status_code == 401
+    assert current_cannot_activate.json()["detail"]["code"] == "invalid_pending_key"
+
+    activated_response = _activate(client, enrolled, prepared)
+    assert activated_response.status_code == 200, activated_response.text
+    activated = activated_response.json()
+    assert activated["key_id"] == prepared["pending_key_id"]
+    assert "secret" not in activated
 
     new_key = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
-        key_id=value["key_id"],
-        secret=value["secret"],
+        key_id=prepared["pending_key_id"],
+        secret=prepared["secret"],
         target=capability_target,
         payload=_capability_payload(),
     )
     assert new_key.status_code == 200, new_key.text
 
-    listed = client.get("/api/v1/agents").json()
-    row = next(item for item in listed if item["agent_id"] == enrolled["agent_id"])
-    assert row["key_id"] == value["key_id"]
-    assert "secret" not in row
-    assert "previous_key_id" not in row
-
-
-def test_previous_key_is_rejected_after_grace_expires(client) -> None:
-    enrolled = _enroll(client, "host-key-expiry")
-    rotate_target = f"/api/v1/agents/{enrolled['agent_id']}/rotate-key"
-    rotated = _signed_post(
+    # The former current key is only a recovery key. It can finish normal traffic
+    # during grace, but cannot prepare another rotation and hijack the new key.
+    old_key_grace = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
         key_id=enrolled["key_id"],
         secret=enrolled["secret"],
-        target=rotate_target,
+        target=capability_target,
+        payload=_capability_payload(),
+    )
+    assert old_key_grace.status_code == 200, old_key_grace.text
+    previous_cannot_rotate = _signed_post(
+        client,
+        agent_id=enrolled["agent_id"],
+        key_id=enrolled["key_id"],
+        secret=enrolled["secret"],
+        target=f"/api/v1/agents/{enrolled['agent_id']}/rotate-key",
         payload={},
     )
-    assert rotated.status_code == 200, rotated.text
+    assert previous_cannot_rotate.status_code == 401
+    assert previous_cannot_rotate.json()["detail"]["code"] == "invalid_key_id"
+
+    listed = client.get("/api/v1/agents").json()
+    row = next(item for item in listed if item["agent_id"] == enrolled["agent_id"])
+    assert row["key_id"] == prepared["pending_key_id"]
+    assert "secret" not in row
+    assert "pending_key_id" not in row
+    assert "previous_key_id" not in row
+
+    # Neither one-time secret is allowed into the audit details.
+    with client.app.state.database.session_factory() as session:
+        rotation_audits = list(
+            session.scalars(
+                select(AuditRecord).where(
+                    AuditRecord.action.in_([
+                        "agent_key_rotation_prepared",
+                        "agent_key_rotated",
+                    ])
+                )
+            )
+        )
+        assert len(rotation_audits) == 2
+        serialized = json.dumps([item.details for item in rotation_audits], sort_keys=True)
+        assert enrolled["secret"] not in serialized
+        assert prepared["secret"] not in serialized
+
+
+def test_pending_key_expiry_fails_activation_without_replacing_current_key(client) -> None:
+    enrolled = _enroll(client, "host-pending-expiry")
+    prepared_response = _prepare(client, enrolled)
+    assert prepared_response.status_code == 200, prepared_response.text
+    prepared = prepared_response.json()
+
+    with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrolled["agent_id"])
+        assert agent is not None
+        agent.pending_key_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+
+    activated = _activate(client, enrolled, prepared)
+    assert activated.status_code == 401
+    assert activated.json()["detail"]["code"] == "invalid_pending_key"
+
+    current_still_works = _signed_post(
+        client,
+        agent_id=enrolled["agent_id"],
+        key_id=enrolled["key_id"],
+        secret=enrolled["secret"],
+        target=f"/api/v1/agents/{enrolled['agent_id']}/capabilities",
+        payload=_capability_payload(),
+    )
+    assert current_still_works.status_code == 200, current_still_works.text
+
+
+def test_previous_key_is_rejected_after_post_activation_grace_expires(client) -> None:
+    enrolled = _enroll(client, "host-key-expiry")
+    prepared_response = _prepare(client, enrolled)
+    assert prepared_response.status_code == 200, prepared_response.text
+    prepared = prepared_response.json()
+    assert _activate(client, enrolled, prepared).status_code == 200
 
     with client.app.state.database.session_factory() as session:
         agent = session.get(AgentRecord, enrolled["agent_id"])
@@ -149,8 +257,12 @@ def test_previous_key_is_rejected_after_grace_expires(client) -> None:
     assert response.json()["detail"]["code"] == "invalid_key_id"
 
 
-def test_disabled_agent_cannot_rotate_key(client) -> None:
+def test_disabled_agent_cannot_prepare_or_activate_rotation(client) -> None:
     enrolled = _enroll(client, "host-key-disabled")
+    prepared_response = _prepare(client, enrolled)
+    assert prepared_response.status_code == 200, prepared_response.text
+    prepared = prepared_response.json()
+
     disabled = client.patch(
         f"/api/v1/agents/{enrolled['agent_id']}",
         headers={"X-Actor-ID": "rotation-admin"},
@@ -158,21 +270,24 @@ def test_disabled_agent_cannot_rotate_key(client) -> None:
     )
     assert disabled.status_code == 200, disabled.text
 
-    response = _signed_post(
-        client,
-        agent_id=enrolled["agent_id"],
-        key_id=enrolled["key_id"],
-        secret=enrolled["secret"],
-        target=f"/api/v1/agents/{enrolled['agent_id']}/rotate-key",
-        payload={},
-    )
-    assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "unknown_or_disabled_agent"
+    new_prepare = _prepare(client, enrolled)
+    assert new_prepare.status_code == 401
+    assert new_prepare.json()["detail"]["code"] == "unknown_or_disabled_agent"
+
+    activation = _activate(client, enrolled, prepared)
+    assert activation.status_code == 401
+    assert activation.json()["detail"]["code"] == "unknown_or_disabled_agent"
 
 
-def test_rotation_helper_never_prints_secret_source_contract() -> None:
+def test_rotation_helper_stages_recovery_credential_and_never_prints_secret() -> None:
     root = Path(__file__).resolve().parents[2]
     text = (root / "scripts" / "rotate_response_agent_key.py").read_text(encoding="utf-8")
+    assert "--recover-next" in text
+    assert 'path.name + ".next"' in text
+    assert "write_agent_config(next_path, rotated, force=False)" in text
+    assert "_activate(rotated_agent)" in text
+    assert "sync_capabilities(rotated_agent)" in text
+    assert "os.replace(next_path, path)" in text
     assert "The new agent secret was not printed." in text
-    assert "print(value[\"secret\"]" not in text
+    assert "print(prepared[\"secret\"]" not in text
     assert "print(rotated.secret" not in text
