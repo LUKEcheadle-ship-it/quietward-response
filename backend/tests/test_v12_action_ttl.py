@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+
+from app.database.models import AgentRecord
+
+
+V12_ACTIONS = [
+    "restart_quietward_demo_service",
+    "collect_host_diagnostic",
+    "collect_process_diagnostic",
+    "terminate_process_by_handle",
+    "collect_file_diagnostic",
+    "quarantine_artifact_by_handle",
+    "restore_quarantined_artifact_by_handle",
+]
 
 
 def _enroll(client, host_id: str) -> dict:
@@ -14,7 +27,17 @@ def _enroll(client, host_id: str) -> dict:
         },
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    enrollment = response.json()
+    # This test isolates action TTL behavior. Signed capability-report transport is
+    # independently exercised by test_v12_agent_capabilities.py.
+    with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrollment["agent_id"])
+        assert agent is not None
+        agent.supported_actions = list(V12_ACTIONS)
+        agent.enabled_actions = list(V12_ACTIONS)
+        agent.capabilities_updated_at = datetime.now(timezone.utc)
+        session.commit()
+    return enrollment
 
 
 def _seconds(action: dict) -> int:
