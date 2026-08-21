@@ -17,6 +17,17 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from response_agent_resources import (
+    ResourceError,
+    ResourceHandleStore,
+    collect_file_diagnostic,
+    collect_host_diagnostic,
+    collect_process_diagnostic,
+    quarantine_file_by_handle,
+    restore_quarantined_file,
+    terminate_process_by_handle,
+)
+
 
 class ResponseAgentError(RuntimeError):
     pass
@@ -59,8 +70,23 @@ _REQUIRED_ACTION_FIELDS = {
     "status",
     "policy_allowed",
 }
-_ONLY_ACTION = "restart_quietward_demo_service"
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+_ACTION_PARAMETER_MODE = {
+    "restart_quietward_demo_service": "none",
+    "collect_host_diagnostic": "none",
+    "collect_process_diagnostic": "none",
+    "terminate_process_by_handle": "resource_handle",
+    "collect_file_diagnostic": "none",
+    "quarantine_artifact_by_handle": "resource_handle",
+    "restore_quarantined_artifact_by_handle": "resource_handle",
+}
+_MUTATING_ACTIONS = {
+    "restart_quietward_demo_service",
+    "terminate_process_by_handle",
+    "quarantine_artifact_by_handle",
+    "restore_quarantined_artifact_by_handle",
+}
 
 
 def _derive_hmac_key(secret: str) -> bytes:
@@ -137,6 +163,38 @@ def _validate_base_url(value: str) -> str:
     return normalized
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _paths(value: Any) -> tuple[Path, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        raw = [item for item in value.split(os.pathsep) if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw = list(value)
+    else:
+        raise ResponseAgentError("managed_roots must be a list or path-separated string")
+    result: list[Path] = []
+    for item in raw:
+        path = Path(str(item)).expanduser()
+        if not path.is_absolute():
+            raise ResponseAgentError("every managed root must be absolute")
+        result.append(path)
+    return tuple(result)
+
+
+def _path_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
 @dataclass(frozen=True, slots=True)
 class AgentConfig:
     base_url: str
@@ -146,6 +204,10 @@ class AgentConfig:
     host_id: str
     state_dir: Path
     timeout_seconds: float = 5.0
+    managed_roots: tuple[Path, ...] = ()
+    quarantine_dir: Path | None = None
+    enable_process_termination: bool = False
+    enable_file_quarantine: bool = False
 
     def __post_init__(self) -> None:
         base_url = _validate_base_url(str(self.base_url))
@@ -160,9 +222,26 @@ class AgentConfig:
             raise ResponseAgentError("Response agent timeout must be numeric") from exc
         if not 0.1 <= timeout <= 60:
             raise ResponseAgentError("Response agent timeout must be between 0.1 and 60")
+
+        roots = tuple(Path(item).expanduser() for item in self.managed_roots)
+        if any(not item.is_absolute() for item in roots):
+            raise ResponseAgentError("every managed root must be absolute")
+        quarantine = Path(self.quarantine_dir).expanduser() if self.quarantine_dir else state_dir / "quarantine"
+        if not quarantine.is_absolute():
+            raise ResponseAgentError("Response quarantine directory must be absolute")
+        normalized_quarantine = quarantine.resolve()
+        for root in roots:
+            normalized_root = root.resolve()
+            if _path_within(normalized_quarantine, normalized_root):
+                raise ResponseAgentError("quarantine directory must not be inside a managed root")
+
         object.__setattr__(self, "base_url", base_url)
         object.__setattr__(self, "state_dir", state_dir)
         object.__setattr__(self, "timeout_seconds", timeout)
+        object.__setattr__(self, "managed_roots", roots)
+        object.__setattr__(self, "quarantine_dir", quarantine)
+        object.__setattr__(self, "enable_process_termination", bool(self.enable_process_termination))
+        object.__setattr__(self, "enable_file_quarantine", bool(self.enable_file_quarantine))
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "AgentConfig":
@@ -179,6 +258,8 @@ class AgentConfig:
             raise ResponseAgentError(
                 "Response agent credentials/configuration are incomplete: " + ", ".join(missing)
             )
+        quarantine_raw = value.get("quarantine_dir")
+        quarantine = Path(str(quarantine_raw)).expanduser() if quarantine_raw else None
         return cls(
             base_url=required["base_url"],
             agent_id=required["agent_id"],
@@ -187,6 +268,10 @@ class AgentConfig:
             host_id=required["host_id"],
             state_dir=Path(required["state_dir"]).expanduser(),
             timeout_seconds=value.get("timeout_seconds", 5.0),
+            managed_roots=_paths(value.get("managed_roots")),
+            quarantine_dir=quarantine,
+            enable_process_termination=_truthy(value.get("enable_process_termination")),
+            enable_file_quarantine=_truthy(value.get("enable_file_quarantine")),
         )
 
     @classmethod
@@ -200,6 +285,10 @@ class AgentConfig:
                 "host_id": os.environ.get("QWR_AGENT_HOST_ID", ""),
                 "state_dir": os.environ.get("QWR_AGENT_STATE_DIR", ""),
                 "timeout_seconds": os.environ.get("QWR_AGENT_TIMEOUT_SECONDS", "5"),
+                "managed_roots": os.environ.get("QWR_AGENT_MANAGED_ROOTS", ""),
+                "quarantine_dir": os.environ.get("QWR_AGENT_QUARANTINE_DIR", ""),
+                "enable_process_termination": os.environ.get("QWR_AGENT_ENABLE_PROCESS_TERMINATION", "0"),
+                "enable_file_quarantine": os.environ.get("QWR_AGENT_ENABLE_FILE_QUARANTINE", "0"),
             }
         )
 
@@ -219,6 +308,10 @@ class AgentConfig:
             "host_id": self.host_id,
             "state_dir": str(self.state_dir),
             "timeout_seconds": self.timeout_seconds,
+            "managed_roots": [str(item) for item in self.managed_roots],
+            "quarantine_dir": str(self.quarantine_dir),
+            "enable_process_termination": self.enable_process_termination,
+            "enable_file_quarantine": self.enable_file_quarantine,
         }
 
 
@@ -233,18 +326,32 @@ def write_agent_config(path: Path, config: AgentConfig, *, force: bool = False) 
 
 
 class ResponseAgent:
-    """Standalone Response-owned alpha agent.
-
-    The alpha agent has exactly one local action: the dedicated demo-fixture reset.
-    It has no shell, subprocess, service-manager, process-control, firewall,
-    quarantine, account-management, container-control, or package-management API.
-    """
+    """Response-owned outward-polling agent with narrow typed local executors."""
 
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self._key = _derive_hmac_key(config.secret)
         self.ledger_path = config.state_dir / "response-agent-ledger.json"
         self.demo_state_path = config.state_dir / "response-agent-demo.json"
+        self.resources = ResourceHandleStore(config.state_dir)
+
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "read_only_actions": [
+                "collect_host_diagnostic",
+                "collect_process_diagnostic",
+                "collect_file_diagnostic",
+            ],
+            "mutating_actions": {
+                "restart_quietward_demo_service": True,
+                "terminate_process_by_handle": self.config.enable_process_termination,
+                "quarantine_artifact_by_handle": self.config.enable_file_quarantine,
+                "restore_quarantined_artifact_by_handle": self.config.enable_file_quarantine,
+            },
+            "managed_roots": [str(item) for item in self.config.managed_roots],
+            "quarantine_dir": str(self.config.quarantine_dir),
+            "arbitrary_command_execution": False,
+        }
 
     def _signed_headers(self, method: str, target: str, body: bytes) -> dict[str, str]:
         timestamp = str(int(time.time()))
@@ -323,10 +430,26 @@ class ResponseAgent:
         prior = ledger.get(action_id)
         if prior and prior.get("status") in {"executing", "succeeded", "failed"}:
             return True
-        if not self.demo_state_path.exists():
-            return False
-        state = self._load_demo_state()
-        return state.get("last_action_id") == action_id
+        if self.demo_state_path.exists():
+            try:
+                return self._load_demo_state().get("last_action_id") == action_id
+            except ResponseAgentError:
+                return False
+        return False
+
+    def _validate_parameters(self, action_type: str, parameters: Any) -> None:
+        if not isinstance(parameters, dict):
+            raise ResponseAgentError("action parameters must be an object")
+        mode = _ACTION_PARAMETER_MODE[action_type]
+        if mode == "none":
+            if parameters:
+                raise ResponseAgentError("action accepts no parameters")
+            return
+        if set(parameters) != {"resource_handle"}:
+            raise ResponseAgentError("action requires exactly one resource_handle parameter")
+        handle = parameters.get("resource_handle")
+        if not isinstance(handle, str) or not handle.startswith("qwrh1_") or len(handle) > 96:
+            raise ResponseAgentError("resource_handle format is invalid")
 
     def _validate_action(self, action: dict[str, Any], ledger: dict[str, dict[str, Any]]) -> str:
         extra = set(action) - _ALLOWED_ACTION_FIELDS
@@ -345,10 +468,10 @@ class ResponseAgent:
             raise ResponseAgentError("action targets another agent")
         if action.get("target_host_id") != self.config.host_id:
             raise ResponseAgentError("action targets another host")
-        if action.get("action_type") != _ONLY_ACTION:
+        action_type = action.get("action_type")
+        if action_type not in _ACTION_PARAMETER_MODE:
             raise ResponseAgentError("action type is not allowlisted by the Response agent")
-        if action.get("parameters") != {}:
-            raise ResponseAgentError("demo action accepts no parameters")
+        self._validate_parameters(str(action_type), action.get("parameters"))
         if action.get("policy_allowed") is not True:
             raise ResponseAgentError("action was not policy-allowed by Response")
         status = action.get("status")
@@ -393,12 +516,58 @@ class ResponseAgent:
         _atomic_json(self.demo_state_path, state)
         return result
 
+    def _execute_action(self, action: dict[str, Any], *, recover_after_started: bool) -> dict[str, Any]:
+        action_type = str(action["action_type"])
+        parameters = dict(action.get("parameters") or {})
+        handle = str(parameters.get("resource_handle") or "")
+        try:
+            if action_type == "restart_quietward_demo_service":
+                return self._apply_demo_action(str(action["action_id"]))
+            if action_type == "collect_host_diagnostic":
+                return collect_host_diagnostic(self.config.state_dir)
+            if action_type == "collect_process_diagnostic":
+                return collect_process_diagnostic(self.resources)
+            if action_type == "terminate_process_by_handle":
+                if not self.config.enable_process_termination:
+                    raise ResponseAgentError("process termination capability is disabled in agent config")
+                return terminate_process_by_handle(
+                    self.resources,
+                    handle,
+                    recover_after_started=recover_after_started,
+                )
+            if action_type == "collect_file_diagnostic":
+                return collect_file_diagnostic(self.resources, self.config.managed_roots)
+            if action_type == "quarantine_artifact_by_handle":
+                if not self.config.enable_file_quarantine:
+                    raise ResponseAgentError("file quarantine capability is disabled in agent config")
+                if not self.config.managed_roots:
+                    raise ResponseAgentError("file quarantine requires at least one managed root")
+                return quarantine_file_by_handle(
+                    self.resources,
+                    handle,
+                    Path(self.config.quarantine_dir),
+                    recover_after_started=recover_after_started,
+                )
+            if action_type == "restore_quarantined_artifact_by_handle":
+                if not self.config.enable_file_quarantine:
+                    raise ResponseAgentError("file quarantine/restore capability is disabled in agent config")
+                return restore_quarantined_file(
+                    self.resources,
+                    handle,
+                    recover_after_started=recover_after_started,
+                )
+        except ResourceError as exc:
+            raise ResponseAgentError(str(exc)) from exc
+        raise ResponseAgentError("action type has no local executor")
+
     def _post_result(
         self,
         action_id: str,
         status: str,
         result: dict[str, Any],
         error: str | None = None,
+        *,
+        action_type: str,
     ) -> Any:
         now = datetime.now(timezone.utc).isoformat()
         return self._request(
@@ -414,8 +583,11 @@ class ResponseAgent:
                 "completed_at": now if status in {"succeeded", "failed"} else None,
                 "result": result,
                 "error": error,
-                "evidence": {"executor": "quietward-response-agent-alpha1-demo"},
-                "agent_version": "1.1.0-alpha.1",
+                "evidence": {
+                    "executor": "quietward-response-agent-v1.2",
+                    "action_type": action_type,
+                },
+                "agent_version": "1.2.0-alpha.1",
             },
         )
 
@@ -425,12 +597,13 @@ class ResponseAgent:
         if not isinstance(actions, list):
             raise ResponseAgentError("pending action response is not a list")
         ledger = self._load_ledger()
-        executed = 0
+        completed = 0
 
         for action in actions:
             if not isinstance(action, dict):
                 raise ResponseAgentError("pending action response contains a non-object item")
             action_id = self._validate_action(action, ledger)
+            action_type = str(action["action_type"])
             prior = ledger.get(action_id)
             if prior and prior.get("status") in {"succeeded", "failed"}:
                 self._post_result(
@@ -438,42 +611,62 @@ class ResponseAgent:
                     str(prior["status"]),
                     dict(prior.get("result") or {}),
                     prior.get("error"),
+                    action_type=action_type,
                 )
                 continue
 
-            ledger[action_id] = {"status": "executing", "result": {}, "error": None}
-            self._save_ledger(ledger)
-            # If the server revoked/cancelled this dispatch after it was returned by
-            # polling, this acknowledgement fails and local mutation never begins.
-            self._post_result(action_id, "executing", {})
+            recovering = bool(prior and prior.get("status") == "executing")
+            if not recovering:
+                ledger[action_id] = {
+                    "status": "executing",
+                    "action_type": action_type,
+                    "parameters": dict(action.get("parameters") or {}),
+                    "mutation_started": False,
+                    "result": {},
+                    "error": None,
+                }
+                self._save_ledger(ledger)
+                self._post_result(action_id, "executing", {}, action_type=action_type)
 
-            state_before = self._load_demo_state()
-            already_applied = state_before.get("last_action_id") == action_id
+            if action_type in _MUTATING_ACTIONS and not ledger[action_id].get("mutation_started"):
+                ledger[action_id]["mutation_started"] = True
+                self._save_ledger(ledger)
+
             try:
-                result = self._apply_demo_action(action_id)
+                result = self._execute_action(
+                    action,
+                    recover_after_started=bool(ledger[action_id].get("mutation_started") and recovering),
+                )
                 final = {"status": "succeeded", "result": result, "error": None}
             except Exception as exc:
                 final = {"status": "failed", "result": {}, "error": str(exc)[:1000]}
-            ledger[action_id] = final
+            ledger[action_id].update(final)
             self._save_ledger(ledger)
             self._post_result(
                 action_id,
                 str(final["status"]),
                 dict(final["result"]),
                 final["error"],
+                action_type=action_type,
             )
-            if final["status"] == "succeeded" and not already_applied:
-                executed += 1
-        return executed
+            if final["status"] == "succeeded" and not recovering:
+                completed += 1
+        return completed
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Standalone QuietWard Response alpha agent (demo action only)."
+        description="QuietWard Response v1.2 alpha agent with bounded typed actions."
     )
     parser.add_argument(
         "command",
-        choices=("init-demo-unhealthy", "init-demo-running", "status", "poll-once"),
+        choices=(
+            "init-demo-unhealthy",
+            "init-demo-running",
+            "status",
+            "capabilities",
+            "poll-once",
+        ),
     )
     parser.add_argument(
         "--config",
@@ -499,8 +692,11 @@ def main() -> int:
         state = agent._load_demo_state()
         print(json.dumps(state, indent=2, sort_keys=True))
         return 0
-    executed = agent.poll_once()
-    print(json.dumps({"actions_executed": executed}, sort_keys=True))
+    if args.command == "capabilities":
+        print(json.dumps(agent.capabilities(), indent=2, sort_keys=True))
+        return 0
+    completed = agent.poll_once()
+    print(json.dumps({"actions_completed": completed}, sort_keys=True))
     return 0
 
 
