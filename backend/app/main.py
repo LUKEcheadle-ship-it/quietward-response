@@ -73,6 +73,17 @@ def create_app(
     )
     application.state.database = database
     application.state.settings = resolved
+
+    # Middleware is registered from inner to outer because Starlette prepends each
+    # newly added middleware. Analyst auth therefore runs inside request hardening,
+    # while CORS remains outermost so browser clients still receive CORS headers on
+    # 401/403 responses.
+    application.add_middleware(AnalystAuthMiddleware)
+    application.add_middleware(
+        SerializedRequestMiddleware,
+        max_request_bytes=resolved.api_max_request_bytes,
+        rate_limit_per_minute=resolved.api_rate_limit_per_minute,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=resolved.cors_origins,
@@ -89,18 +100,6 @@ def create_app(
             "X-QWR-Nonce",
             "X-QWR-Signature",
         ],
-    )
-    # Human API routes are RBAC-protected outside loopback development. Machine
-    # routes retain their enrollment/HMAC/sensor authentication instead of sharing
-    # analyst credentials.
-    application.add_middleware(AnalystAuthMiddleware)
-    # Current qualification is one API process/worker. The same middleware keeps
-    # the linear audit chain serialized and enforces process-local request/rate
-    # bounds until a future shared multi-worker control plane is qualified.
-    application.add_middleware(
-        SerializedRequestMiddleware,
-        max_request_bytes=resolved.api_max_request_bytes,
-        rate_limit_per_minute=resolved.api_rate_limit_per_minute,
     )
 
     @application.exception_handler(RequestValidationError)
