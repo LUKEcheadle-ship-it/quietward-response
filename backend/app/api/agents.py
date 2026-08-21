@@ -11,6 +11,7 @@ from app.database.session import get_db
 from app.schemas.agent import AgentEnrollRequest, AgentEnrollResponse, AgentPatch, AgentRead
 from app.services.action_service import cancel_undispatched_actions_for_agent
 from app.services.agent_auth import enroll_agent
+from app.services.analyst_auth import analyst_actor_id
 from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
@@ -27,11 +28,6 @@ def _agent_to_dict(agent: AgentRecord) -> dict[str, object]:
         "enabled": agent.enabled,
         "agent_version": agent.agent_version,
     }
-
-
-def _actor_id(value: str) -> str:
-    resolved = value.strip() or "local-analyst"
-    return resolved[:128]
 
 
 @router.post("/enroll", response_model=AgentEnrollResponse, status_code=status.HTTP_201_CREATED)
@@ -65,8 +61,6 @@ def enroll(
     )
     db.commit()
 
-    # Enrollment is the only API response that contains the one-time endpoint
-    # secret. Explicitly prevent browsers/proxies from caching it.
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.headers["Pragma"] = "no-cache"
     return {
@@ -96,6 +90,7 @@ def get_agent(agent_id: str, db: Session = Depends(get_db)) -> dict[str, object]
 def patch_agent(
     agent_id: str,
     payload: AgentPatch,
+    request: Request,
     actor_id: str = Header(default="local-analyst", alias="X-Actor-ID"),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
@@ -108,15 +103,13 @@ def patch_agent(
         record_audit(
             db,
             actor_type="analyst",
-            actor_id=_actor_id(actor_id),
+            actor_id=analyst_actor_id(request, actor_id),
             action="agent_enabled" if agent.enabled else "agent_disabled",
             resource_type="agent",
             resource_id=agent.agent_id,
             details={"host_id": agent.host_id},
         )
         if not agent.enabled:
-            # Cancels pending, approved, and dispatching lifecycles. Once the
-            # endpoint has acknowledged `executing`, result/recovery remains valid.
             cancel_undispatched_actions_for_agent(db, agent.agent_id)
     db.commit()
     db.refresh(agent)
