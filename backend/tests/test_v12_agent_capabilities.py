@@ -69,8 +69,8 @@ def _report(client, enrollment: dict, *, enabled: list[str], supported: list[str
     )
 
 
-def _request_process_action(client, incident_id: str, enrollment: dict) -> dict:
-    response = client.post(
+def _request_process_action(client, incident_id: str, enrollment: dict):
+    return client.post(
         f"/api/v1/incidents/{incident_id}/actions",
         headers={"X-Actor-ID": "capability-test"},
         json={
@@ -80,8 +80,6 @@ def _request_process_action(client, incident_id: str, enrollment: dict) -> dict:
             "parameters": {"resource_handle": "qwrh1_1234567890abcdef"},
         },
     )
-    assert response.status_code == 201, response.text
-    return response.json()
 
 
 def _approve(client, action_id: str) -> dict:
@@ -142,7 +140,7 @@ def test_unknown_or_command_capability_is_rejected(client) -> None:
     assert response.json()["detail"]["actions"] == ["run_shell"]
 
 
-def test_policy_requires_agent_to_sign_and_enable_high_impact_capability(client, event_factory) -> None:
+def test_action_creation_and_approval_both_recheck_signed_agent_capability(client, event_factory) -> None:
     host_id = "host-capability-policy"
     event = client.post(
         "/api/v1/events",
@@ -158,33 +156,45 @@ def test_policy_requires_agent_to_sign_and_enable_high_impact_capability(client,
     incident_id = event.json()["incident_id"]
     enrollment = _enroll(client, host_id)
 
-    missing = _approve(client, _request_process_action(client, incident_id, enrollment)["action_id"])
-    assert missing["status"] == "cancelled"
-    assert missing["policy_allowed"] is False
-    assert AGENT_CAPABILITY_MISSING_REASON in missing["policy_reasons"]
+    missing = _request_process_action(client, incident_id, enrollment)
+    assert missing.status_code == 409
+    assert AGENT_CAPABILITY_MISSING_REASON in missing.text
 
-    report = _report(
-        client,
-        enrollment,
-        enabled=[
-            "restart_quietward_demo_service",
-            "collect_host_diagnostic",
-            "collect_process_diagnostic",
-            "collect_file_diagnostic",
-        ],
-    )
+    baseline_enabled = [
+        "restart_quietward_demo_service",
+        "collect_host_diagnostic",
+        "collect_process_diagnostic",
+        "collect_file_diagnostic",
+    ]
+    report = _report(client, enrollment, enabled=baseline_enabled)
     assert report.status_code == 200, report.text
 
-    disabled = _approve(client, _request_process_action(client, incident_id, enrollment)["action_id"])
-    assert disabled["status"] == "cancelled"
-    assert disabled["policy_allowed"] is False
-    assert AGENT_CAPABILITY_DISABLED_REASON in disabled["policy_reasons"]
+    disabled = _request_process_action(client, incident_id, enrollment)
+    assert disabled.status_code == 409
+    assert AGENT_CAPABILITY_DISABLED_REASON in disabled.text
 
-    enabled = list(report.json()["enabled_actions"]) + ["terminate_process_by_handle"]
-    enabled_report = _report(client, enrollment, enabled=enabled)
+    enabled_actions = baseline_enabled + ["terminate_process_by_handle"]
+    enabled_report = _report(client, enrollment, enabled=enabled_actions)
     assert enabled_report.status_code == 200, enabled_report.text
 
-    allowed = _approve(client, _request_process_action(client, incident_id, enrollment)["action_id"])
+    created = _request_process_action(client, incident_id, enrollment)
+    assert created.status_code == 201, created.text
+    action_id = created.json()["action_id"]
+
+    # Endpoint capability changed after action creation: approval must recheck and
+    # cancel rather than relying on the earlier preflight.
+    disabled_again = _report(client, enrollment, enabled=baseline_enabled)
+    assert disabled_again.status_code == 200, disabled_again.text
+    cancelled = _approve(client, action_id)
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["policy_allowed"] is False
+    assert AGENT_CAPABILITY_DISABLED_REASON in cancelled["policy_reasons"]
+
+    reenabled = _report(client, enrollment, enabled=enabled_actions)
+    assert reenabled.status_code == 200, reenabled.text
+    retry = _request_process_action(client, incident_id, enrollment)
+    assert retry.status_code == 201, retry.text
+    allowed = _approve(client, retry.json()["action_id"])
     assert allowed["status"] == "approved"
     assert allowed["policy_allowed"] is True
     assert allowed["policy_reasons"] == []
