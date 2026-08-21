@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ HEADER_NONCE = "X-QWR-Nonce"
 HEADER_SIGNATURE = "X-QWR-Signature"
 HEADER_KEY_ID = "X-QWR-Key-ID"
 DEFAULT_KEY_ROTATION_GRACE_SECONDS = 300
+DEFAULT_PENDING_KEY_SECONDS = 300
 
 
 def _utcnow() -> datetime:
@@ -96,23 +98,50 @@ def enroll_agent(
     return agent, secret
 
 
-def rotate_agent_key(
+def prepare_agent_key_rotation(
+    session: Session,
+    agent: AgentRecord,
+    *,
+    pending_seconds: int = DEFAULT_PENDING_KEY_SECONDS,
+) -> tuple[str, str, datetime]:
+    if not 60 <= pending_seconds <= 900:
+        raise ValueError("pending agent key lifetime must be between 60 and 900 seconds")
+    secret = secrets.token_urlsafe(32)
+    pending_key_id = str(uuid4())
+    agent.pending_key_id = pending_key_id
+    agent.pending_hmac_key_b64 = base64.b64encode(derive_hmac_key(secret)).decode("ascii")
+    agent.pending_key_expires_at = _utcnow() + timedelta(seconds=pending_seconds)
+    session.flush()
+    return secret, pending_key_id, agent.pending_key_expires_at
+
+
+def activate_pending_agent_key(
     session: Session,
     agent: AgentRecord,
     *,
     grace_seconds: int = DEFAULT_KEY_ROTATION_GRACE_SECONDS,
-) -> tuple[str, datetime]:
+) -> datetime:
     if not 60 <= grace_seconds <= 900:
         raise ValueError("agent key-rotation grace must be between 60 and 900 seconds")
     now = _utcnow()
+    if (
+        not agent.pending_key_id
+        or not agent.pending_hmac_key_b64
+        or agent.pending_key_expires_at is None
+        or _as_utc(agent.pending_key_expires_at) <= now
+    ):
+        raise ValueError("pending agent credential is missing or expired")
+
     agent.previous_key_id = agent.key_id
     agent.previous_hmac_key_b64 = agent.hmac_key_b64
     agent.previous_key_expires_at = now + timedelta(seconds=grace_seconds)
-    secret = secrets.token_urlsafe(32)
-    agent.key_id = str(uuid4())
-    agent.hmac_key_b64 = base64.b64encode(derive_hmac_key(secret)).decode("ascii")
+    agent.key_id = agent.pending_key_id
+    agent.hmac_key_b64 = agent.pending_hmac_key_b64
+    agent.pending_key_id = None
+    agent.pending_hmac_key_b64 = None
+    agent.pending_key_expires_at = None
     session.flush()
-    return secret, agent.previous_key_expires_at
+    return agent.previous_key_expires_at
 
 
 def _auth_error(code: str, message: str) -> HTTPException:
@@ -122,11 +151,18 @@ def _auth_error(code: str, message: str) -> HTTPException:
     )
 
 
-def _verification_key(agent: AgentRecord, key_id: str, now: datetime) -> bytes:
+def _normal_verification_key(
+    agent: AgentRecord,
+    key_id: str,
+    now: datetime,
+    *,
+    allow_previous_key: bool,
+) -> bytes:
     if hmac.compare_digest(agent.key_id, key_id):
         return base64.b64decode(agent.hmac_key_b64)
     if (
-        agent.previous_key_id
+        allow_previous_key
+        and agent.previous_key_id
         and agent.previous_hmac_key_b64
         and agent.previous_key_expires_at is not None
         and _as_utc(agent.previous_key_expires_at) > now
@@ -136,13 +172,26 @@ def _verification_key(agent: AgentRecord, key_id: str, now: datetime) -> bytes:
     raise _auth_error("invalid_key_id", "credential key identifier does not match")
 
 
-def verify_agent_request(
+def _pending_verification_key(agent: AgentRecord, key_id: str, now: datetime) -> bytes:
+    if (
+        agent.pending_key_id
+        and agent.pending_hmac_key_b64
+        and agent.pending_key_expires_at is not None
+        and _as_utc(agent.pending_key_expires_at) > now
+        and hmac.compare_digest(agent.pending_key_id, key_id)
+    ):
+        return base64.b64decode(agent.pending_hmac_key_b64)
+    raise _auth_error("invalid_pending_key", "pending credential is missing, expired, or does not match")
+
+
+def _verify_agent_request_with_key_selector(
     session: Session,
     request: Request,
     body: bytes,
     *,
     replay_window_seconds: int,
-    allow_disabled: bool = False,
+    allow_disabled: bool,
+    selector: Callable[[AgentRecord, str, datetime], bytes],
 ) -> AgentRecord:
     agent_id = request.headers.get(HEADER_AGENT_ID)
     timestamp_text = request.headers.get(HEADER_TIMESTAMP)
@@ -167,11 +216,10 @@ def verify_agent_request(
     now = _utcnow()
     if abs(now_epoch - request_epoch) > replay_window_seconds:
         raise _auth_error("stale_request", "signed request is outside the replay window")
-
     if len(nonce) < 16 or len(nonce) > 128:
         raise _auth_error("invalid_nonce", "nonce length is invalid")
 
-    verification_key = _verification_key(agent, key_id, now)
+    verification_key = selector(agent, key_id, now)
     target = canonical_target(request.url.path, request.url.query)
     expected = hmac.new(
         verification_key,
@@ -198,9 +246,48 @@ def verify_agent_request(
 
     agent.last_seen = now
     session.flush()
-
-    # Authentication state is committed before the business operation runs. This
-    # makes a valid nonce single-use even when a later host/action/schema check
-    # rejects the request and its transaction is rolled back.
+    # Consume authentication state before business logic so a valid signed nonce is
+    # single-use even if the following capability/action/activation request fails.
     session.commit()
     return agent
+
+
+def verify_agent_request(
+    session: Session,
+    request: Request,
+    body: bytes,
+    *,
+    replay_window_seconds: int,
+    allow_disabled: bool = False,
+    allow_previous_key: bool = True,
+) -> AgentRecord:
+    return _verify_agent_request_with_key_selector(
+        session,
+        request,
+        body,
+        replay_window_seconds=replay_window_seconds,
+        allow_disabled=allow_disabled,
+        selector=lambda agent, key_id, now: _normal_verification_key(
+            agent,
+            key_id,
+            now,
+            allow_previous_key=allow_previous_key,
+        ),
+    )
+
+
+def verify_pending_agent_request(
+    session: Session,
+    request: Request,
+    body: bytes,
+    *,
+    replay_window_seconds: int,
+) -> AgentRecord:
+    return _verify_agent_request_with_key_selector(
+        session,
+        request,
+        body,
+        replay_window_seconds=replay_window_seconds,
+        allow_disabled=False,
+        selector=_pending_verification_key,
+    )
