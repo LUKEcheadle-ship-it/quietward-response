@@ -8,9 +8,10 @@ Allow a human analyst to investigate and perform a very small set of real contai
 
 1. **Sensor → Response:** telemetry is untrusted input until validated/authenticated according to source policy. Telemetry can influence incident classification/recommendations but cannot create a new executable action type.
 2. **Analyst → Response:** outside loopback development, bearer authentication and RBAC are required. Authenticated identity controls audit attribution.
-3. **Response → agent:** the agent initiates outbound polling and HMAC-authenticates every pending/result request. Response exposes no inbound endpoint on the agent.
-4. **Agent → local resource:** high-impact actions require an agent-issued opaque handle backed by local identity/fingerprint state.
-5. **Audit DB → retained checkpoint:** the in-database hash chain is tamper-evident. A separately signed audit checkpoint may be retained outside the DB to anchor a historical prefix against later consistent rewrite or truncation.
+3. **Response → agent:** the agent initiates outbound polling and HMAC-authenticates pending/result traffic. Response exposes no inbound endpoint on the agent.
+4. **Agent capability state → policy:** the agent signs its supported and locally enabled action set. Server policy cannot assume a v1.2 capability the endpoint has not attested as enabled.
+5. **Agent → local resource:** high-impact actions require an agent-issued opaque handle backed by local identity/fingerprint state.
+6. **Audit DB → retained checkpoint:** the in-database hash chain is tamper-evident. A separately signed audit checkpoint may be retained outside the DB to anchor a historical prefix against later consistent rewrite or truncation.
 
 ## Primary attack cases and mitigations
 
@@ -22,6 +23,7 @@ Mitigations:
 - persisted incident recommendation binding;
 - explicit analyst approval;
 - deterministic policy revalidation before dispatch;
+- signed endpoint capability negotiation;
 - independent agent allowlist;
 - no conversion of plan text into commands.
 
@@ -35,6 +37,22 @@ Mitigations:
 - machine routes use separate enrollment/HMAC protocols.
 
 Known limitation: bearer RBAC is not enterprise OIDC/SSO yet.
+
+### Server assumes or enables endpoint capability
+
+Attack: a compromised/misconfigured control plane attempts to dispatch process termination or quarantine to an endpoint whose local config did not enable it.
+
+Mitigations:
+
+- agent signs `supported_actions` and `enabled_actions` to its capability endpoint;
+- enabled actions must be a subset of the finite registered action set;
+- unknown capability names such as a hypothetical shell action are rejected;
+- the report explicitly attests `arbitrary_command_execution=false` and the `qwrh1` resource-handle protocol;
+- server policy rejects non-demo v1.2 actions if no capability report exists or if the action is absent from `enabled_actions`;
+- the normal incident UI offers only agents that signed the selected action as enabled;
+- endpoint-side local feature flags and allowlists remain the final independent authority even after server policy passes.
+
+Residual risk: capability state is a signed statement from the endpoint, not remote attestation of the endpoint binary or OS. A fully compromised endpoint possessing its own credential can lie about its local state. That endpoint is already inside the Response-agent trust boundary and should be disabled/re-enrolled after compromise.
 
 ### Raw target injection
 
@@ -102,9 +120,24 @@ Mitigations:
 - persisted replay nonces;
 - agent host binding;
 - agent disable cancels pending/approved/pre-execution dispatch;
-- endpoint action allowlist and local capability opt-ins.
+- endpoint action allowlist and local capability opt-ins;
+- agent-initiated credential rotation is available without exposing a replacement secret in normal API listings/audit records.
 
-Known limitation: enrollment helper stores the agent secret in a permission-hardened JSON file rather than an OS key store.
+#### Rotation hijack / crash recovery
+
+The rotation protocol is intentionally two phase:
+
+1. only the **current** credential can request `rotate-key`, which creates a short-lived pending credential without changing the active key;
+2. the pending secret is written to a private `.next` sidecar before activation;
+3. only the **pending** credential can sign `activate-key` and prove possession of the replacement secret;
+4. after activation, the old current key becomes a bounded five-minute previous-key recovery credential;
+5. a previous grace credential may finish normal signed traffic but **cannot prepare another rotation**;
+6. after activation, the helper proves the new current key with a signed capability sync and atomically promotes `.next` over the old private config;
+7. if activation/promotion is interrupted, `--recover-next` can retry using the staged secret without printing it.
+
+This prevents a stolen previous grace key from repeatedly rotating/hijacking the current credential while still providing a bounded post-activation recovery path.
+
+Known limitation: the private agent config/`.next` secret is permission-hardened local JSON rather than an OS-backed secret store. OS credential storage remains post-alpha hardening.
 
 ### API flooding / oversized payloads
 
