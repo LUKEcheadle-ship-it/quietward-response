@@ -128,6 +128,8 @@ def _verify_agent_capability_negotiation() -> None:
     for fragment in (
         "AGENT_CAPABILITY_MISSING_REASON",
         "AGENT_CAPABILITY_DISABLED_REASON",
+        "AGENT_CAPABILITY_STALE_REASON",
+        "_CAPABILITY_REPORT_MAX_AGE = timedelta(minutes=15)",
         "capabilities_updated_at",
         "enabled_actions",
     ):
@@ -169,21 +171,23 @@ def _verify_agent_key_rotation() -> None:
         if fragment not in model or fragment not in migration:
             raise RuntimeError(f"two-phase key-rotation persistence missing: {fragment}")
     for fragment in (
-        "DEFAULT_KEY_ROTATION_GRACE_SECONDS = 300",
         "DEFAULT_PENDING_KEY_SECONDS = 300",
         "prepare_agent_key_rotation",
         "activate_pending_agent_key",
         "verify_pending_agent_request",
-        "allow_previous_key=False",
+        "allow_previous_key: bool = False",
+        "agent.previous_hmac_key_b64 = None",
+        "agent.previous_key_expires_at = now",
         "invalid_pending_key",
     ):
-        if fragment not in agent_auth and fragment not in agent_api:
-            raise RuntimeError(f"two-phase key-rotation authentication hardening missing: {fragment}")
+        if fragment not in agent_auth:
+            raise RuntimeError(f"immediate-revocation key-rotation hardening missing: {fragment}")
     for fragment in (
         '@router.post("/{agent_id}/rotate-key"',
         '@router.post("/{agent_id}/activate-key"',
         'action="agent_key_rotation_prepared"',
         'action="agent_key_rotated"',
+        '"previous_key_revoked_at"',
         'response.headers["Pragma"] = "no-cache"',
     ):
         if fragment not in agent_api:
@@ -270,8 +274,8 @@ def main() -> int:
     print("legacy_policy_binding=fail-closed")
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
-    print("signed_agent_capability_negotiation=present")
-    print("two_phase_recoverable_agent_key_rotation=present")
+    print("signed_agent_capability_negotiation=fresh-and-required")
+    print("two_phase_agent_key_rotation=immediate-old-key-revocation")
     print("signed_audit_checkpoints=present")
     return 0
 
