@@ -1,4 +1,4 @@
 """QuietWard Response backend."""
 
-# Runtime/API version for the first standalone broad-response alpha.
-__version__ = "1.1.0a1"
+# Runtime/API version for the first handle-backed containment alpha.
+__version__ = "1.2.0a1"
