@@ -157,8 +157,6 @@ def test_rotation_requires_pending_key_proof_and_immediately_revokes_old_key(cli
     )
     assert new_key.status_code == 200, new_key.text
 
-    # Once activation succeeds the old key has no normal API grace period. Crash
-    # recovery must use the already-staged replacement credential.
     old_key = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
@@ -214,6 +212,50 @@ def test_rotation_requires_pending_key_proof_and_immediately_revokes_old_key(cli
         assert enrolled["secret"] not in serialized
         assert prepared["secret"] not in serialized
         assert "previous_key_revoked_at" in serialized
+
+
+def test_rotation_preparation_is_single_flight_and_preserves_first_pending_key(client) -> None:
+    enrolled = _enroll(client, "host-key-single-flight")
+    first_response = _prepare(client, enrolled)
+    assert first_response.status_code == 200, first_response.text
+    first = first_response.json()
+
+    second = _prepare(client, enrolled)
+    assert second.status_code == 409
+    detail = second.json()["detail"]
+    assert detail["code"] == "pending_key_rotation_exists"
+    assert "activate or recover" in detail["message"]
+    assert detail["pending_key_expires_at"] == first["pending_key_expires_at"]
+
+    # The rejected second prepare must not replace the original staged credential.
+    activated = _activate(client, enrolled, first)
+    assert activated.status_code == 200, activated.text
+    assert activated.json()["key_id"] == first["pending_key_id"]
+
+
+def test_expired_pending_key_can_be_replaced_by_new_rotation(client) -> None:
+    enrolled = _enroll(client, "host-key-reprepare")
+    first_response = _prepare(client, enrolled)
+    assert first_response.status_code == 200, first_response.text
+    first = first_response.json()
+
+    with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrolled["agent_id"])
+        assert agent is not None
+        agent.pending_key_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+
+    second_response = _prepare(client, enrolled)
+    assert second_response.status_code == 200, second_response.text
+    second = second_response.json()
+    assert second["pending_key_id"] != first["pending_key_id"]
+    assert second["secret"] != first["secret"]
+
+    old_pending = _activate(client, enrolled, first)
+    assert old_pending.status_code == 401
+    assert old_pending.json()["detail"]["code"] == "invalid_pending_key"
+    current_pending = _activate(client, enrolled, second)
+    assert current_pending.status_code == 200, current_pending.text
 
 
 def test_pending_key_expiry_fails_activation_without_replacing_current_key(client) -> None:
