@@ -80,7 +80,7 @@ The live gate must use only disposable temporary files/directories.
 - no absolute managed-file path is returned in the diagnostic result;
 - symlinks are not eligible for managed-file handles;
 - quarantine accepts only an opaque handle;
-- source file identity is revalidated immediately before move;
+- source file identity and SHA-256 content are revalidated immediately before/after containment;
 - quarantine produces a separate rollback handle;
 - exact replay does not move again;
 - restore refuses an occupied original path;
@@ -94,10 +94,12 @@ The live gate must create and terminate only its own disposable child process.
 - process diagnostic issues an opaque handle for the child;
 - raw PID action shape is rejected;
 - process identity is revalidated immediately before termination;
+- Linux uses pidfd-bound signaling when process termination is enabled;
+- Windows rechecks process creation identity on the termination handle;
 - agent/self/critical processes remain protected;
 - stale/replaced PID fails closed;
 - indeterminate interrupted termination fails closed;
-- successful live gate terminates only the test-owned child;
+- successful live gate terminates only the test-owned child and verifies it exited;
 - terminal replay does not terminate again.
 
 ### Audit
@@ -114,12 +116,13 @@ After the automated finalizer passes on the exact candidate SHA:
 2. Confirm Overview, Incidents, Hosts, Agents and Events render without console errors.
 3. Open a malware/file incident and confirm Response Plan shows file diagnostic, quarantine and rollback as executable only when the incident recommendation set enables them.
 4. Open a process/privilege incident and confirm process diagnostic and handle-bound process termination are clearly labeled.
-5. Confirm handle-backed action UI requests a `qwrh1_...` resource handle and explicitly says not to enter a PID/path.
-6. Confirm a read-only diagnostic result renders its resource handles/result payload.
-7. Confirm a quarantine result renders rollback data.
-8. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
-9. Confirm clearing the browser session token removes authenticated UI access.
-10. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
+5. Run the matching diagnostic and confirm handle-backed action UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
+6. Confirm there is no free-form PID, path, command, or opaque-handle input for containment actions.
+7. Confirm process handle choices show bounded process context (PID/image) and managed-file choices show relative path/hash context without exposing an absolute managed path.
+8. Confirm a quarantine result makes its rollback handle available to the restore selector.
+9. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
+10. Confirm clearing the browser session token removes authenticated UI access.
+11. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
 
 Record the exact candidate SHA and PASS/FAIL for this smoke before tagging/publishing the alpha.
 
