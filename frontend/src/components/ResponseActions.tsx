@@ -11,6 +11,7 @@ const ACTIVE_ACTION_STATUSES = new Set<ResponseAction["status"]>([
   "executing",
 ]);
 const ACTIONABLE_INCIDENT_STATUSES = new Set(["new", "investigating", "contained"]);
+const LEGACY_CAPABILITY_EXEMPT_ACTIONS = new Set(["restart_quietward_demo_service"]);
 
 type HandleOption = {
   handle: string;
@@ -69,6 +70,13 @@ function prepareLabel(actionType: string): string {
   if (actionType === "quarantine_artifact_by_handle") return "Prepare artifact quarantine";
   if (actionType === "restore_quarantined_artifact_by_handle") return "Prepare quarantine rollback";
   return "Prepare controlled demo action";
+}
+
+function agentEnablesAction(agent: Agent, actionType: string): boolean {
+  if (LEGACY_CAPABILITY_EXEMPT_ACTIONS.has(actionType)) return true;
+  return Boolean(
+    agent.capabilities_updated_at && agent.enabled_actions.includes(actionType),
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -207,12 +215,19 @@ export function ResponseActions({
     () => incident.recommended_actions.filter((item) => item.registry_action_type && item.enabled),
     [incident.recommended_actions],
   );
-  const eligibleAgents = agents.filter((agent) => agent.enabled && incident.affected_hosts.includes(agent.host_id));
+  const affectedEnabledAgents = agents.filter(
+    (agent) => agent.enabled && incident.affected_hosts.includes(agent.host_id),
+  );
   const incidentAllowsResponse = ACTIONABLE_INCIDENT_STATUSES.has(incident.status);
+
+  function eligibleAgentsFor(actionType: string): Agent[] {
+    return affectedEnabledAgents.filter((agent) => agentEnablesAction(agent, actionType));
+  }
 
   function selectedAgentFor(recommendation: RecommendedAction): Agent | undefined {
     const actionType = recommendation.registry_action_type;
     if (!actionType) return undefined;
+    const eligibleAgents = eligibleAgentsFor(actionType);
     const selectedId = selectedAgentIds[actionType];
     return eligibleAgents.find((agent) => agent.agent_id === selectedId) ?? eligibleAgents[0];
   }
@@ -306,13 +321,15 @@ export function ResponseActions({
       {controlledRecommendations.length > 0 && (
         <div className="mt-5 space-y-3">
           {controlledRecommendations.map((recommendation) => {
+            const actionType = recommendation.registry_action_type!;
+            const eligibleAgents = eligibleAgentsFor(actionType);
             const agent = selectedAgentFor(recommendation);
             const activeAction = activeActionFor(recommendation, agent);
-            const actionType = recommendation.registry_action_type!;
             const needsHandle = requiresResourceHandle(actionType);
             const availableHandles = handleOptionsFor(actionType, agent, actions);
             const key = selectionKey(actionType, agent);
             const selectedHandle = resourceHandles[key] ?? "";
+            const hasAffectedAgentWithoutCapability = affectedEnabledAgents.length > 0 && eligibleAgents.length === 0;
             return <div key={`${actionType}:${recommendation.title}`} className="rounded-lg border border-amber-500/15 bg-amber-500/5 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -333,9 +350,13 @@ export function ResponseActions({
                   </select>
                 </label>
               ) : (
-                <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
+                <div className="mt-3 text-xs text-slate-500">Target: {agent
+                  ? `${agent.display_name} · ${agent.host_id}`
+                  : hasAffectedAgentWithoutCapability
+                    ? "No affected Response agent has signed this action as enabled"
+                    : "No enabled Response agent enrolled for an affected host"}</div>
               )}
-              {needsHandle && (
+              {needsHandle && agent && (
                 <label className="mt-3 block text-xs text-slate-500">Verified resource from prior Response-agent result
                   <select
                     value={selectedHandle}
