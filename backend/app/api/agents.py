@@ -109,7 +109,6 @@ async def prepare_key_rotation(
         raw,
         replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
         allow_disabled=False,
-        allow_previous_key=False,
     )
     if agent.agent_id != agent_id:
         raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
