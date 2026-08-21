@@ -12,6 +12,8 @@ const ACTIVE_ACTION_STATUSES = new Set<ResponseAction["status"]>([
 ]);
 const ACTIONABLE_INCIDENT_STATUSES = new Set(["new", "investigating", "contained"]);
 const LEGACY_CAPABILITY_EXEMPT_ACTIONS = new Set(["restart_quietward_demo_service"]);
+const CAPABILITY_MAX_AGE_MS = 15 * 60 * 1000;
+const CAPABILITY_FUTURE_SKEW_MS = 30 * 1000;
 
 type HandleOption = {
   handle: string;
@@ -72,11 +74,17 @@ function prepareLabel(actionType: string): string {
   return "Prepare controlled demo action";
 }
 
-function agentEnablesAction(agent: Agent, actionType: string): boolean {
+function agentCapabilityFresh(agent: Agent, nowMs: number): boolean {
+  if (!agent.capabilities_updated_at) return false;
+  const updated = new Date(agent.capabilities_updated_at).getTime();
+  if (!Number.isFinite(updated)) return false;
+  if (updated > nowMs + CAPABILITY_FUTURE_SKEW_MS) return false;
+  return updated >= nowMs - CAPABILITY_MAX_AGE_MS;
+}
+
+function agentEnablesAction(agent: Agent, actionType: string, nowMs: number): boolean {
   if (LEGACY_CAPABILITY_EXEMPT_ACTIONS.has(actionType)) return true;
-  return Boolean(
-    agent.capabilities_updated_at && agent.enabled_actions.includes(actionType),
-  );
+  return agentCapabilityFresh(agent, nowMs) && agent.enabled_actions.includes(actionType);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -206,6 +214,11 @@ export function ResponseActions({
   }, [actions, load]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!actions.some((item) => item.status === "pending")) return;
     const timer = window.setInterval(() => setClock(Date.now()), 5000);
     return () => window.clearInterval(timer);
@@ -221,7 +234,7 @@ export function ResponseActions({
   const incidentAllowsResponse = ACTIONABLE_INCIDENT_STATUSES.has(incident.status);
 
   function eligibleAgentsFor(actionType: string): Agent[] {
-    return affectedEnabledAgents.filter((agent) => agentEnablesAction(agent, actionType));
+    return affectedEnabledAgents.filter((agent) => agentEnablesAction(agent, actionType, clock));
   }
 
   function selectedAgentFor(recommendation: RecommendedAction): Agent | undefined {
@@ -353,7 +366,7 @@ export function ResponseActions({
                 <div className="mt-3 text-xs text-slate-500">Target: {agent
                   ? `${agent.display_name} · ${agent.host_id}`
                   : hasAffectedAgentWithoutCapability
-                    ? "No affected Response agent has signed this action as enabled"
+                    ? "No affected Response agent has signed this action as enabled (or its capability report is stale)"
                     : "No enabled Response agent enrolled for an affected host"}</div>
               )}
               {needsHandle && agent && (
