@@ -95,7 +95,7 @@ def _activate(client, enrolled: dict, prepared: dict):
     )
 
 
-def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
+def test_rotation_requires_pending_key_proof_and_immediately_revokes_old_key(client) -> None:
     enrolled = _enroll(client, "host-key-rotation")
     prepared_response = _prepare(client, enrolled)
     assert prepared_response.status_code == 200, prepared_response.text
@@ -106,7 +106,6 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
     assert prepared["pending_key_id"] != enrolled["key_id"]
     assert prepared["secret"] != enrolled["secret"]
 
-    # Preparation does not silently replace the active credential.
     capability_target = f"/api/v1/agents/{enrolled['agent_id']}/capabilities"
     current_still_active = _signed_post(
         client,
@@ -129,8 +128,6 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
     assert pending_cannot_use_normal_api.status_code == 401
     assert pending_cannot_use_normal_api.json()["detail"]["code"] == "invalid_key_id"
 
-    # Current key cannot activate a pending credential; activation proves possession
-    # of the staged secret itself.
     current_cannot_activate = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
@@ -147,6 +144,8 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
     activated = activated_response.json()
     assert activated["key_id"] == prepared["pending_key_id"]
     assert "secret" not in activated
+    assert "previous_key_revoked_at" in activated
+    assert "previous_key_expires_at" not in activated
 
     new_key = _signed_post(
         client,
@@ -158,9 +157,9 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
     )
     assert new_key.status_code == 200, new_key.text
 
-    # The former current key is only a recovery key. It can finish normal traffic
-    # during grace, but cannot prepare another rotation and hijack the new key.
-    old_key_grace = _signed_post(
+    # Once activation succeeds the old key has no normal API grace period. Crash
+    # recovery must use the already-staged replacement credential.
+    old_key = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
         key_id=enrolled["key_id"],
@@ -168,7 +167,9 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
         target=capability_target,
         payload=_capability_payload(),
     )
-    assert old_key_grace.status_code == 200, old_key_grace.text
+    assert old_key.status_code == 401
+    assert old_key.json()["detail"]["code"] == "invalid_key_id"
+
     previous_cannot_rotate = _signed_post(
         client,
         agent_id=enrolled["agent_id"],
@@ -187,8 +188,17 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
     assert "pending_key_id" not in row
     assert "previous_key_id" not in row
 
-    # Neither one-time secret is allowed into the audit details.
     with client.app.state.database.session_factory() as session:
+        agent = session.get(AgentRecord, enrolled["agent_id"])
+        assert agent is not None
+        assert agent.previous_key_id == enrolled["key_id"]
+        assert agent.previous_hmac_key_b64 is None
+        assert agent.previous_key_expires_at is not None
+        revoked_at = agent.previous_key_expires_at
+        if revoked_at.tzinfo is None:
+            revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+        assert revoked_at <= datetime.now(timezone.utc)
+
         rotation_audits = list(
             session.scalars(
                 select(AuditRecord).where(
@@ -203,6 +213,7 @@ def test_rotation_requires_pending_key_proof_before_promotion(client) -> None:
         serialized = json.dumps([item.details for item in rotation_audits], sort_keys=True)
         assert enrolled["secret"] not in serialized
         assert prepared["secret"] not in serialized
+        assert "previous_key_revoked_at" in serialized
 
 
 def test_pending_key_expiry_fails_activation_without_replacing_current_key(client) -> None:
@@ -230,31 +241,6 @@ def test_pending_key_expiry_fails_activation_without_replacing_current_key(clien
         payload=_capability_payload(),
     )
     assert current_still_works.status_code == 200, current_still_works.text
-
-
-def test_previous_key_is_rejected_after_post_activation_grace_expires(client) -> None:
-    enrolled = _enroll(client, "host-key-expiry")
-    prepared_response = _prepare(client, enrolled)
-    assert prepared_response.status_code == 200, prepared_response.text
-    prepared = prepared_response.json()
-    assert _activate(client, enrolled, prepared).status_code == 200
-
-    with client.app.state.database.session_factory() as session:
-        agent = session.get(AgentRecord, enrolled["agent_id"])
-        assert agent is not None
-        agent.previous_key_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        session.commit()
-
-    response = _signed_post(
-        client,
-        agent_id=enrolled["agent_id"],
-        key_id=enrolled["key_id"],
-        secret=enrolled["secret"],
-        target=f"/api/v1/agents/{enrolled['agent_id']}/capabilities",
-        payload=_capability_payload(),
-    )
-    assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "invalid_key_id"
 
 
 def test_disabled_agent_cannot_prepare_or_activate_rotation(client) -> None:
