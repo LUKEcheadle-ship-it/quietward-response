@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.database.models import ActionRecord
+from app.database.models import ActionRecord, AgentRecord
 from app.database.session import get_db
 from app.schemas.action import ActionCreate, ActionRead, ActionResultCreate, ApprovalDecision
-from app.services.action_registry import public_action_registry
+from app.services.action_registry import get_action_definition, public_action_registry
 from app.services.action_service import (
     ActionError,
     action_to_dict,
@@ -21,6 +21,7 @@ from app.services.action_service import (
 from app.services.agent_auth import verify_agent_request
 from app.services.analyst_auth import analyst_actor_id
 from app.services.audit_service import record_audit
+from app.services.policy_service import agent_capability_reason
 
 router = APIRouter(prefix="/api/v1", tags=["response-actions"])
 
@@ -33,7 +34,6 @@ def _action_error(exc: ActionError) -> HTTPException:
 
 
 def _require_pending_decision(db: Session, action_id: str) -> None:
-    """Make analyst approval/rejection a single-shot public decision."""
     action = db.get(ActionRecord, action_id)
     if action is None:
         return
@@ -62,7 +62,6 @@ def _validate_result_clock(payload: ActionResultCreate, *, replay_window_seconds
 
 
 def _validate_result_transition(db: Session, action_id: str, payload: ActionResultCreate) -> None:
-    """Require the endpoint to acknowledge execution before reporting a terminal result."""
     action = db.get(ActionRecord, action_id)
     if action is None:
         return
@@ -135,6 +134,20 @@ def _audit_result_rejection(
     db.commit()
 
 
+def _reject_unavailable_registered_capability(db: Session, payload: ActionCreate) -> None:
+    # Keep unsupported-action errors owned by create_action. Only an action that is
+    # actually in the finite registry is eligible for the signed endpoint-capability
+    # preflight.
+    if get_action_definition(payload.action_type) is None:
+        return
+    agent = db.get(AgentRecord, payload.target_agent_id)
+    if agent is None or not agent.enabled or agent.host_id != payload.target_host_id:
+        return
+    reason = agent_capability_reason(agent, payload.action_type)
+    if reason:
+        raise ActionError(reason)
+
+
 @router.get("/actions/registry")
 def action_registry() -> list[dict[str, object]]:
     return public_action_registry()
@@ -149,6 +162,7 @@ def request_action(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     try:
+        _reject_unavailable_registered_capability(db, payload)
         action = create_action(
             db,
             incident_id=incident_id,
