@@ -10,7 +10,7 @@ BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from app.config import DEFAULT_DEVELOPMENT_AUDIT_CHECKPOINT_SECRET, Settings
+from app.config import Settings
 from app.services.action_registry import ACTION_REGISTRY
 from app.services.response_plan_v12 import build_response_plan
 
@@ -77,8 +77,8 @@ def _verify_checkpoint_surface() -> None:
         raise RuntimeError("checkpoint verification RBAC classification is missing")
 
     development = Settings(environment="development", api_host="127.0.0.1")
-    if development.audit_checkpoint_secret != DEFAULT_DEVELOPMENT_AUDIT_CHECKPOINT_SECRET:
-        raise RuntimeError("loopback development checkpoint default changed unexpectedly")
+    if len(development.audit_checkpoint_secret) < 32:
+        raise RuntimeError("audit checkpoint secret is below the configured minimum strength")
 
 
 def _verify_trusted_handle_ui() -> None:
