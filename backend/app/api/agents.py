@@ -99,8 +99,8 @@ async def prepare_key_rotation(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
-    # Rotation preparation accepts only the current credential. A previous grace
-    # credential cannot mint another future credential.
+    # Rotation preparation accepts only the current credential. An old credential
+    # is never allowed to mint a replacement credential.
     agent = verify_agent_request(
         db,
         request,
@@ -146,8 +146,9 @@ async def activate_key_rotation(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
-    # Only the prepared pending credential can activate itself. Current/previous
-    # credentials cannot skip this proof-of-possession step.
+    # Only the prepared pending credential can activate itself. The old credential
+    # is revoked immediately when promotion succeeds; local crash recovery uses the
+    # already-staged new `.next` credential rather than an old-key grace period.
     agent = verify_pending_agent_request(
         db,
         request,
@@ -160,7 +161,7 @@ async def activate_key_rotation(
     previous_key_id = agent.key_id
     pending_key_id = agent.pending_key_id
     try:
-        previous_key_expires_at = activate_pending_agent_key(db, agent)
+        previous_key_revoked_at = activate_pending_agent_key(db, agent)
     except ValueError as exc:
         raise HTTPException(
             status_code=409,
@@ -177,7 +178,7 @@ async def activate_key_rotation(
             "host_id": agent.host_id,
             "previous_key_id": previous_key_id,
             "new_key_id": pending_key_id,
-            "previous_key_expires_at": previous_key_expires_at.isoformat(),
+            "previous_key_revoked_at": previous_key_revoked_at.isoformat(),
         },
     )
     db.commit()
@@ -186,7 +187,7 @@ async def activate_key_rotation(
     return {
         "agent_id": agent.agent_id,
         "key_id": agent.key_id,
-        "previous_key_expires_at": previous_key_expires_at,
+        "previous_key_revoked_at": previous_key_revoked_at,
     }
 
 
