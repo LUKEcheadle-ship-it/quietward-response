@@ -29,7 +29,7 @@ It runs:
 9. production frontend build.
 10. high-severity npm audit.
 11. public quick-start smoke and cleanup.
-12. standalone live Response HTTP containment acceptance.
+12. capability-aware standalone live Response HTTP containment acceptance.
 
 ## Required automated properties
 
@@ -43,6 +43,29 @@ It runs:
 - handle-backed process termination/quarantine action TTL is at most 240 seconds;
 - pre-v1.2 incidents do not receive new executable actions retroactively without persisted recommendation authorization.
 
+### Signed agent capability negotiation
+
+- the capability report route is machine/HMAC authenticated rather than analyst-header authenticated;
+- enabled actions must be a subset of supported actions;
+- unknown action names, including command/shell surfaces, are rejected;
+- the report explicitly attests `arbitrary_command_execution=false` and the `qwrh1` handle protocol;
+- non-demo v1.2 actions fail policy when the target agent has never reported capabilities;
+- a reported-but-locally-disabled high-impact action fails policy;
+- the same action passes this capability portion of policy only after the agent signs it as enabled;
+- enrollment performs the first signed capability sync;
+- the qualified poll path refreshes capabilities before action polling;
+- the Agents UI exposes the signed enabled-action state and last capability timestamp.
+
+### Agent credential rotation
+
+- rotation requires a valid signed request from the target enabled agent;
+- the new secret/key ID is returned only on the no-store rotation response and never appears in normal agent listings/audit details;
+- the local helper atomically replaces the private config and proves the new key with a capability sync;
+- the previous key remains valid only during the bounded five-minute recovery grace;
+- an expired previous key fails with `invalid_key_id`;
+- disabled agents cannot rotate;
+- the rotation helper does not print the new secret.
+
 ### Analyst authentication/RBAC
 
 Outside loopback development:
@@ -54,7 +77,7 @@ Outside loopback development:
 - responder can change incidents and create/approve/reject actions;
 - only admin can enable/disable agents;
 - authenticated actor identity is used in audit records even when a conflicting `X-Actor-ID` is supplied;
-- machine enrollment and HMAC agent routes do not require analyst bearer credentials;
+- machine enrollment, capability sync, key rotation and HMAC action/result routes do not require analyst bearer credentials;
 - viewer may export and verify a signed audit checkpoint because those operations do not mutate product state.
 
 ### API abuse bounds
@@ -122,16 +145,18 @@ After the automated finalizer passes on the exact candidate SHA:
 
 1. Start the product with the documented quick-start path.
 2. Confirm Overview, Incidents, Hosts, Agents and Events render without console errors.
-3. Open a malware/file incident and confirm Response Plan shows file diagnostic, quarantine and rollback as executable only when the incident recommendation set enables them.
-4. Open a process/privilege incident and confirm process diagnostic and handle-bound process termination are clearly labeled.
-5. Run the matching diagnostic and confirm handle-backed action UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
-6. Confirm there is no free-form PID, path, command, or opaque-handle input for containment actions.
-7. Confirm process handle choices show bounded process context (PID/image) and managed-file choices show relative path/hash context without exposing an absolute managed path.
-8. Confirm a quarantine result makes its rollback handle available to the restore selector.
-9. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
-10. Confirm clearing the browser session token removes authenticated UI access.
-11. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
-12. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
+3. Confirm the Agents page shows signed enabled capabilities and the last capability-report time for a v1.2 agent.
+4. Open a malware/file incident and confirm Response Plan shows file diagnostic, quarantine and rollback as executable only when the incident recommendation set enables them.
+5. Open a process/privilege incident and confirm process diagnostic and handle-bound process termination are clearly labeled.
+6. Run the matching diagnostic and confirm handle-backed action UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
+7. Confirm there is no free-form PID, path, command, or opaque-handle input for containment actions.
+8. Confirm process handle choices show bounded process context (PID/image) and managed-file choices show relative path/hash context without exposing an absolute managed path.
+9. Confirm a quarantine result makes its rollback handle available to the restore selector.
+10. Rotate an enrolled Response-agent key with `scripts/rotate_response_agent_key.py`, confirm the new key ID appears in Agents, and confirm the agent can still sync/poll without printing the secret.
+11. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
+12. Confirm clearing the browser session token removes authenticated UI access.
+13. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
+14. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
 
 Record the exact candidate SHA and PASS/FAIL for this smoke before tagging/publishing the alpha.
 
