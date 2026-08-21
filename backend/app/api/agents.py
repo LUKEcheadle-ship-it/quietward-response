@@ -33,6 +33,10 @@ from app.services.audit_service import record_audit
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
 def _agent_to_dict(agent: AgentRecord) -> dict[str, object]:
     return {
         "agent_id": agent.agent_id,
@@ -109,6 +113,22 @@ async def prepare_key_rotation(
     )
     if agent.agent_id != agent_id:
         raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
+
+    now = datetime.now(timezone.utc)
+    if (
+        agent.pending_key_id
+        and agent.pending_hmac_key_b64
+        and agent.pending_key_expires_at is not None
+        and _as_utc(agent.pending_key_expires_at) > now
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "pending_key_rotation_exists",
+                "message": "activate or recover the existing pending agent key before preparing another rotation",
+                "pending_key_expires_at": _as_utc(agent.pending_key_expires_at).isoformat(),
+            },
+        )
 
     secret, pending_key_id, pending_key_expires_at = prepare_agent_key_rotation(db, agent)
     record_audit(
@@ -194,8 +214,6 @@ async def report_capabilities(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
-    # A disabled agent is revoked from trust-state updates. Disabled credentials are
-    # accepted only on the specifically qualified result-reconciliation path.
     agent = verify_agent_request(
         db,
         request,
