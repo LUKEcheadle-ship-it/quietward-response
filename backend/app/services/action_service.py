@@ -70,8 +70,8 @@ def _cancel_undispatched_action(
 
     `dispatching` means Response returned the action to an agent, but the endpoint
     has not yet acknowledged execution. Revocation/incident closure must still be
-    able to cancel this state; QuietWard posts `executing` before changing local
-    state, so a cancelled dispatch will fail that acknowledgement and remain safe.
+    able to cancel this state; the Response agent posts `executing` before changing
+    local state, so a cancelled dispatch fails that acknowledgement and remains safe.
     """
     if action.status not in {"pending", "approved", "dispatching"}:
         return False
@@ -248,9 +248,6 @@ def create_action(
         now=now,
     )
 
-    # A host may have more than one enrolled credential during rotation. Do not
-    # allow parallel action IDs to target the same host/capability through different
-    # agents; one active lifecycle per incident + host + action type is enough.
     existing = session.scalars(
         select(ActionRecord)
         .where(
@@ -269,9 +266,14 @@ def create_action(
 
     ttl_seconds = payload.expires_in_seconds
     if ttl_seconds is None:
-        ttl_seconds = default_ttl_seconds
+        ttl_seconds = min(default_ttl_seconds, definition.max_ttl_seconds)
     if not 30 <= ttl_seconds <= 3600:
         raise ActionError("action TTL must be between 30 and 3600 seconds")
+    if ttl_seconds > definition.max_ttl_seconds:
+        raise ActionError(
+            f"action TTL exceeds maximum for {payload.action_type}: "
+            f"{definition.max_ttl_seconds} seconds"
+        )
 
     action = ActionRecord(
         incident_id=incident_id,
@@ -311,6 +313,7 @@ def create_action(
             "target_host_id": action.target_host_id,
             "approval_id": approval.approval_id,
             "ttl_seconds": ttl_seconds,
+            "max_ttl_seconds": definition.max_ttl_seconds,
         },
     )
     session.flush()
@@ -502,9 +505,6 @@ def apply_action_result(
 
     action.status = payload.status
 
-    # `started_at` is an execution fact established by the first accepted endpoint
-    # result. A later terminal retry must not rewrite it merely because the client
-    # generated a new HTTP/result timestamp while reporting completion.
     if action.started_at is None:
         action.started_at = payload.started_at or _utcnow()
 
