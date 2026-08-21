@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN = "development-enrollment-token-change-me"
+DEFAULT_DEVELOPMENT_AUDIT_CHECKPOINT_SECRET = "development-audit-checkpoint-secret-change-me"
 _ANALYST_ROLES = {"viewer", "responder", "admin"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -85,6 +86,16 @@ class Settings(BaseSettings):
     action_default_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     require_agent_auth_for_quietward_events: bool = True
 
+    # Independent of the database and audit hashes. Exported checkpoints signed
+    # with this secret can be retained elsewhere and later prove that a historical
+    # audit prefix was neither recomputed nor truncated. The known development
+    # value is permitted only on loopback development.
+    audit_checkpoint_secret: str = Field(
+        default=DEFAULT_DEVELOPMENT_AUDIT_CHECKPOINT_SECRET,
+        min_length=32,
+        max_length=512,
+    )
+
     @property
     def development_actor_header_allowed(self) -> bool:
         return (
@@ -115,6 +126,12 @@ class Settings(BaseSettings):
             if environment != "development" or not loopback:
                 raise ValueError(
                     "QWR_ENROLLMENT_TOKEN must be replaced outside loopback development"
+                )
+
+        if self.audit_checkpoint_secret == DEFAULT_DEVELOPMENT_AUDIT_CHECKPOINT_SECRET:
+            if environment != "development" or not loopback:
+                raise ValueError(
+                    "QWR_AUDIT_CHECKPOINT_SECRET must be replaced outside loopback development"
                 )
 
         # Disabling authenticated telemetry is a loopback-only development escape
