@@ -38,8 +38,6 @@ HIGH_CONFIDENCE_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("OpenAI-style secret", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
 )
 
-# Build user-machine checks from fragments so this audit file does not literally
-# contain the private path it is trying to detect and therefore match itself.
 PRIVATE_MACHINE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private homelab path", re.compile(r"/home/" + r"homelab/", re.IGNORECASE)),
     (
@@ -75,10 +73,13 @@ def _tracked_files() -> list[Path]:
 def _is_blocked_path(relative: str) -> str | None:
     normalized = relative.replace("\\", "/")
     name = Path(normalized).name
+    lower_name = name.lower()
     if normalized in BLOCKED_EXACT_PATHS:
         return "local runtime/secret file must not be tracked"
-    if name.lower() in BLOCKED_SECRET_FILENAMES:
+    if lower_name in BLOCKED_SECRET_FILENAMES:
         return "Response agent credential/config file must not be tracked"
+    if lower_name.endswith(".next") and lower_name[:-5] in BLOCKED_SECRET_FILENAMES:
+        return "staged Response agent credential sidecar must not be tracked"
     if name.startswith(".env") and normalized not in SAFE_ENV_FILES:
         return "environment file must not be tracked"
     suffix = Path(normalized).suffix.lower()
@@ -126,9 +127,6 @@ def main() -> int:
         if text is not None:
             findings.extend(_scan_text(relative, text, include_machine_paths=True))
 
-    # A secret removed from HEAD is still public if it remains in reachable git
-    # history. Scan high-confidence token formats across all local refs and flag any
-    # historically tracked .env/private-key/database/agent-credential path for review.
     history_names = _git("log", "--all", "--name-only", "--pretty=format:")
     for raw_name in history_names.splitlines():
         name = raw_name.strip().replace("\\", "/")
