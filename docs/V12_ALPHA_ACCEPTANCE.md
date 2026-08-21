@@ -54,17 +54,24 @@ It runs:
 - the same action passes this capability portion of policy only after the agent signs it as enabled;
 - enrollment performs the first signed capability sync;
 - the qualified poll path refreshes capabilities before action polling;
+- the incident UI offers non-demo actions only on affected agents that signed the exact action as enabled;
 - the Agents UI exposes the signed enabled-action state and last capability timestamp.
 
-### Agent credential rotation
+### Two-phase agent credential rotation
 
-- rotation requires a valid signed request from the target enabled agent;
-- the new secret/key ID is returned only on the no-store rotation response and never appears in normal agent listings/audit details;
-- the local helper atomically replaces the private config and proves the new key with a capability sync;
-- the previous key remains valid only during the bounded five-minute recovery grace;
+- only the current active key may sign `rotate-key` preparation; a previous grace key cannot prepare another rotation;
+- preparation creates a bounded pending credential but does not replace the current active key;
+- the pending credential cannot authenticate normal agent routes before activation;
+- only the pending credential may sign `activate-key` and prove possession of the replacement secret;
+- the current/previous key cannot activate the pending credential;
+- pending credential expiry fails closed without replacing the current key;
+- after activation, the old current key is accepted only during a bounded five-minute recovery grace;
 - an expired previous key fails with `invalid_key_id`;
-- disabled agents cannot rotate;
-- the rotation helper does not print the new secret.
+- disabled agents cannot prepare or activate rotation;
+- one-time pending secrets are returned only on no-store responses and never appear in normal agent listings or audit details;
+- the local helper writes the pending credential to a private `.next` sidecar before activation, proves the promoted key by capability sync, and atomically promotes the sidecar;
+- `--recover-next` can finish an interrupted activation/promotion without printing the secret;
+- the rotation helper does not print current, pending, or promoted secret material.
 
 ### Analyst authentication/RBAC
 
@@ -77,7 +84,7 @@ Outside loopback development:
 - responder can change incidents and create/approve/reject actions;
 - only admin can enable/disable agents;
 - authenticated actor identity is used in audit records even when a conflicting `X-Actor-ID` is supplied;
-- machine enrollment, capability sync, key rotation and HMAC action/result routes do not require analyst bearer credentials;
+- machine enrollment, capability sync, key prepare/activate and HMAC action/result routes do not require analyst bearer credentials;
 - viewer may export and verify a signed audit checkpoint because those operations do not mutate product state.
 
 ### API abuse bounds
@@ -153,10 +160,11 @@ After the automated finalizer passes on the exact candidate SHA:
 8. Confirm process handle choices show bounded process context (PID/image) and managed-file choices show relative path/hash context without exposing an absolute managed path.
 9. Confirm a quarantine result makes its rollback handle available to the restore selector.
 10. Rotate an enrolled Response-agent key with `scripts/rotate_response_agent_key.py`, confirm the new key ID appears in Agents, and confirm the agent can still sync/poll without printing the secret.
-11. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
-12. Confirm clearing the browser session token removes authenticated UI access.
-13. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
-14. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
+11. Simulate an interrupted rotation by retaining a staged `.next` config and confirm `--recover-next` completes activation/promotion without exposing the secret.
+12. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
+13. Confirm clearing the browser session token removes authenticated UI access.
+14. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
+15. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
 
 Record the exact candidate SHA and PASS/FAIL for this smoke before tagging/publishing the alpha.
 
