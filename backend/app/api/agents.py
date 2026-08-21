@@ -99,8 +99,6 @@ async def prepare_key_rotation(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
-    # Rotation preparation accepts only the current credential. An old credential
-    # is never allowed to mint a replacement credential.
     agent = verify_agent_request(
         db,
         request,
@@ -146,9 +144,6 @@ async def activate_key_rotation(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
-    # Only the prepared pending credential can activate itself. The old credential
-    # is revoked immediately when promotion succeeds; local crash recovery uses the
-    # already-staged new `.next` credential rather than an old-key grace period.
     agent = verify_pending_agent_request(
         db,
         request,
@@ -199,12 +194,14 @@ async def report_capabilities(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     raw = await request.body()
+    # A disabled agent is revoked from trust-state updates. Disabled credentials are
+    # accepted only on the specifically qualified result-reconciliation path.
     agent = verify_agent_request(
         db,
         request,
         raw,
         replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
-        allow_disabled=True,
+        allow_disabled=False,
     )
     if agent.agent_id != agent_id:
         raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
