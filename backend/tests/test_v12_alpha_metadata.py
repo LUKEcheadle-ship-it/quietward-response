@@ -36,6 +36,13 @@ def test_v12_alpha_release_metadata_is_consistent() -> None:
     assert "finalize_v12_alpha.py" in readme
     assert "finalize_v12_alpha.py" in acceptance
 
+    combined_checkpoint_docs = "\n".join((acceptance, threat_model, release_notes)).lower()
+    assert "audit checkpoint" in combined_checkpoint_docs
+    assert "full-chain" in combined_checkpoint_docs or "full chain" in combined_checkpoint_docs
+    assert "suffix" in combined_checkpoint_docs
+    assert "qwr_audit_checkpoint_secret" in combined_checkpoint_docs
+    assert "free-form pid, path, command, or opaque-handle input" in acceptance.lower()
+
 
 def test_v12_docs_keep_detector_repository_separation_explicit() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
