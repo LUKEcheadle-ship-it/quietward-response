@@ -97,6 +97,53 @@ def _verify_trusted_handle_ui() -> None:
         raise RuntimeError("free-form opaque-handle input returned to the analyst UI")
 
 
+def _verify_agent_capability_negotiation() -> None:
+    model = (BACKEND / "app" / "database" / "models.py").read_text(encoding="utf-8")
+    schema = (BACKEND / "app" / "schemas" / "agent.py").read_text(encoding="utf-8")
+    api = (BACKEND / "app" / "api" / "agents.py").read_text(encoding="utf-8")
+    policy = (BACKEND / "app" / "services" / "policy_service.py").read_text(encoding="utf-8")
+    analyst_auth = (BACKEND / "app" / "services" / "analyst_auth.py").read_text(encoding="utf-8")
+    migration = BACKEND / "alembic" / "versions" / "0003_agent_capabilities.py"
+    enrollment = (ROOT / "scripts" / "enroll_response_agent.py").read_text(encoding="utf-8")
+    poller = (ROOT / "scripts" / "poll_response_agent.py").read_text(encoding="utf-8")
+    capability_helper = (ROOT / "scripts" / "response_agent_capabilities.py").read_text(
+        encoding="utf-8"
+    )
+
+    if not migration.exists():
+        raise RuntimeError("agent capability migration is missing")
+    for fragment in ("supported_actions", "enabled_actions", "capabilities_updated_at"):
+        if fragment not in model or fragment not in schema:
+            raise RuntimeError(f"agent capability persistence/schema missing: {fragment}")
+    for fragment in (
+        '@router.post("/{agent_id}/capabilities"',
+        "verify_agent_request",
+        "unknown_agent_capability",
+        "arbitrary_command_execution",
+    ):
+        if fragment not in api:
+            raise RuntimeError(f"signed agent capability endpoint missing: {fragment}")
+    for fragment in (
+        "AGENT_CAPABILITY_MISSING_REASON",
+        "AGENT_CAPABILITY_DISABLED_REASON",
+        "capabilities_updated_at",
+        "enabled_actions",
+    ):
+        if fragment not in policy:
+            raise RuntimeError(f"agent capability policy gate missing: {fragment}")
+    if "_CAPABILITIES_RE" not in analyst_auth:
+        raise RuntimeError("capability report is not classified as a machine-auth endpoint")
+    if "sync_capabilities" not in enrollment or "sync_capabilities" not in poller:
+        raise RuntimeError("official enrollment/poll path does not refresh signed capabilities")
+    for fragment in (
+        '"arbitrary_command_execution": False',
+        '"resource_handle_protocol": "qwrh1"',
+        "enabled_actions",
+    ):
+        if fragment not in capability_helper:
+            raise RuntimeError(f"capability attestation helper missing: {fragment}")
+
+
 def main() -> int:
     actual = set(ACTION_REGISTRY)
     if actual != EXPECTED_ACTIONS:
@@ -155,6 +202,7 @@ def main() -> int:
 
     _verify_checkpoint_surface()
     _verify_trusted_handle_ui()
+    _verify_agent_capability_negotiation()
 
     print("V1.2 RESPONSE SURFACE: PASS")
     print("registered_actions=", len(EXPECTED_ACTIONS))
@@ -162,6 +210,7 @@ def main() -> int:
     print("legacy_policy_binding=fail-closed")
     print("generic_command_surface=absent")
     print("trusted_handle_selector=present")
+    print("signed_agent_capability_negotiation=present")
     print("signed_audit_checkpoints=present")
     return 0
 
