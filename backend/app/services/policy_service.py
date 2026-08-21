@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database.models import (
     ActionRecord,
     AgentRecord,
     ApprovalRecord,
+    EventRecord,
     HostRecord,
     IncidentRecord,
 )
@@ -19,9 +21,20 @@ INCIDENT_STATUS_REASON = "incident status does not allow response actions"
 AGENT_CAPABILITY_MISSING_REASON = "target agent has not reported v1.2 capabilities"
 AGENT_CAPABILITY_STALE_REASON = "target agent capability report is stale"
 AGENT_CAPABILITY_DISABLED_REASON = "target agent has not enabled this action capability"
+INTEGRITY_TRUST_REASON = "incident contains compromised evidence/sensor integrity; medium/high-impact mutation is blocked"
 _ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
 _LEGACY_CAPABILITY_EXEMPT_ACTIONS = {"restart_quietward_demo_service"}
 _CAPABILITY_REPORT_MAX_AGE = timedelta(minutes=15)
+_INTEGRITY_EVENT_TYPES = {
+    "evidence_integrity_failure",
+    "self_integrity_change",
+    "sensor_integrity_failure",
+    "agent_integrity_failure",
+    "sensor_tamper",
+    "agent_tamper",
+    "audit_log_clear",
+    "audit_log_cleared",
+}
 
 
 def _utc(value: datetime) -> datetime:
@@ -60,18 +73,40 @@ def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
     return False
 
 
+def incident_integrity_compromised(session: Session, incident_id: str) -> bool:
+    """Detect explicit trust-failure evidence without depending on one sensor vendor.
+
+    The check is intentionally conservative and bounded. A canonical integrity event,
+    an integrity-category failure/tamper event, or an event name that explicitly
+    states sensor/evidence/agent tamper is enough to freeze non-low-risk mutation.
+    """
+    rows = session.execute(
+        select(EventRecord.event_type, EventRecord.category)
+        .where(EventRecord.incident_id == incident_id)
+        .order_by(EventRecord.occurred_at.desc())
+        .limit(512)
+    )
+    for event_type, category in rows:
+        event_text = str(event_type or "").strip().lower()
+        category_text = str(category or "").strip().lower()
+        if event_text in _INTEGRITY_EVENT_TYPES:
+            return True
+        if category_text == "integrity" and any(
+            token in event_text for token in ("failure", "tamper", "self_integrity")
+        ):
+            return True
+        if any(token in event_text for token in ("evidence_tamper", "sensor_tamper", "agent_tamper")):
+            return True
+    return False
+
+
 def agent_capability_reason(
     agent: AgentRecord,
     action_type: str,
     *,
     now: datetime | None = None,
 ) -> str | None:
-    """Return the fail-closed capability reason for one target agent/action.
-
-    Every non-legacy v1.2 action requires a recent signed capability attestation.
-    This prevents a previously enabled high-impact capability from remaining usable
-    indefinitely if the endpoint stops polling, is reconfigured, or is taken offline.
-    """
+    """Return the fail-closed capability reason for one target agent/action."""
     if action_type in _LEGACY_CAPABILITY_EXEMPT_ACTIONS:
         return None
     if agent.capabilities_updated_at is None:
@@ -130,6 +165,11 @@ def evaluate_action_policy(
             reasons.append(INCIDENT_STATUS_REASON)
         elif not incident_enables_action(incident, action.action_type):
             reasons.append(RECOMMENDATION_BINDING_REASON)
+        if (
+            definition.risk_level in {"medium", "high", "critical"}
+            and incident_integrity_compromised(session, incident.incident_id)
+        ):
+            reasons.append(INTEGRITY_TRUST_REASON)
 
     host = session.get(HostRecord, action.target_host_id)
     if host is not None:
