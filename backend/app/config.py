@@ -64,20 +64,11 @@ class Settings(BaseSettings):
     correlation_window_seconds: int = Field(default=300, ge=30, le=3600)
     log_level: str = "INFO"
 
-    # Bound abuse before request parsing/persistence. The current qualified runtime
-    # is one API process/worker, so this limiter is intentionally process-local.
     api_max_request_bytes: int = Field(default=1_048_576, ge=4_096, le=8_388_608)
     api_rate_limit_per_minute: int = Field(default=600, ge=30, le=60_000)
 
-    # Analyst bearer credentials contain only SHA-256 token hashes. Example env:
-    # QWR_ANALYST_CREDENTIALS='["alice|admin|<64-hex-sha256>"]'
-    # Loopback development may omit this and use X-Actor-ID for convenience; any
-    # non-loopback or non-development runtime must configure at least one credential.
     analyst_credentials: list[str] = Field(default_factory=list)
 
-    # Local development has a known loopback-only fallback so a fresh clone can
-    # start without secret provisioning. Any non-loopback or non-development
-    # runtime must set its own sufficiently long token.
     enrollment_token: str = Field(
         default=DEFAULT_DEVELOPMENT_ENROLLMENT_TOKEN,
         min_length=24,
@@ -86,15 +77,16 @@ class Settings(BaseSettings):
     action_default_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     require_agent_auth_for_quietward_events: bool = True
 
-    # Independent of the database and audit hashes. Exported checkpoints signed
-    # with this secret can be retained elsewhere and later prove that a historical
-    # audit prefix was neither recomputed nor truncated. The known development
-    # value is permitted only on loopback development.
+    # Independent from the database. Exported checkpoints can be retained outside
+    # the DB and later verify that a historical prefix was not recomputed/truncated.
     audit_checkpoint_secret: str = Field(
         default=DEFAULT_DEVELOPMENT_AUDIT_CHECKPOINT_SECRET,
         min_length=32,
         max_length=512,
     )
+    # Optional externally retained checkpoint to enforce at process startup. The
+    # application never writes this path; operators can mount it read-only.
+    trusted_audit_checkpoint_path: Path | None = None
 
     @property
     def development_actor_header_allowed(self) -> bool:
@@ -134,8 +126,12 @@ class Settings(BaseSettings):
                     "QWR_AUDIT_CHECKPOINT_SECRET must be replaced outside loopback development"
                 )
 
-        # Disabling authenticated telemetry is a loopback-only development escape
-        # hatch. Never permit that setting on a remotely reachable bind.
+        if self.trusted_audit_checkpoint_path is not None:
+            checkpoint_path = self.trusted_audit_checkpoint_path.expanduser()
+            if not checkpoint_path.is_absolute():
+                raise ValueError("QWR_TRUSTED_AUDIT_CHECKPOINT_PATH must be absolute")
+            self.trusted_audit_checkpoint_path = checkpoint_path
+
         if not self.require_agent_auth_for_quietward_events:
             if environment != "development" or not loopback:
                 raise ValueError(
