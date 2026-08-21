@@ -9,7 +9,7 @@ Allow a human analyst to investigate and perform a very small set of real contai
 1. **Sensor → Response:** telemetry is untrusted input until validated/authenticated according to source policy. Telemetry can influence incident classification/recommendations but cannot create a new executable action type.
 2. **Analyst → Response:** outside loopback development, bearer authentication and RBAC are required. Authenticated identity controls audit attribution.
 3. **Response → agent:** the agent initiates outbound polling and HMAC-authenticates pending/result traffic. Response exposes no inbound endpoint on the agent.
-4. **Agent capability state → policy:** the agent signs its supported and locally enabled action set. Server policy cannot assume a v1.2 capability the endpoint has not attested as enabled.
+4. **Agent capability state → policy:** the agent signs its supported and locally enabled action set. Server policy cannot assume a v1.2 capability the endpoint has not recently attested as enabled.
 5. **Agent → local resource:** high-impact actions require an agent-issued opaque handle backed by local identity/fingerprint state.
 6. **Audit DB → retained checkpoint:** the in-database hash chain is tamper-evident. A separately signed audit checkpoint may be retained outside the DB to anchor a historical prefix against later consistent rewrite or truncation.
 
@@ -40,7 +40,7 @@ Known limitation: bearer RBAC is not enterprise OIDC/SSO yet.
 
 ### Server assumes or enables endpoint capability
 
-Attack: a compromised/misconfigured control plane attempts to dispatch process termination or quarantine to an endpoint whose local config did not enable it.
+Attack: a compromised/misconfigured control plane attempts to dispatch process termination or quarantine to an endpoint whose local config did not enable it, or relies indefinitely on an old capability report from an endpoint that stopped checking in.
 
 Mitigations:
 
@@ -48,7 +48,8 @@ Mitigations:
 - enabled actions must be a subset of the finite registered action set;
 - unknown capability names such as a hypothetical shell action are rejected;
 - the report explicitly attests `arbitrary_command_execution=false` and the `qwrh1` resource-handle protocol;
-- server policy rejects non-demo v1.2 actions if no capability report exists or if the action is absent from `enabled_actions`;
+- server policy rejects non-demo v1.2 actions if no capability report exists, if the report is older than 15 minutes, if the timestamp is implausibly future-dated, or if the action is absent from `enabled_actions`;
+- enrollment sends the initial capability report and the qualified polling path refreshes it before polling;
 - the normal incident UI offers only agents that signed the selected action as enabled;
 - endpoint-side local feature flags and allowlists remain the final independent authority even after server policy passes.
 
@@ -130,12 +131,11 @@ The rotation protocol is intentionally two phase:
 1. only the **current** credential can request `rotate-key`, which creates a short-lived pending credential without changing the active key;
 2. the pending secret is written to a private `.next` sidecar before activation;
 3. only the **pending** credential can sign `activate-key` and prove possession of the replacement secret;
-4. after activation, the old current key becomes a bounded five-minute previous-key recovery credential;
-5. a previous grace credential may finish normal signed traffic but **cannot prepare another rotation**;
-6. after activation, the helper proves the new current key with a signed capability sync and atomically promotes `.next` over the old private config;
-7. if activation/promotion is interrupted, `--recover-next` can retry using the staged secret without printing it.
+4. activation promotes the pending credential and **immediately revokes the old credential for normal HMAC traffic**;
+5. after activation, the helper proves the new current key with a signed capability sync and atomically promotes `.next` over the old private config;
+6. if activation/promotion is interrupted, `--recover-next` retries with the already-staged new secret without printing it.
 
-This prevents a stolen previous grace key from repeatedly rotating/hijacking the current credential while still providing a bounded post-activation recovery path.
+Immediate revocation is deliberate: if the old credential was stolen, retaining normal poll/result access during a grace period would weaken the purpose of rotation. Recovery therefore depends on the staged replacement credential rather than the retired key.
 
 Known limitation: the private agent config/`.next` secret is permission-hardened local JSON rather than an OS-backed secret store. OS credential storage remains post-alpha hardening.
 
