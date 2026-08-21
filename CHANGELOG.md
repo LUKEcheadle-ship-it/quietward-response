@@ -23,15 +23,22 @@ First handle-bound containment alpha candidate.
 - session-only browser bearer-token support
 - one-time analyst token/hash generator
 - trusted handle selection in the incident console: high-impact actions can be prepared only from unexpired handles returned by successful prior actions for the same incident and selected agent
+- signed Response-agent capability reports containing the finite supported/enabled action sets, `qwrh1` resource-handle protocol, and explicit `arbitrary_command_execution=false` attestation
+- server policy rejection when a non-demo action has no signed endpoint capability report or is locally disabled
+- Agents-console visibility for signed enabled capabilities and last capability-report timestamp
+- capability-aware official poll wrapper and enrollment-time capability synchronization
+- two-phase Response-agent HMAC key rotation with pending-key proof of possession, post-activation previous-key grace, private `.next` staging, and `--recover-next` crash recovery
 - independently signed audit checkpoints that can be retained outside the Response database to anchor historical audit prefixes
 - checkpoint verification that detects signature tamper, full historical chain recomputation, and deletion/truncation of already-checkpointed audit history
-- v1.2 static/local, live containment, and exact-branch finalization gates
+- v1.2-specific Alembic qualification through `0003_agent_caps`, including genuine Phase 1 → v1.2 upgrade coverage
+- v1.2 static/local, capability-aware live containment, and exact-branch finalization gates
 
 ### Hardened
 
 - raw PID and filesystem-path targeting remains impossible through the action API
 - generic shell/PowerShell/cmd/script execution remains absent
 - normal UI no longer exposes free-form opaque-handle entry for containment actions
+- normal UI offers a non-demo action only on an affected agent that signed the exact action as locally enabled
 - process handles bind more than PID and protect agent/parent/critical OS processes
 - Linux process termination uses pidfd-bound signaling and verifies exact target exit
 - Windows process termination revalidates creation identity on the termination handle and performs a bounded exit wait
@@ -41,8 +48,11 @@ First handle-bound containment alpha candidate.
 - quarantine/restore has consumption receipts, deterministic rollback handles, stale-file checks, occupied-target checks, and interrupted-recovery validation
 - interrupted process termination fails closed when the final outcome is indeterminate or a PID has been replaced
 - pre-v1.2 incidents cannot gain new executable actions retroactively unless their persisted recommendation set authorizes them
+- a previous key in post-activation recovery grace cannot prepare another rotation; only the current key can stage a replacement and only the pending key can activate itself
+- pending-key expiry leaves the old current credential unchanged rather than creating a partial rotation
+- rotation one-time secrets are omitted from agent listings and audit details and are never printed by the official helper
 - remote/non-development Response refuses startup without analyst credentials, a non-default enrollment token, and an independent non-development audit-checkpoint secret
-- machine enrollment/HMAC/event routes remain separate from human analyst authentication
+- machine enrollment/capability/key-rotation/HMAC/event routes remain separate from human analyst authentication
 - CORS/security headers remain present on analyst 401/403 responses
 - legacy production-boundary tests explicitly provide unrelated v1.2 prerequisites so each security test continues to isolate the control it claims to verify
 
@@ -58,6 +68,7 @@ First handle-bound containment alpha candidate.
 - autonomous remediation or LLM-generated executable commands
 - multi-worker API qualification/shared rate limiting
 - enterprise OIDC/SSO analyst identity
+- OS-backed agent secret storage
 - immutable/WORM external audit storage (signed checkpoints provide externally retainable tamper anchors, not immutable storage)
 
 ## 1.1.0-alpha.1 — candidate 2026-08-20
@@ -72,4 +83,4 @@ First end-to-end controlled-response release. Added versioned sensor-neutral eve
 
 The v1 safety boundary prohibited generic shell/PowerShell/cmd/bash, arbitrary process/service/file/firewall/host-isolation actions, and autonomous remediation.
 
-Historical acceptance: `docs/V1_ACCEPTANCE.md`.
+Historical acceptance: `docs/V1_ACCEPTANCE.md` and `docs/releases/v1.0.0.md`.
