@@ -21,7 +21,6 @@ HEADER_TIMESTAMP = "X-QWR-Timestamp"
 HEADER_NONCE = "X-QWR-Nonce"
 HEADER_SIGNATURE = "X-QWR-Signature"
 HEADER_KEY_ID = "X-QWR-Key-ID"
-DEFAULT_KEY_ROTATION_GRACE_SECONDS = 300
 DEFAULT_PENDING_KEY_SECONDS = 300
 
 
@@ -118,11 +117,14 @@ def prepare_agent_key_rotation(
 def activate_pending_agent_key(
     session: Session,
     agent: AgentRecord,
-    *,
-    grace_seconds: int = DEFAULT_KEY_ROTATION_GRACE_SECONDS,
 ) -> datetime:
-    if not 60 <= grace_seconds <= 900:
-        raise ValueError("agent key-rotation grace must be between 60 and 900 seconds")
+    """Promote a pending key and revoke the old credential immediately.
+
+    The replacement secret is staged on the endpoint before activation, so post-
+    activation crash recovery uses that staged credential. Keeping the old secret
+    valid after activation would weaken rotation precisely when the old key may be
+    suspected compromised.
+    """
     now = _utcnow()
     if (
         not agent.pending_key_id
@@ -132,16 +134,20 @@ def activate_pending_agent_key(
     ):
         raise ValueError("pending agent credential is missing or expired")
 
-    agent.previous_key_id = agent.key_id
-    agent.previous_hmac_key_b64 = agent.hmac_key_b64
-    agent.previous_key_expires_at = now + timedelta(seconds=grace_seconds)
+    old_key_id = agent.key_id
     agent.key_id = agent.pending_key_id
     agent.hmac_key_b64 = agent.pending_hmac_key_b64
     agent.pending_key_id = None
     agent.pending_hmac_key_b64 = None
     agent.pending_key_expires_at = None
+
+    # Preserve only the old identifier for audit/debug correlation. The previous
+    # HMAC key material is deliberately not retained or accepted after activation.
+    agent.previous_key_id = old_key_id
+    agent.previous_hmac_key_b64 = None
+    agent.previous_key_expires_at = now
     session.flush()
-    return agent.previous_key_expires_at
+    return now
 
 
 def _auth_error(code: str, message: str) -> HTTPException:
@@ -160,6 +166,9 @@ def _normal_verification_key(
 ) -> bytes:
     if hmac.compare_digest(agent.key_id, key_id):
         return base64.b64decode(agent.hmac_key_b64)
+    # `allow_previous_key` is retained only as a compatibility argument for callers
+    # while v1.2 hardening is in flight. Activated previous secrets are erased, so
+    # normal traffic cannot authenticate with an old credential.
     if (
         allow_previous_key
         and agent.previous_key_id
@@ -259,7 +268,7 @@ def verify_agent_request(
     *,
     replay_window_seconds: int,
     allow_disabled: bool = False,
-    allow_previous_key: bool = True,
+    allow_previous_key: bool = False,
 ) -> AgentRecord:
     return _verify_agent_request_with_key_selector(
         session,
