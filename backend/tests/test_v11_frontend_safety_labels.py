@@ -27,18 +27,25 @@ def test_ui_separates_guidance_diagnostics_and_handle_bound_actions() -> None:
     assert "raw PIDs, paths, commands, service names, firewall rules" in action_text
     assert "handleOptionsFor" in action_text
     assert "qwrh1_" in action_text
-    assert "placeholder=\"qwrh1_" not in action_text
+    assert 'placeholder="qwrh1_' not in action_text
 
-    # The browser must not offer a non-demo action on an agent that has not
-    # independently signed that exact capability as locally enabled.
+    # The browser must mirror server capability freshness and exact-action gating.
+    assert "agentCapabilityFresh" in action_text
+    assert "CAPABILITY_MAX_AGE_MS = 15 * 60 * 1000" in action_text
+    assert "CAPABILITY_FUTURE_SKEW_MS = 30 * 1000" in action_text
     assert "agentEnablesAction" in action_text
     assert "eligibleAgentsFor" in action_text
-    assert "agent.capabilities_updated_at && agent.enabled_actions.includes(actionType)" in action_text
-    assert "No affected Response agent has signed this action as enabled" in action_text
+    assert "agent.enabled_actions.includes(actionType)" in action_text
+    assert "or its capability report is stale" in action_text
     assert 'LEGACY_CAPABILITY_EXEMPT_ACTIONS = new Set(["restart_quietward_demo_service"])' in action_text
 
-    assert "signed its locally enabled action capabilities" in agents_text
-    assert "capabilities_updated_at" in agents_text
+    # Agents console makes current trust state explicit rather than showing only a
+    # timestamp that an analyst has to interpret manually.
+    assert "capabilityStatus" in agents_text
+    assert 'type CapabilityStatus = "Fresh" | "Stale" | "Never reported"' in agents_text
+    assert "CAPABILITY_MAX_AGE_MS = 15 * 60 * 1000" in agents_text
+    assert "CAPABILITY_FUTURE_SKEW_MS = 30 * 1000" in agents_text
+    assert "Run the official Response-agent poll path to refresh before response actions" in agents_text
     assert "enabled_actions" in agents_text
 
     assert "Planned · not executable" in plan_text
