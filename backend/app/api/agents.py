@@ -13,12 +13,13 @@ from app.schemas.agent import (
     AgentCapabilitiesReport,
     AgentEnrollRequest,
     AgentEnrollResponse,
+    AgentKeyRotateResponse,
     AgentPatch,
     AgentRead,
 )
 from app.services.action_registry import ACTION_REGISTRY
 from app.services.action_service import cancel_undispatched_actions_for_agent
-from app.services.agent_auth import enroll_agent, verify_agent_request
+from app.services.agent_auth import enroll_agent, rotate_agent_key, verify_agent_request
 from app.services.analyst_auth import analyst_actor_id
 from app.services.audit_service import record_audit
 
@@ -80,6 +81,51 @@ def enroll(
         "secret": secret,
         "host_id": agent.host_id,
         "created_at": agent.created_at,
+    }
+
+
+@router.post("/{agent_id}/rotate-key", response_model=AgentKeyRotateResponse)
+async def rotate_key(
+    agent_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    raw = await request.body()
+    agent = verify_agent_request(
+        db,
+        request,
+        raw,
+        replay_window_seconds=request.app.state.settings.agent_replay_window_seconds,
+        allow_disabled=False,
+    )
+    if agent.agent_id != agent_id:
+        raise HTTPException(status_code=403, detail={"code": "agent_path_mismatch"})
+
+    old_key_id = agent.key_id
+    secret, previous_key_expires_at = rotate_agent_key(db, agent)
+    record_audit(
+        db,
+        actor_type="agent",
+        actor_id=agent.agent_id,
+        action="agent_key_rotated",
+        resource_type="agent",
+        resource_id=agent.agent_id,
+        details={
+            "host_id": agent.host_id,
+            "previous_key_id": old_key_id,
+            "new_key_id": agent.key_id,
+            "previous_key_expires_at": previous_key_expires_at.isoformat(),
+        },
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "agent_id": agent.agent_id,
+        "key_id": agent.key_id,
+        "secret": secret,
+        "previous_key_expires_at": previous_key_expires_at,
     }
 
 
