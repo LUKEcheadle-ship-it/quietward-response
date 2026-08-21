@@ -58,6 +58,17 @@ def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
     return False
 
 
+def agent_capability_reason(agent: AgentRecord, action_type: str) -> str | None:
+    """Return the fail-closed capability reason for one target agent/action."""
+    if action_type in _LEGACY_CAPABILITY_EXEMPT_ACTIONS:
+        return None
+    if agent.capabilities_updated_at is None:
+        return AGENT_CAPABILITY_MISSING_REASON
+    if action_type not in set(agent.enabled_actions or []):
+        return AGENT_CAPABILITY_DISABLED_REASON
+    return None
+
+
 def evaluate_action_policy(
     session: Session,
     action: ActionRecord,
@@ -82,11 +93,10 @@ def evaluate_action_policy(
         reasons.append("target agent is disabled")
     elif agent.host_id != action.target_host_id:
         reasons.append("target agent is not enrolled for target host")
-    elif action.action_type not in _LEGACY_CAPABILITY_EXEMPT_ACTIONS:
-        if agent.capabilities_updated_at is None:
-            reasons.append(AGENT_CAPABILITY_MISSING_REASON)
-        elif action.action_type not in set(agent.enabled_actions or []):
-            reasons.append(AGENT_CAPABILITY_DISABLED_REASON)
+    else:
+        capability_reason = agent_capability_reason(agent, action.action_type)
+        if capability_reason:
+            reasons.append(capability_reason)
 
     incident = session.get(IncidentRecord, action.incident_id)
     if incident is None:
