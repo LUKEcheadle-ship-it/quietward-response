@@ -107,6 +107,11 @@ class AgentRecord(Base):
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     agent_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    supported_actions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    enabled_actions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    capabilities_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
 
 class AgentNonceRecord(Base):
