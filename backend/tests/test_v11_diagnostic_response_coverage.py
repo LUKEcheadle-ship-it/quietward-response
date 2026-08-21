@@ -18,8 +18,6 @@ from app.services.action_registry import ACTION_REGISTRY
         ("package_vulnerability", "vulnerability", "medium", "vulnerability"),
         ("evidence_integrity_failure", "integrity", "critical", "integrity"),
         ("service_unavailable", "operational", "medium", "operational"),
-        # High-signal vendor vocabulary must flow through the same shared classifier
-        # used by the public response-plan endpoint, even when the category is broad.
         ("ransomware_detected", "execution", "critical", "malware"),
         ("credential_spray_detected", "security", "high", "identity"),
         ("c2_beacon_detected", "security", "high", "network"),
@@ -53,31 +51,56 @@ def test_major_attack_families_receive_structured_response_plans(
     assert response.status_code == 200, response.text
     plan = response.json()
 
-    assert plan["schema_version"] == "1.0"
+    assert plan["schema_version"] == "1.1"
     assert plan["mode"] == "advisory_with_controlled_actions"
     assert expected_family in plan["attack_families"]
     assert "unknown" not in plan["attack_families"]
     assert plan["investigation_steps"]
     assert plan["containment_steps"] or plan["recovery_steps"]
-    assert plan["executable_actions"] == []
+    assert "collect_host_diagnostic" in plan["executable_actions"]
     assert all(
         step["state"] in {"available", "manual", "planned", "blocked"}
         for section in ("investigation_steps", "containment_steps", "recovery_steps")
         for step in plan[section]
     )
 
+    if expected_family in {"execution", "privilege"}:
+        assert "collect_process_diagnostic" in plan["executable_actions"]
+        assert "terminate_process_by_handle" in plan["executable_actions"]
+    if expected_family == "malware":
+        assert "collect_file_diagnostic" in plan["executable_actions"]
+        assert "quarantine_artifact_by_handle" in plan["executable_actions"]
+        assert "restore_quarantined_artifact_by_handle" in plan["executable_actions"]
 
-def test_executable_registry_remains_exactly_the_released_demo_surface() -> None:
-    assert set(ACTION_REGISTRY) == {"restart_quietward_demo_service"}
-    definition = ACTION_REGISTRY["restart_quietward_demo_service"]
-    assert definition.approval_required is True
-    assert definition.validate_parameters({}) == []
-    assert definition.validate_parameters({"command": "whoami"}) == [
+
+def test_executable_registry_is_narrow_and_typed() -> None:
+    assert set(ACTION_REGISTRY) == {
+        "restart_quietward_demo_service",
+        "collect_host_diagnostic",
+        "collect_process_diagnostic",
+        "terminate_process_by_handle",
+        "collect_file_diagnostic",
+        "quarantine_artifact_by_handle",
+        "restore_quarantined_artifact_by_handle",
+    }
+
+    demo = ACTION_REGISTRY["restart_quietward_demo_service"]
+    assert demo.validate_parameters({}) == []
+    assert demo.validate_parameters({"command": "whoami"}) == [
         "this action accepts no parameters"
     ]
 
+    process = ACTION_REGISTRY["terminate_process_by_handle"]
+    assert process.validate_parameters({"resource_handle": "qwrh1_1234567890abcdef"}) == []
+    assert process.validate_parameters({"pid": 1234}) == [
+        "this action requires exactly one resource_handle parameter"
+    ]
+    assert process.validate_parameters({"resource_handle": "1234"}) == [
+        "resource_handle format is invalid"
+    ]
 
-def test_demo_plan_is_the_only_plan_with_an_executable_action(client, event_factory) -> None:
+
+def test_demo_plan_stays_separate_from_real_containment(client, event_factory) -> None:
     created = client.post(
         "/api/v1/events",
         json=event_factory(
@@ -92,18 +115,13 @@ def test_demo_plan_is_the_only_plan_with_an_executable_action(client, event_fact
     plan = client.get(
         f"/api/v1/incidents/{created.json()['incident_id']}/response-plan"
     ).json()
-    assert plan["executable_actions"] == ["restart_quietward_demo_service"]
-    executable_steps = [
-        step
-        for step in plan["containment_steps"]
-        if step.get("executable_action_type") is not None
-    ]
-    assert [step["executable_action_type"] for step in executable_steps] == [
-        "restart_quietward_demo_service"
-    ]
+    assert "restart_quietward_demo_service" in plan["executable_actions"]
+    assert "collect_host_diagnostic" in plan["executable_actions"]
+    assert "terminate_process_by_handle" not in plan["executable_actions"]
+    assert "quarantine_artifact_by_handle" not in plan["executable_actions"]
 
 
-def test_unknown_event_family_stays_advisory(client, event_factory) -> None:
+def test_unknown_event_family_gets_only_safe_host_diagnostic(client, event_factory) -> None:
     created = client.post(
         "/api/v1/events",
         json=event_factory(
@@ -118,5 +136,5 @@ def test_unknown_event_family_stays_advisory(client, event_factory) -> None:
         f"/api/v1/incidents/{created.json()['incident_id']}/response-plan"
     ).json()
     assert plan["attack_families"] == ["unknown"]
-    assert plan["executable_actions"] == []
+    assert plan["executable_actions"] == ["collect_host_diagnostic"]
     assert any("cannot be mapped" in item for item in plan["escalation_conditions"])
