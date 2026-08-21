@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.services.redaction import redact_sensitive, redact_sensitive_text
+
 ActionStatus = Literal[
     "pending",
     "approved",
@@ -37,7 +39,6 @@ class ActionCreate(BaseModel):
     target_host_id: str = Field(min_length=1, max_length=128)
     action_type: str = Field(min_length=1, max_length=128)
     parameters: dict[str, Any] = Field(default_factory=dict)
-    # None means use the server's QWR_ACTION_DEFAULT_TTL_SECONDS setting.
     expires_in_seconds: int | None = Field(default=None, ge=30, le=3600)
 
 
@@ -74,8 +75,6 @@ class ActionRead(BaseModel):
     def normalize_utc(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
-        # SQLite drops timezone metadata even for DateTime(timezone=True). Treat
-        # persisted naive values as UTC because every write path stores UTC time.
         if value.tzinfo is None or value.utcoffset() is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
@@ -101,6 +100,18 @@ class ActionResultCreate(BaseModel):
     error: str | None = Field(default=None, max_length=4096)
     evidence: dict[str, Any] = Field(default_factory=dict)
     agent_version: str | None = Field(default=None, max_length=64)
+
+    @field_validator("result", "evidence", mode="before")
+    @classmethod
+    def redact_credential_fields(cls, value: Any) -> Any:
+        return redact_sensitive(value)
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def redact_error_credentials(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return redact_sensitive_text(str(value))
 
     @field_validator("started_at", "completed_at")
     @classmethod
