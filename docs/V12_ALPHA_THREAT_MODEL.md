@@ -10,6 +10,7 @@ Allow a human analyst to investigate and perform a very small set of real contai
 2. **Analyst → Response:** outside loopback development, bearer authentication and RBAC are required. Authenticated identity controls audit attribution.
 3. **Response → agent:** the agent initiates outbound polling and HMAC-authenticates every pending/result request. Response exposes no inbound endpoint on the agent.
 4. **Agent → local resource:** high-impact actions require an agent-issued opaque handle backed by local identity/fingerprint state.
+5. **Audit DB → retained checkpoint:** the in-database hash chain is tamper-evident. A separately signed audit checkpoint may be retained outside the DB to anchor a historical prefix against later consistent rewrite or truncation.
 
 ## Primary attack cases and mitigations
 
@@ -44,6 +45,7 @@ Mitigations:
 - process/file mutators accept exactly one opaque `resource_handle` parameter;
 - raw PID/path parameter shapes fail server validation;
 - agent validates handle provenance/type/expiry locally;
+- normal console flow offers only unexpired handles returned by successful prior actions for the same incident and selected agent;
 - generic command/shell action types do not exist.
 
 ### Handle theft or cross-incident substitution
@@ -62,6 +64,8 @@ Mitigations:
 
 - process identity includes local start/creation/fingerprint data beyond PID;
 - identity is re-read immediately before mutation;
+- Linux process termination uses a pidfd bound to the process instance, then verifies the exact identity is gone;
+- Windows revalidates process creation identity on the opened termination handle and performs a bounded exit wait;
 - protected/self/parent/critical processes are excluded/refused;
 - changed identity fails closed;
 - interrupted termination with a vanished/replaced target is reported indeterminate rather than claiming success.
@@ -73,9 +77,12 @@ Mitigations:
 - server cannot submit file paths;
 - file handles are issued only for regular files under explicitly configured managed roots;
 - symlinks are excluded before resolution;
-- root membership + file identity are revalidated before quarantine;
+- root membership, filesystem identity, metadata and SHA-256 content are revalidated before containment;
+- content is verified again after quarantine/restore;
 - quarantine directory is forbidden inside managed roots;
 - restore requires the rollback handle and refuses occupied/out-of-root targets.
+
+Residual risk: on portable cross-platform filesystems, verification and the final move are not one atomic primitive. A malicious local actor with equivalent filesystem access could race the final operation. Device/inode/metadata/content checks plus post-move verification narrow this window; platform-specific descriptor/handle-relative operations are future hardening.
 
 ### Crash/retry during mutation
 
@@ -109,6 +116,32 @@ Mitigations:
 
 Known limitation: shared rate limiting is required before multi-worker deployment.
 
+### Full audit-chain rewrite
+
+Attack: an attacker with database write access changes historical audit content and recomputes every subsequent `previous_hash`/`entry_hash`, leaving the database internally consistent.
+
+Mitigations:
+
+- ordinary `verify_audit_chain` still detects accidental/partial tamper;
+- a separately configured audit-checkpoint secret signs `(generated_at, entries_checked, head_hash)`;
+- a checkpoint retained outside the database anchors the exact historical prefix;
+- later verification authenticates the checkpoint and compares the checkpoint head to the same prefix in the current DB;
+- a consistently recomputed historical prefix therefore fails the retained checkpoint even when the plain chain is internally valid.
+
+Residual risk: if the attacker also compromises the independent checkpoint secret and every retained external checkpoint, they can forge a replacement anchor.
+
+### Audit suffix deletion
+
+Attack: records after some point are removed while the remaining prefix stays internally valid.
+
+Mitigation: any retained checkpoint covering more entries than the current DB detects the missing/truncated prefix. A checkpoint generated before the deleted records obviously cannot prove records it never covered.
+
+### Checkpoint tampering
+
+Mitigation: HMAC-SHA256 signature using a key derived from the independent `QWR_AUDIT_CHECKPOINT_SECRET`; malformed/signature-modified checkpoints fail closed.
+
+Known limitation: signed checkpoints strengthen tamper evidence but are not immutable external/WORM retention. Operational value depends on exporting/retaining them somewhere independent of the database.
+
 ## Qualified mutation scope
 
 v1.2 alpha qualification permits only:
@@ -130,6 +163,6 @@ The automated live gate must never target arbitrary host files or pre-existing p
 - package/configuration mutation;
 - autonomous remediation;
 - multi-worker API runtime;
-- immutable external audit retention.
+- immutable external/WORM audit retention.
 
 Every future mutator requires its own local identity model, typed parameters, opt-in/risk policy, rollback/failure model, and adversarial qualification before entering the registry.
