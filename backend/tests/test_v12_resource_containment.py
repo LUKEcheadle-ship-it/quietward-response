@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -10,6 +11,7 @@ import pytest
 
 from scripts.response_agent import AgentConfig, ResponseAgent, ResponseAgentError
 from scripts.response_agent_resources import (
+    MAX_MANAGED_FILE_BYTES,
     ResourceError,
     ResourceHandleStore,
     _linux_process,
@@ -56,7 +58,7 @@ def _action(
     from datetime import datetime, timezone
 
     requested = datetime.fromtimestamp(now, timezone.utc)
-    expires = datetime.fromtimestamp(now + 300, timezone.utc)
+    expires = datetime.fromtimestamp(now + 240, timezone.utc)
     return {
         "schema_version": "1.0",
         "action_id": action_id,
@@ -81,7 +83,7 @@ def _action(
     }
 
 
-def test_managed_file_quarantine_and_restore_are_handle_bound(tmp_path: Path) -> None:
+def test_managed_file_quarantine_and_restore_are_content_and_handle_bound(tmp_path: Path) -> None:
     managed = (tmp_path / "managed").resolve()
     managed.mkdir()
     source = managed / "sample.bin"
@@ -91,8 +93,10 @@ def test_managed_file_quarantine_and_restore_are_handle_bound(tmp_path: Path) ->
     diagnostic = collect_file_diagnostic(store, (managed,))
     assert diagnostic["read_only"] is True
     assert diagnostic["system_state_changed"] is False
+    assert diagnostic["managed_file_max_bytes"] == MAX_MANAGED_FILE_BYTES
     row = next(item for item in diagnostic["files"] if item["relative_path"] == "sample.bin")
     assert "resource_handle" in row
+    assert len(row["sha256"]) == 64
     assert str(source) not in str(diagnostic)
 
     quarantined = quarantine_file_by_handle(
@@ -102,9 +106,9 @@ def test_managed_file_quarantine_and_restore_are_handle_bound(tmp_path: Path) ->
     )
     assert quarantined["quarantined"] is True
     assert quarantined["reversible"] is True
+    assert quarantined["sha256"] == row["sha256"]
     assert not source.exists()
 
-    # Exact replay returns the stored consumption receipt instead of moving again.
     assert quarantine_file_by_handle(
         store,
         row["resource_handle"],
@@ -116,11 +120,31 @@ def test_managed_file_quarantine_and_restore_are_handle_bound(tmp_path: Path) ->
         quarantined["rollback_resource_handle"],
     )
     assert restored["restored"] is True
+    assert restored["sha256"] == row["sha256"]
     assert source.read_bytes() == b"safe disposable test fixture"
     assert restore_quarantined_file(
         store,
         quarantined["rollback_resource_handle"],
     ) == restored
+
+
+def test_same_size_same_mtime_content_substitution_fails_closed(tmp_path: Path) -> None:
+    managed = (tmp_path / "managed").resolve()
+    managed.mkdir()
+    source = managed / "artifact.bin"
+    source.write_bytes(b"AAAAAAAAAAAAAAAA")
+    before = source.stat()
+    store = ResourceHandleStore((tmp_path / "state").resolve())
+    diagnostic = collect_file_diagnostic(store, (managed,))
+    handle = diagnostic["files"][0]["resource_handle"]
+
+    source.write_bytes(b"BBBBBBBBBBBBBBBB")
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert source.stat().st_size == before.st_size
+    assert source.stat().st_mtime_ns == before.st_mtime_ns
+
+    with pytest.raises(ResourceError, match="identity changed"):
+        quarantine_file_by_handle(store, handle, (tmp_path / "quarantine").resolve())
 
 
 def test_file_identity_change_and_occupied_restore_fail_closed(tmp_path: Path) -> None:
@@ -144,16 +168,19 @@ def test_file_identity_change_and_occupied_restore_fail_closed(tmp_path: Path) -
         restore_quarantined_file(store, quarantined["rollback_resource_handle"])
 
 
-def test_symlink_is_not_eligible_for_managed_file_handle(tmp_path: Path) -> None:
+def test_symlink_and_oversized_file_are_not_eligible_for_managed_file_handle(tmp_path: Path) -> None:
     managed = (tmp_path / "managed").resolve()
     managed.mkdir()
     target = managed / "target.bin"
     target.write_bytes(b"target")
+    oversized = managed / "oversized.bin"
+    with oversized.open("wb") as stream:
+        stream.truncate(MAX_MANAGED_FILE_BYTES + 1)
     link = managed / "link.bin"
     try:
         link.symlink_to(target)
     except (OSError, NotImplementedError):
-        pytest.skip("symlink creation is unavailable on this platform")
+        link = None
 
     diagnostic = collect_file_diagnostic(
         ResourceHandleStore((tmp_path / "state").resolve()),
@@ -161,14 +188,45 @@ def test_symlink_is_not_eligible_for_managed_file_handle(tmp_path: Path) -> None
     )
     names = {item["relative_path"] for item in diagnostic["files"]}
     assert "target.bin" in names
-    assert "link.bin" not in names
+    assert "oversized.bin" not in names
+    assert diagnostic["skipped_oversize_files"] == 1
+    if link is not None:
+        assert "link.bin" not in names
+
+
+def test_expired_unconsumed_handles_are_purged_before_capacity_counts(tmp_path: Path) -> None:
+    store = ResourceHandleStore((tmp_path / "state").resolve())
+    issued = store.issue(
+        kind="test",
+        identity={"id": 1},
+        fingerprint="fingerprint-one",
+        display={},
+    )
+    raw = json.loads(store.path.read_text(encoding="utf-8"))
+    raw[issued["resource_handle"]]["expires_at_epoch"] = time.time() - 1
+    store.path.write_text(json.dumps(raw), encoding="utf-8")
+
+    second = store.issue(
+        kind="test",
+        identity={"id": 2},
+        fingerprint="fingerprint-two",
+        display={},
+    )
+    state = json.loads(store.path.read_text(encoding="utf-8"))
+    assert issued["resource_handle"] not in state
+    assert second["resource_handle"] in state
 
 
 @pytest.mark.skipif(
     not (os.name == "nt" or sys.platform.startswith("linux")),
     reason="process containment is currently Windows/Linux only",
 )
-def test_disposable_child_process_termination_is_exact_and_replay_safe(tmp_path: Path) -> None:
+def test_disposable_child_process_termination_is_os_handle_bound_and_replay_safe(tmp_path: Path) -> None:
+    if sys.platform.startswith("linux") and (
+        not hasattr(os, "pidfd_open") or not hasattr(__import__("signal"), "pidfd_send_signal")
+    ):
+        pytest.skip("safe Linux pidfd process termination is unavailable")
+
     child = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
         stdin=subprocess.DEVNULL,
@@ -197,6 +255,9 @@ def test_disposable_child_process_termination_is_exact_and_replay_safe(tmp_path:
         )
         result = terminate_process_by_handle(store, issued["resource_handle"])
         assert result["termination_requested"] is True
+        assert result["termination_verified"] is True
+        if sys.platform.startswith("linux"):
+            assert result["signal"] == "SIGTERM-via-pidfd"
         child.wait(timeout=5)
         assert child.poll() is not None
         assert terminate_process_by_handle(store, issued["resource_handle"]) == result
