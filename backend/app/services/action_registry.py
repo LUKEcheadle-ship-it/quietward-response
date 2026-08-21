@@ -17,6 +17,7 @@ class ActionDefinition:
     reversible: bool
     implementation_version: str
     parameter_mode: ParameterMode = "none"
+    max_ttl_seconds: int = 600
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
         if self.parameter_mode == "none":
@@ -73,6 +74,7 @@ TERMINATE_PROCESS_BY_HANDLE = ActionDefinition(
     reversible=False,
     implementation_version="2",
     parameter_mode="resource_handle",
+    max_ttl_seconds=240,
 )
 
 COLLECT_FILE_DIAGNOSTIC = ActionDefinition(
@@ -94,6 +96,7 @@ QUARANTINE_ARTIFACT_BY_HANDLE = ActionDefinition(
     reversible=True,
     implementation_version="2",
     parameter_mode="resource_handle",
+    max_ttl_seconds=240,
 )
 
 RESTORE_QUARANTINED_ARTIFACT_BY_HANDLE = ActionDefinition(
@@ -105,6 +108,7 @@ RESTORE_QUARANTINED_ARTIFACT_BY_HANDLE = ActionDefinition(
     reversible=True,
     implementation_version="2",
     parameter_mode="resource_handle",
+    max_ttl_seconds=600,
 )
 
 
@@ -137,6 +141,7 @@ def public_action_registry() -> list[dict[str, object]]:
             "reversible": item.reversible,
             "implementation_version": item.implementation_version,
             "parameter_mode": item.parameter_mode,
+            "max_ttl_seconds": item.max_ttl_seconds,
         }
         for item in ACTION_REGISTRY.values()
     ]
