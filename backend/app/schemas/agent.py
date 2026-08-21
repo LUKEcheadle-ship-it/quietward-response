@@ -32,7 +32,7 @@ class AgentKeyRotationPrepareResponse(BaseModel):
 class AgentKeyRotationActivateResponse(BaseModel):
     agent_id: str
     key_id: str
-    previous_key_expires_at: datetime
+    previous_key_revoked_at: datetime
 
 
 class AgentCapabilitiesReport(BaseModel):
