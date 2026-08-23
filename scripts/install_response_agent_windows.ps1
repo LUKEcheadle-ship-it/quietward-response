@@ -23,7 +23,6 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "python.exe could not be resolved to a normal file"
 }
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
 $runtime = Join-Path $env:LOCALAPPDATA "QuietWardResponse\agent-runtime"
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 
@@ -32,6 +31,7 @@ $runtimeFiles = @(
     "response_agent_v12.py",
     "response_agent.py",
     "response_agent_capabilities.py",
+    "response_agent_file_v12.py",
     "response_agent_network.py",
     "response_agent_resources.py"
 )
