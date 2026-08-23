@@ -8,6 +8,7 @@ import platform
 import signal
 import sqlite3
 import stat
+import sys
 import threading
 import time
 from pathlib import Path
@@ -72,8 +73,14 @@ def _load_state(path: Path) -> dict[str, Any]:
         return {}
     if path.is_symlink():
         raise ResponseAgentError("QuietWard adapter state must not be a symbolic link")
-    if path.stat().st_size > MAX_STATE_BYTES:
-        raise ResponseAgentError("QuietWard adapter state is unexpectedly large")
+    try:
+        info = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ResponseAgentError("QuietWard adapter state is unavailable") from exc
+    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_STATE_BYTES:
+        raise ResponseAgentError("QuietWard adapter state is invalid")
+    if os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077:
+        raise ResponseAgentError("QuietWard adapter state must not be group/world accessible")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -105,6 +112,20 @@ def _max_rowid(connection: sqlite3.Connection) -> int:
     except sqlite3.Error as exc:
         raise ResponseAgentError("QuietWard database does not expose the expected events table") from exc
     return int(row["value"] if row is not None else 0)
+
+
+def _validate_database_host(connection: sqlite3.Connection, expected_host_id: str) -> None:
+    try:
+        rows = list(connection.execute("SELECT DISTINCT host_id FROM events LIMIT 3"))
+    except sqlite3.Error as exc:
+        raise ResponseAgentError("QuietWard database does not expose the expected events table") from exc
+    hosts = {str(row["host_id"]) for row in rows if row["host_id"] not in (None, "")}
+    if len(hosts) > 1:
+        raise ResponseAgentError("QuietWard adapter accepts a single-host detector database only")
+    if hosts and hosts != {expected_host_id}:
+        raise ResponseAgentError(
+            "QuietWard database host does not match the enrolled Response agent host"
+        )
 
 
 def _event_rows(
@@ -289,12 +310,17 @@ class QuietWardEventAdapter:
         self.from_beginning = bool(from_beginning)
 
     def _initial_rowid(self, connection: sqlite3.Connection) -> int:
+        maximum = _max_rowid(connection)
         state = _load_state(self.state_path)
         if state:
             if state.get("host_id") != self.agent.config.host_id:
                 raise ResponseAgentError("QuietWard adapter state belongs to another host")
-            return max(0, int(state.get("last_rowid") or 0))
-        return 0 if self.from_beginning else _max_rowid(connection)
+            last_rowid = max(0, int(state.get("last_rowid") or 0))
+            # SQLite rowids can restart after database replacement/full reset. UUIDv5
+            # event translation makes replay safe, so reset the local cursor rather
+            # than silently missing a new low-rowid database generation.
+            return 0 if last_rowid > maximum else last_rowid
+        return 0 if self.from_beginning else maximum
 
     def _save(self, rowid: int) -> None:
         _atomic_json(
@@ -310,6 +336,7 @@ class QuietWardEventAdapter:
 
     def forward_once(self) -> int:
         with _readonly_database(self.database_path) as connection:
+            _validate_database_host(connection, self.agent.config.host_id)
             after = self._initial_rowid(connection)
             rows = _event_rows(connection, after_rowid=after, limit=self.batch_size)
         if not rows:
@@ -323,8 +350,6 @@ class QuietWardEventAdapter:
             try:
                 self.agent._request("POST", "/api/v1/events", payload)
             except ResponseAgentError as exc:
-                # Deterministic UUIDs make retry safe. A server duplicate means the
-                # event is already durable and the local read cursor may advance.
                 text = str(exc)
                 if "HTTP 409" not in text or "duplicate_event_id" not in text:
                     raise
@@ -389,6 +414,7 @@ def main() -> int:
                     {"status": "degraded", "error": detail, "retry_in_seconds": backoff},
                     sort_keys=True,
                 ),
+                file=sys.stderr,
                 flush=True,
             )
             stop.wait(backoff)
