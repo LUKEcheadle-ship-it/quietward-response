@@ -84,8 +84,6 @@ def build_response_plan(
     families = set(plan.get("attack_families", []))
     allowed_actions = _allowed_actions(incident)
 
-    # Never advertise an executable action that the incident's persisted policy
-    # recommendation set does not authorize. This keeps pre-v1.2 incidents fail-closed.
     plan["executable_actions"] = [
         item for item in plan.get("executable_actions", []) if item in allowed_actions
     ]
@@ -133,6 +131,22 @@ def build_response_plan(
                 "process identity, protects critical/self processes, and never accepts a raw PID."
             )
 
+    if "network" in families:
+        _append_step(
+            plan,
+            allowed_actions,
+            section="investigation_steps",
+            step_id="collect-network-diagnostic",
+            title="Collect bounded network diagnostic",
+            description=(
+                "On Linux, read bounded /proc network tables directly and return protocol, ports, "
+                "address scope, hashed remote-address identity, and short-lived opaque socket handles. "
+                "The diagnostic is read-only and never returns raw remote addresses."
+            ),
+            action_type="collect_network_diagnostic",
+            destructive=False,
+        )
+
     if families & {"malware", "file_integrity"}:
         _enable_step(
             plan,
@@ -179,6 +193,6 @@ def build_response_plan(
         "v1.2 handle-bound containment is opt-in in each Response agent configuration.",
         "Process termination and file quarantine require a fresh incident-bound local diagnostic handle; raw PID/path targeting and cross-incident handle reuse remain unavailable.",
         "Pre-v1.2 incidents do not gain new executable actions retroactively unless their persisted recommendation set already authorizes them.",
-        "Network/firewall, account/session, persistence, container, service, and package mutation remain non-executable pending equally narrow handle-backed executors.",
+        "Linux network diagnostics are read-only and return hashed destination identity; firewall/network mutation, account/session, persistence, container, service, and package mutation remain non-executable pending equally narrow handle-backed executors.",
     ]
     return plan
