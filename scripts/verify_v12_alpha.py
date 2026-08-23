@@ -155,14 +155,38 @@ def _verify_v12_public_quick_start(python: str, temporary: Path) -> None:
     )
     _assert_v12_schema(database)
     _assert_frontend_port_available()
+    # Prove the durable-data credential scanner itself executes against the
+    # release-created database and finds no values the current redactor would remove.
+    _run(
+        [
+            python,
+            str(ROOT / "audit_sensitive_persistence.py"),
+            "--database-url",
+            f"sqlite:///{database.as_posix()}",
+        ],
+        cwd=ROOT,
+        env=env,
+    )
 
 
 def main() -> int:
     python = _ensure_python()
 
     _run([python, "-m", "compileall", "-q", "app", "tests"], cwd=BACKEND)
-    _run([python, "-m", "compileall", "-q", "scripts", "response_agent_resources.py"], cwd=ROOT)
+    _run(
+        [
+            python,
+            "-m",
+            "compileall",
+            "-q",
+            "scripts",
+            "response_agent_resources.py",
+            "audit_sensitive_persistence.py",
+        ],
+        cwd=ROOT,
+    )
     _run([python, str(ROOT / "scripts" / "audit_public_release.py")], cwd=ROOT)
+    _run([python, str(ROOT / "scripts" / "audit_v12_sensitive_artifacts.py")], cwd=ROOT)
     _run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _run([python, str(ROOT / "scripts" / "verify_v12_surface.py")], cwd=ROOT)
 
@@ -190,6 +214,8 @@ def main() -> int:
     print("Signed externalizable audit checkpoints: PASS")
     print("Analyst bearer authentication/RBAC: PASS")
     print("API request-size/rate bounds: PASS")
+    print("Tracked secret/artifact audit: PASS")
+    print("Durable sensitive-persistence audit: PASS")
     print(f"Fresh and legacy migrations to {EXPECTED_ALEMBIC_HEAD}: PASS")
     print("Frontend typecheck/build/high-severity npm audit: PASS")
     print("Public quick-start and cleanup: PASS")
