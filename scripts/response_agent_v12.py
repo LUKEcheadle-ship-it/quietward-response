@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import argparse
+import json
 import platform
+from pathlib import Path
 from typing import Any
 
 import response_agent as base
 from response_agent import AgentConfig, ResponseAgentError
 from response_agent_network import collect_network_diagnostic
 
-# Extend the already-qualified v1.2 agent protocol with one additional read-only
-# action. The base class continues to own auth, approval/policy validation,
-# exactly-once execution, result signing, handle provenance, and mutating executors.
+# Extend the finite v1.2 agent protocol with one additional read-only action.
+# The base class continues to own auth, approval/policy validation, exactly-once
+# execution, result signing, handle provenance, and mutating executors.
 base._ACTION_PARAMETER_MODE.setdefault("collect_network_diagnostic", "none")
 
 
@@ -43,4 +46,25 @@ class ResponseAgent(base.ResponseAgent):
         )
 
 
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Inspect the canonical QuietWard Response v1.2 agent capability surface."
+    )
+    parser.add_argument("command", choices=("capabilities",))
+    parser.add_argument("--config", type=Path, required=True)
+    return parser
+
+
+def main() -> int:
+    args = _parser().parse_args()
+    config = AgentConfig.from_file(args.config.expanduser())
+    agent = ResponseAgent(config)
+    print(json.dumps(agent.capabilities(), indent=2, sort_keys=True))
+    return 0
+
+
 __all__ = ["AgentConfig", "ResponseAgent", "ResponseAgentError"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
