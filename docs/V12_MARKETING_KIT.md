@@ -6,7 +6,7 @@ Use this material only after the exact release candidate passes `scripts/finaliz
 
 **One-line description**
 
-QuietWard Response is a standalone controlled-response platform that turns validated security telemetry into explainable incidents, structured response plans and narrowly typed analyst-approved actions.
+QuietWard Response is a standalone controlled-response platform that turns authenticated security telemetry into explainable incidents, structured response plans and narrowly typed analyst-approved endpoint actions.
 
 **Short tagline**
 
@@ -14,7 +14,7 @@ Controlled response without a generic remote shell.
 
 **Repository/About description**
 
-Incident investigation and controlled response with deterministic policy, analyst approval, typed endpoint actions, opaque resource handles and tamper-evident audit controls.
+Incident investigation and controlled response with deterministic policy, analyst approval, typed endpoint actions, opaque resource handles, continuous endpoint agents and tamper-evident audit controls.
 
 ## Core story
 
@@ -25,17 +25,24 @@ Most early response tools choose between being too passive or exposing a dangero
 - analyst approval and deterministic policy are required;
 - the endpoint independently verifies target identity and local capability enablement;
 - real process/file containment uses endpoint-issued opaque handles rather than server-supplied PID/path values;
+- the official endpoint agent runs continuously while maintaining signed capability freshness;
 - no generic shell, PowerShell, cmd, bash or model-generated command path exists.
+
+QuietWard remains a separate public product. When the two are used together, a **Response-owned read-only adapter** reads QuietWard's local SQLite event store in read-only mode, translates events into the Response wire schema and sends them using the enrolled Response-agent credential. Response code is not placed inside QuietWard.
 
 ## v1.2 launch highlights
 
 - deterministic incident response plans across common attack families;
+- stronger correlation requiring shared concrete indicators or compatible high-signal attack stages rather than same-category coincidence;
 - eight-action finite response surface;
 - read-only host/process/file diagnostics;
 - Linux read-only network diagnostic with endpoint-local pseudonymous remote identity;
-- exact process termination by short-lived opaque handle;
-- managed-root artifact quarantine and rollback;
+- exact process termination by short-lived opaque handle when strongly justified and locally enabled;
+- managed-root artifact quarantine and rollback for strongly justified malware/file evidence;
+- 256 MiB total file-diagnostic hashing budget;
 - signed agent capability negotiation;
+- continuous Linux/Windows user-scoped endpoint operation;
+- optional read-only QuietWard→Response adapter with deterministic retry-safe event IDs;
 - two-phase key rotation with immediate old-key revocation;
 - viewer/responder/admin RBAC;
 - request-size and rate limits;
@@ -59,9 +66,11 @@ Do not position v1.2 as an enterprise SOAR platform, mature EDR replacement or a
 
 QuietWard Response v1.2.0-alpha.1 is the first release candidate of my controlled-response project with narrowly executable real containment.
 
-It adds typed process termination and reversible file quarantine through short-lived endpoint-issued resource handles, plus signed endpoint capabilities, RBAC, key rotation, sensitive-data redaction, signed audit checkpoints and a privacy-preserving Linux network diagnostic.
+It adds typed process termination and reversible file quarantine through short-lived endpoint-issued resource handles, plus a continuously running capability-aware agent, signed endpoint capabilities, RBAC, key rotation, sensitive-data redaction, signed audit checkpoints and a privacy-preserving Linux network diagnostic.
 
-The design intentionally has no generic remote shell. Telemetry can shape an incident and response plan, but execution still requires a registered action, analyst approval, deterministic policy and independent endpoint checks.
+A separate read-only adapter can forward local QuietWard findings/events into Response without putting response code inside QuietWard or giving the adapter host-mutation authority.
+
+The design intentionally has no generic remote shell. Execution still requires a registered action, analyst approval, deterministic policy and independent endpoint checks.
 
 Experimental alpha—not autonomous remediation.
 
@@ -71,7 +80,9 @@ I’ve been building QuietWard Response as a security-engineering project around
 
 The v1.2 alpha candidate introduces the first real containment actions: exact process termination and reversible managed-file quarantine, both targeted through short-lived opaque handles issued from the endpoint’s own local observation. The server cannot submit a raw PID or filesystem path.
 
-The control plane adds signed endpoint capability negotiation, analyst RBAC, two-phase key rotation, request/rate bounds, credential-like field redaction, tamper-evident audit checkpoints and an integrity-compromise trust freeze. A Linux network diagnostic provides bounded connection context while keeping raw addresses local and returning only endpoint-keyed pseudonymous destination identity.
+The control plane adds signed endpoint capability negotiation, analyst RBAC, two-phase key rotation, request/rate bounds, credential-like field redaction, tamper-evident audit checkpoints and an integrity-compromise trust freeze. The endpoint agent runs continuously with bounded retry/backoff. A Linux network diagnostic provides bounded connection context while keeping raw addresses local and returning only endpoint-keyed pseudonymous destination identity.
+
+QuietWard remains separate. An optional Response-owned adapter opens its SQLite evidence store read-only, translates events deterministically and forwards them through the normal authenticated Response protocol.
 
 The system deliberately does not expose shell/PowerShell/cmd/script execution and does not allow response-plan text to become executable code.
 
@@ -79,22 +90,23 @@ It is still an experimental alpha, but the project is intended to demonstrate wh
 
 ## Portfolio / resume bullet
 
-Built QuietWard Response, a standalone incident-response control plane with deterministic correlation/planning, analyst RBAC, HMAC-authenticated endpoint agents, opaque-handle process/file containment, replay protection, signed audit checkpoints and adversarial security release gates.
+Built QuietWard Response, a standalone incident-response control plane with deterministic correlation/planning, analyst RBAC, HMAC-authenticated continuous endpoint agents, opaque-handle process/file containment, read-only detector integration, replay protection, signed audit checkpoints and adversarial security release gates.
 
 ## Demo narrative
 
 A clean marketing/reviewer demo should use only disposable fixtures:
 
-1. Ingest a synthetic suspicious process/file/network event.
-2. Show deterministic incident classification and Response Plan.
-3. Show signed endpoint capabilities on the Agents page.
-4. Run a read-only diagnostic.
-5. Show the UI selecting an endpoint-issued opaque handle rather than entering a PID/path.
-6. Approve a disposable process termination or managed-file quarantine.
-7. Show the signed result and audit trail.
-8. Restore the quarantined disposable file using the rollback handle.
-9. Export/verify an audit checkpoint.
-10. End by showing that shell/raw-target/network-mutation controls do not exist.
+1. Show QuietWard producing a local privacy-bounded event or create an equivalent synthetic sensor event.
+2. If demonstrating the combined workflow, show the Response adapter reading QuietWard SQLite read-only and the incident appearing in Response.
+3. Show deterministic incident classification and Response Plan.
+4. Show signed endpoint capabilities on the Agents page.
+5. Run a read-only diagnostic.
+6. Show the UI selecting an endpoint-issued opaque handle rather than entering a PID/path.
+7. Approve a disposable process termination or managed-file quarantine.
+8. Show the signed result and audit trail.
+9. Restore the quarantined disposable file using the rollback handle.
+10. Export/verify an audit checkpoint.
+11. End by showing that shell/raw-target/network-mutation controls do not exist.
 
 Never use a real user process/file for a public demo.
 
@@ -103,10 +115,11 @@ Never use a real user process/file for a public demo.
 - standalone incident-investigation and controlled-response platform;
 - finite eight-action v1.2 registry;
 - analyst approval + deterministic policy for all registered actions;
-- HMAC-authenticated outward-polling agent;
+- continuously running HMAC-authenticated outward-polling agent on qualified Linux/Windows paths;
 - exact process termination by opaque handle on qualified platforms;
-- managed-root reversible artifact quarantine/restore;
+- managed-root reversible artifact quarantine/restore on qualified Linux/Windows paths;
 - Linux read-only privacy-preserving network diagnostic;
+- optional read-only QuietWard adapter maintained entirely in the Response repository;
 - no generic remote shell/command action;
 - bearer RBAC for non-loopback/non-development deployments;
 - signed audit checkpoints that can anchor retained history.
@@ -115,13 +128,15 @@ Never use a real user process/file for a public demo.
 
 Do not claim:
 
-- “production-ready SOAR”; 
-- “enterprise EDR”; 
-- “autonomous incident response”; 
-- “AI automatically remediates attacks”; 
-- “immutable audit log”; 
-- “prevents breaches”; 
-- firewall/host-isolation/account/container remediation that is not present in v1.2.
+- “production-ready SOAR”;
+- “enterprise EDR”;
+- “autonomous incident response”;
+- “AI automatically remediates attacks”;
+- “immutable audit log”;
+- “prevents breaches”;
+- automatic firewall/host-isolation/account/container/persistence remediation that is not present in v1.2;
+- that every QuietWard finding is automatically contained;
+- that the adapter modifies or embeds code into QuietWard.
 
 ## Release materials to surface
 
@@ -130,9 +145,11 @@ At publication, point reviewers/users to:
 - `README.md`
 - `docs/releases/v1.2.0-alpha.1.md`
 - `docs/V12_REVIEW_GUIDE.md`
+- `docs/V12_RELEASE_CORRECTIONS.md`
 - `docs/V12_ALPHA_THREAT_MODEL.md`
 - `docs/V12_ADVERSARIAL_REGRESSION_MATRIX.md`
 - `docs/V12_ALPHA_ACCEPTANCE.md`
+- `docs/V12_RELEASE_CHECKLIST.md`
 - `SECURITY.md`
 
 The release announcement should state the exact qualified candidate SHA and explicitly identify the release as an experimental alpha.
