@@ -28,6 +28,11 @@ def test_v12_alpha_release_metadata_is_consistent() -> None:
     assert "1.2.0a1" in acceptance
     assert "feature/response-v12-hardening" in readme
     assert "feature/response-v12-hardening" in acceptance
+    assert "eight-action" in readme.lower() or "eight actions" in readme.lower()
+    assert "eight-action" in acceptance.lower()
+    assert "collect_network_diagnostic" in readme
+    assert "collect_network_diagnostic" in acceptance
+    assert "raw_network_addresses_returned" in readme.lower()
     assert "opaque" in readme.lower()
     assert "incident-bound" in threat_model.lower()
     assert "raw pid" in readme.lower()
@@ -39,7 +44,7 @@ def test_v12_alpha_release_metadata_is_consistent() -> None:
     combined_checkpoint_docs = "\n".join((acceptance, threat_model, release_notes)).lower()
     assert "audit checkpoint" in combined_checkpoint_docs
     assert "full-chain" in combined_checkpoint_docs or "full chain" in combined_checkpoint_docs
-    assert "suffix" in combined_checkpoint_docs
+    assert "suffix" in combined_checkpoint_docs or "truncation" in combined_checkpoint_docs
     assert "qwr_audit_checkpoint_secret" in combined_checkpoint_docs
     assert "free-form pid, path, command, or opaque-handle input" in acceptance.lower()
 
@@ -59,10 +64,15 @@ def test_v12_agent_hardening_files_are_release_tracked() -> None:
         "backend/alembic/versions/0003_agent_capabilities.py",
         "backend/tests/test_v12_agent_capabilities.py",
         "backend/tests/test_v12_agent_key_rotation.py",
+        "backend/tests/test_v12_network_diagnostic.py",
+        "backend/tests/test_v12_network_agent_integration.py",
         "scripts/poll_response_agent.py",
         "scripts/response_agent_capabilities.py",
+        "scripts/response_agent_network.py",
+        "scripts/response_agent_v12.py",
         "scripts/rotate_response_agent_key.py",
         "scripts/verify_v12_alpha_live_capabilities.py",
+        "scripts/verify_v12_network_live.py",
     )
     for relative in required:
         assert (ROOT / relative).is_file(), relative
