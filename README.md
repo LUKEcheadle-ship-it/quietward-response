@@ -247,10 +247,10 @@ python scripts/enroll_response_agent.py \
 
 The helper writes the one-time secret into a permission-hardened private JSON config and does not print it. OS-backed agent secret storage remains a post-alpha hardening target.
 
-Inspect capabilities locally:
+Inspect the canonical v1.2 capability surface locally:
 
 ```text
-python scripts/response_agent.py capabilities --config PATH_TO_AGENT_JSON
+python scripts/response_agent_v12.py capabilities --config PATH_TO_AGENT_JSON
 ```
 
 For normal operation use the capability-aware poller:
