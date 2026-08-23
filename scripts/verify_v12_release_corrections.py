@@ -63,6 +63,8 @@ def main() -> int:
             '"source": "quietward"',
             "uuid5(",
             "quietward_database_read_only",
+            "quietward_event_ingestion_only",
+            "ReloadingEventOnlyClient",
             "host does not match the enrolled Response agent host",
         ),
         "QuietWard adapter",
@@ -73,9 +75,49 @@ def main() -> int:
         'DELETE FROM events',
         "import quietward",
         "from quietward",
+        "/actions/pending",
+        "terminate_process_by_handle",
+        "quarantine_artifact_by_handle",
     ):
         if forbidden in adapter:
-            raise RuntimeError(f"QuietWard adapter gained forbidden detector coupling/write: {forbidden}")
+            raise RuntimeError(f"QuietWard adapter gained forbidden detector coupling/write/action surface: {forbidden}")
+
+    adapter_auth = _text("scripts/quietward_adapter_credentials.py")
+    _require(
+        adapter_auth,
+        (
+            "EVENT_INGESTION_SUBKEY_DOMAIN",
+            "quietward_event_ingestion_only",
+            "event_hmac_key_b64",
+            "EventOnlyClient",
+            'target != "/api/v1/events"',
+        ),
+        "adapter least-privilege credential",
+    )
+    server_auth = _text("backend/app/services/agent_auth.py")
+    _require(
+        server_auth,
+        (
+            "derive_event_ingestion_subkey",
+            "verify_agent_event_request",
+            "_event_ingestion_verification_keys",
+        ),
+        "server event-subkey verification",
+    )
+    event_api = _text("backend/app/api/events.py")
+    if "verify_agent_event_request" not in event_api:
+        raise RuntimeError("QuietWard ingestion does not use event-subkey verifier")
+
+    rotation = _text("scripts/rotate_response_agent_key.py")
+    _require(
+        rotation,
+        (
+            "provision_from_agent_config",
+            'path.with_name("adapter.json")',
+            "Adapter event-only credential refreshed:",
+        ),
+        "adapter credential rotation",
+    )
 
     ingestion = _text("backend/app/services/ingestion.py")
     if "from app.services.correlation_v12 import correlate_event" not in ingestion:
@@ -135,8 +177,13 @@ def main() -> int:
         "scripts/install_response_agent_windows.ps1",
         "scripts/install_quietward_adapter_user_service.sh",
         "scripts/install_quietward_adapter_windows.ps1",
+        "scripts/provision_quietward_adapter.py",
+        "scripts/quietward_adapter_credentials.py",
+        "scripts/reloading_adapter_client.py",
         "scripts/verify_v12_quietward_adapter_live.py",
         "backend/tests/test_v12_quietward_adapter.py",
+        "backend/tests/test_v12_adapter_credential_scope.py",
+        "backend/tests/test_v12_adapter_provisioning.py",
         "backend/tests/test_v12_decision_quality.py",
         "backend/tests/test_v12_release_corrections.py",
     ):
@@ -145,7 +192,9 @@ def main() -> int:
 
     print("V1.2 RELEASE-CORRECTION SURFACE: PASS")
     print("continuous_agent=yes")
-    print("quietward_adapter=read_only_signed")
+    print("quietward_adapter=read_only_signed_event_subkey")
+    print("adapter_action_authority=no")
+    print("adapter_rotation_refresh=automatic")
     print("runtime_config_fail_closed=yes")
     print("high_impact_recommendations=strengthened")
     print("correlation=specific_or_high_signal_multistage")
