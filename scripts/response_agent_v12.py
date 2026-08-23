@@ -12,10 +12,12 @@ from typing import Any
 try:
     import response_agent as base
     from response_agent import ResponseAgentError
+    from response_agent_file_v12 import collect_file_diagnostic as collect_file_diagnostic_v12
     from response_agent_network import collect_network_diagnostic
 except ImportError:  # package-style test import
     from scripts import response_agent as base
     from scripts.response_agent import ResponseAgentError
+    from scripts.response_agent_file_v12 import collect_file_diagnostic as collect_file_diagnostic_v12
     from scripts.response_agent_network import collect_network_diagnostic
 
 _MAX_AGENT_CONFIG_BYTES = 64 * 1024
@@ -55,9 +57,6 @@ class AgentConfig(base.AgentConfig):
         return cls.from_mapping(value)
 
 
-# Extend the finite v1.2 agent protocol with one additional read-only action.
-# The base class continues to own auth, approval/policy validation, exactly-once
-# execution, result signing, handle provenance, and mutating executors.
 base._ACTION_PARAMETER_MODE.setdefault("collect_network_diagnostic", "none")
 
 
@@ -71,7 +70,7 @@ def _process_termination_supported() -> bool:
 
 
 class ResponseAgent(base.ResponseAgent):
-    """Canonical v1.2 Response agent including bounded Linux network diagnostics."""
+    """Canonical v1.2 Response agent with bounded typed diagnostics/containment."""
 
     def capabilities(self) -> dict[str, Any]:
         value = super().capabilities()
@@ -80,7 +79,11 @@ class ResponseAgent(base.ResponseAgent):
         if system == "linux" and "collect_network_diagnostic" not in read_only:
             read_only.append("collect_network_diagnostic")
         if system not in {"linux", "windows"}:
-            read_only = [item for item in read_only if item != "collect_process_diagnostic"]
+            read_only = [
+                item
+                for item in read_only
+                if item not in {"collect_process_diagnostic", "collect_file_diagnostic"}
+            ]
         value["read_only_actions"] = read_only
 
         mutating = {
@@ -112,11 +115,24 @@ class ResponseAgent(base.ResponseAgent):
         *,
         recover_after_started: bool,
     ) -> dict[str, Any]:
-        if str(action.get("action_type")) == "collect_network_diagnostic":
+        action_type = str(action.get("action_type"))
+        if action_type == "collect_network_diagnostic":
             if platform.system().lower() != "linux":
                 raise ResponseAgentError("network diagnostic is supported only on Linux")
             try:
                 return collect_network_diagnostic(self.resources)
+            except Exception as exc:
+                if isinstance(exc, ResponseAgentError):
+                    raise
+                raise ResponseAgentError(str(exc)) from exc
+        if action_type == "collect_file_diagnostic":
+            if platform.system().lower() not in {"linux", "windows"}:
+                raise ResponseAgentError("file diagnostics are qualified only on Linux and Windows")
+            try:
+                return collect_file_diagnostic_v12(
+                    self.resources,
+                    self.config.managed_roots,
+                )
             except Exception as exc:
                 if isinstance(exc, ResponseAgentError):
                     raise
