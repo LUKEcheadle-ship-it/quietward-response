@@ -25,8 +25,6 @@ $runtime = Join-Path $env:LOCALAPPDATA "QuietWardResponse\agent-runtime"
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 New-Item -ItemType Directory -Path (Split-Path -Parent $adapterConfig) -Force | Out-Null
 
-# Derive an event-ingestion-only subkey. adapter.json deliberately contains no
-# Response action/polling secret.
 & $python (Join-Path $PSScriptRoot 'provision_quietward_adapter.py') `
     --agent-config $agentConfig `
     --adapter-config $adapterConfig `
@@ -37,7 +35,8 @@ if ($LASTEXITCODE -ne 0) {
 
 $runtimeFiles = @(
     "forward_quietward_events.py",
-    "quietward_adapter_credentials.py"
+    "quietward_adapter_credentials.py",
+    "reloading_adapter_client.py"
 )
 foreach ($file in $runtimeFiles) {
     $source = Join-Path $PSScriptRoot $file
