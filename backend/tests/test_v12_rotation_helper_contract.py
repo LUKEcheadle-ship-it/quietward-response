@@ -6,11 +6,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_rotation_helper_matches_immediate_revocation_response_contract() -> None:
+def test_rotation_helper_matches_immediate_revocation_and_adapter_refresh_contract() -> None:
     text = (ROOT / "scripts" / "rotate_response_agent_key.py").read_text(encoding="utf-8")
     assert 'value.get("previous_key_revoked_at")' in text
     assert "Previous key revoked at:" in text
     assert "previous_key_expires_at" not in text
     assert "sync_capabilities(rotated_agent)" in text
     assert "os.replace(next_path, path)" in text
+    assert "provision_from_agent_config" in text
+    assert "adapter.json" in text
+    assert "Adapter event-only credential refreshed:" in text
     assert "The new agent secret was not printed." in text
