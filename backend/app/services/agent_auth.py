@@ -41,12 +41,7 @@ def derive_hmac_key(secret: str) -> bytes:
 
 
 def derive_event_ingestion_subkey(agent_hmac_key: bytes) -> bytes:
-    """Derive a least-privilege key accepted only by the QuietWard event route.
-
-    This subkey is intentionally one-way from the endpoint HMAC key: possessing it
-    does not reveal the endpoint key and it is never accepted for capability,
-    polling, rotation, or action-result authentication.
-    """
+    """Derive a least-privilege key accepted only by the QuietWard event route."""
     if len(agent_hmac_key) != 32:
         raise ValueError("agent HMAC key must be 32 bytes")
     return hmac.new(
@@ -163,7 +158,6 @@ def activate_pending_agent_key(
     session: Session,
     agent: AgentRecord,
 ) -> datetime:
-    """Promote a pending key and revoke the old credential immediately."""
     now = _utcnow()
     if (
         not agent.pending_key_id
@@ -195,20 +189,19 @@ def _auth_error(code: str, message: str) -> HTTPException:
 def _normal_verification_key(agent: AgentRecord, key_id: str, _now: datetime) -> bytes:
     if hmac.compare_digest(agent.key_id, key_id):
         return base64.b64decode(agent.hmac_key_b64)
-    # Retired key material is not stored, so normal traffic has no old-key fallback.
     raise _auth_error("invalid_key_id", "credential key identifier does not match")
 
 
-def _event_ingestion_verification_key(
+def _event_ingestion_verification_keys(
     agent: AgentRecord,
     key_id: str,
     _now: datetime,
-) -> bytes:
+) -> tuple[bytes, bytes]:
     if not hmac.compare_digest(agent.key_id, key_id):
         raise _auth_error("invalid_key_id", "credential key identifier does not match")
     try:
         main_key = base64.b64decode(agent.hmac_key_b64)
-        return derive_event_ingestion_subkey(main_key)
+        return derive_event_ingestion_subkey(main_key), main_key
     except (ValueError, TypeError) as exc:
         raise _auth_error("invalid_agent_key", "stored endpoint key is invalid") from exc
 
@@ -225,6 +218,9 @@ def _pending_verification_key(agent: AgentRecord, key_id: str, now: datetime) ->
     raise _auth_error("invalid_pending_key", "pending credential is missing, expired, or does not match")
 
 
+VerificationKeys = bytes | tuple[bytes, ...]
+
+
 def _verify_agent_request_with_key_selector(
     session: Session,
     request: Request,
@@ -232,7 +228,7 @@ def _verify_agent_request_with_key_selector(
     *,
     replay_window_seconds: int,
     allow_disabled: bool,
-    selector: Callable[[AgentRecord, str, datetime], bytes],
+    selector: Callable[[AgentRecord, str, datetime], VerificationKeys],
 ) -> AgentRecord:
     agent_id = request.headers.get(HEADER_AGENT_ID)
     timestamp_text = request.headers.get(HEADER_TIMESTAMP)
@@ -260,20 +256,21 @@ def _verify_agent_request_with_key_selector(
     if len(nonce) < 16 or len(nonce) > 128:
         raise _auth_error("invalid_nonce", "nonce length is invalid")
 
-    verification_key = selector(agent, key_id, now)
+    selected = selector(agent, key_id, now)
+    verification_keys = selected if isinstance(selected, tuple) else (selected,)
     target = canonical_target(request.url.path, request.url.query)
-    expected = hmac.new(
-        verification_key,
-        canonical_request(
-            method=request.method,
-            target=target,
-            timestamp=timestamp_text,
-            nonce=nonce,
-            body=body,
-        ),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
+    canonical = canonical_request(
+        method=request.method,
+        target=target,
+        timestamp=timestamp_text,
+        nonce=nonce,
+        body=body,
+    )
+    valid_signature = False
+    for verification_key in verification_keys:
+        expected = hmac.new(verification_key, canonical, hashlib.sha256).hexdigest()
+        valid_signature = hmac.compare_digest(expected, signature) or valid_signature
+    if not valid_signature:
         raise _auth_error("invalid_signature", "request signature is invalid")
 
     cutoff = now - timedelta(seconds=replay_window_seconds * 2)
@@ -287,8 +284,6 @@ def _verify_agent_request_with_key_selector(
 
     agent.last_seen = now
     session.flush()
-    # Consume authentication state before business logic so a valid signed nonce is
-    # single-use even if later capability/action/schema validation fails.
     session.commit()
     return agent
 
@@ -318,14 +313,14 @@ def verify_agent_event_request(
     *,
     replay_window_seconds: int,
 ) -> AgentRecord:
-    """Verify a QuietWard event using the event-only derived subkey."""
+    """Accept the least-privilege event subkey or the full endpoint key for compatibility."""
     return _verify_agent_request_with_key_selector(
         session,
         request,
         body,
         replay_window_seconds=replay_window_seconds,
         allow_disabled=False,
-        selector=_event_ingestion_verification_key,
+        selector=_event_ingestion_verification_keys,
     )
 
 
