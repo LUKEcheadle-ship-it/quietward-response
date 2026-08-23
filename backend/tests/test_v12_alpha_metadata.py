@@ -32,7 +32,9 @@ def test_v12_alpha_release_metadata_is_consistent() -> None:
     assert "eight-action" in acceptance.lower()
     assert "collect_network_diagnostic" in readme
     assert "collect_network_diagnostic" in acceptance
-    assert "raw_network_addresses_returned" in readme.lower()
+    assert "raw network addresses" in readme.lower()
+    assert "endpoint-local hmac-sha256" in readme.lower()
+    assert "response-agent-network-privacy.bin" in readme
     assert "opaque" in readme.lower()
     assert "incident-bound" in threat_model.lower()
     assert "raw pid" in readme.lower()
