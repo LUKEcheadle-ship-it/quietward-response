@@ -19,6 +19,10 @@ def test_adversarial_matrix_contains_critical_v12_failure_modes() -> None:
         "HANDLE-03",
         "PROCESS-01",
         "FILE-01",
+        "NET-01",
+        "NET-02",
+        "NET-04",
+        "NET-06",
         "TRUST-01",
         "DATA-01",
         "DATA-05",
@@ -35,6 +39,8 @@ def test_adversarial_matrix_contains_critical_v12_failure_modes() -> None:
     assert "a test file existing in github is not itself a qualification result" in lower
     assert "no case permits testing against arbitrary non-test-owned processes/files" in lower
     assert "generic shell execution" in lower
+    assert "raw local/remote ip" in lower
+    assert "at most 256 rows" in lower
 
 
 def test_explicitly_mapped_test_files_in_adversarial_matrix_exist() -> None:
