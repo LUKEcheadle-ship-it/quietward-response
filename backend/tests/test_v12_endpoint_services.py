@@ -44,8 +44,8 @@ def test_endpoint_installers_do_not_embed_secret_values() -> None:
     assert "config.secret" not in linux
     assert "$secret" not in windows.lower()
     assert "--config" in linux and "--config" in windows
-    assert "quietward_event_adapter.py" in linux
-    assert "quietward_event_adapter.py" in windows
+    assert "forward_quietward_events.py" in linux
+    assert "forward_quietward_events.py" in windows
 
 
 def test_windows_task_is_current_user_limited_and_continuous() -> None:
