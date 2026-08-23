@@ -5,9 +5,11 @@ from pathlib import Path
 from scripts.audit_v12_sensitive_artifacts import _reason
 
 
-def test_sensitive_artifact_audit_blocks_agent_credentials_rotation_and_local_privacy_keys() -> None:
+def test_sensitive_artifact_audit_blocks_agent_adapter_rotation_and_local_privacy_keys() -> None:
     blocked = {
         "agent.json": "agent credential/config filename",
+        "adapter.json": "event-only adapter credential/config filename",
+        "quietward-response-adapter.json": "event-only adapter credential/config filename",
         "response-agent.json": "agent credential/config filename",
         "quietward-response-agent.json": "agent credential/config filename",
         "agent.json.next": "staged agent rotation credential (.next)",
