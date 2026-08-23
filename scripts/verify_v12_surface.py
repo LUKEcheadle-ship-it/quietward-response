@@ -136,10 +136,15 @@ def _verify_network_agent_surface() -> None:
     rotation = _text(ROOT / "scripts" / "rotate_response_agent_key.py")
     for fragment in (
         "MAX_NETWORK_RESULTS = 256",
+        "NETWORK_PRIVACY_KEY_BYTES = 32",
+        'NETWORK_PRIVACY_KEY_FILENAME = "response-agent-network-privacy.bin"',
         '"raw_network_addresses_returned": False',
+        '"remote_address_identity": "endpoint_local_hmac_sha256_128"',
+        '"remote_address_hmac_sha256"',
+        "hmac.new(",
         'kind="network_socket"',
-        "remote_address_sha256",
         "collect_network_diagnostic",
+        "network privacy key permissions are not private",
     ):
         if fragment not in network:
             raise RuntimeError(f"network diagnostic privacy/bounds contract missing: {fragment}")
@@ -263,7 +268,7 @@ def main() -> int:
 
     print("V1.2 RESPONSE SURFACE: PASS")
     print("registered_actions=8")
-    print("linux_network_diagnostic=read-only/privacy-bounded")
+    print("linux_network_diagnostic=read-only/endpoint-keyed-pseudonymous")
     print("handle_containment=bounded")
     print("signed_agent_capability_negotiation=present")
     print("two_phase_agent_key_rotation=present")
