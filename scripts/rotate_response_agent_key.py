@@ -8,6 +8,7 @@ from pathlib import Path
 from response_agent_v12 import AgentConfig, ResponseAgent, ResponseAgentError
 from response_agent import write_agent_config
 from response_agent_capabilities import sync_capabilities
+from quietward_adapter_credentials import AdapterCredentialError, provision_from_agent_config
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -27,12 +28,33 @@ def _next_path(path: Path) -> Path:
     return path.with_name(path.name + ".next")
 
 
+def _adapter_path(path: Path) -> Path:
+    return path.with_name("adapter.json")
+
+
 def _promote(next_path: Path, path: Path) -> None:
     os.replace(next_path, path)
     try:
         path.chmod(0o600)
     except OSError:
         pass
+
+
+def _refresh_adapter_if_present(agent_config_path: Path) -> bool:
+    adapter_path = _adapter_path(agent_config_path)
+    if not adapter_path.exists():
+        return False
+    try:
+        provision_from_agent_config(
+            agent_config_path,
+            adapter_path,
+            force=True,
+        )
+    except AdapterCredentialError as exc:
+        raise ResponseAgentError(
+            f"agent key changed but adapter event credential could not be refreshed: {exc}"
+        ) from exc
+    return True
 
 
 def _activate(agent: ResponseAgent) -> dict:
@@ -63,12 +85,14 @@ def _recover(path: Path, next_path: Path) -> int:
         capability_state = sync_capabilities(rotated_agent)
 
     _promote(next_path, path)
+    adapter_refreshed = _refresh_adapter_if_present(path)
     print(f"Response agent key recovery completed: {rotated.agent_id}")
     print(f"Active key ID: {rotated.key_id}")
     if activation is not None:
         print(f"Previous key revoked at: {activation['previous_key_revoked_at']}")
     print(f"Private config promoted atomically: {path}")
     print(f"New key verified by capability sync: {bool(capability_state.get('capabilities_updated_at'))}")
+    print(f"Adapter event-only credential refreshed: {adapter_refreshed}")
     print("The agent secret was not printed.")
     return 0
 
@@ -118,6 +142,7 @@ def main() -> int:
     activation = _activate(rotated_agent)
     capability_state = sync_capabilities(rotated_agent)
     _promote(next_path, path)
+    adapter_refreshed = _refresh_adapter_if_present(path)
 
     print(f"Response agent key rotated: {rotated.agent_id}")
     print(f"New key ID: {rotated.key_id}")
@@ -125,6 +150,7 @@ def main() -> int:
     print(f"Previous key revoked at: {activation['previous_key_revoked_at']}")
     print(f"Private config updated atomically: {path}")
     print(f"New key verified by capability sync: {bool(capability_state.get('capabilities_updated_at'))}")
+    print(f"Adapter event-only credential refreshed: {adapter_refreshed}")
     print("The new agent secret was not printed.")
     return 0
 
