@@ -60,7 +60,7 @@ if ($QuietWardDatabase) {
     if (-not (Test-Path -LiteralPath $database -PathType Leaf)) {
         throw "QuietWard database file does not exist"
     }
-    $adapter = Join-Path $repoRoot 'scripts\quietward_event_adapter.py'
+    $adapter = Join-Path $repoRoot 'scripts\forward_quietward_events.py'
     $adapterArgs = (@(
         (Quote-Arg $adapter),
         '--config',
