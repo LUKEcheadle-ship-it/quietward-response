@@ -12,11 +12,15 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import quote
 from uuid import NAMESPACE_URL, uuid5
 
-from response_agent_v12 import AgentConfig, ResponseAgent, ResponseAgentError
+from quietward_adapter_credentials import (
+    AdapterCredential,
+    AdapterCredentialError,
+    EventOnlyClient,
+)
 
 ADAPTER_VERSION = "quietward-response-adapter-v1"
 MAX_BATCH = 200
@@ -46,6 +50,12 @@ _CATEGORY_BY_KIND = {
 }
 
 
+class AdapterClient(Protocol):
+    config: AdapterCredential
+
+    def _request(self, method: str, target: str, payload: dict[str, Any]) -> Any: ...
+
+
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = path.with_name(path.name + ".tmp")
@@ -72,35 +82,35 @@ def _load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     if path.is_symlink():
-        raise ResponseAgentError("QuietWard adapter state must not be a symbolic link")
+        raise AdapterCredentialError("QuietWard adapter state must not be a symbolic link")
     try:
         info = path.stat(follow_symlinks=False)
     except OSError as exc:
-        raise ResponseAgentError("QuietWard adapter state is unavailable") from exc
+        raise AdapterCredentialError("QuietWard adapter state is unavailable") from exc
     if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_STATE_BYTES:
-        raise ResponseAgentError("QuietWard adapter state is invalid")
+        raise AdapterCredentialError("QuietWard adapter state is invalid")
     if os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077:
-        raise ResponseAgentError("QuietWard adapter state must not be group/world accessible")
+        raise AdapterCredentialError("QuietWard adapter state must not be group/world accessible")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ResponseAgentError("QuietWard adapter state is unreadable or invalid") from exc
+        raise AdapterCredentialError("QuietWard adapter state is unreadable or invalid") from exc
     if not isinstance(value, dict):
-        raise ResponseAgentError("QuietWard adapter state must be a JSON object")
+        raise AdapterCredentialError("QuietWard adapter state must be a JSON object")
     return value
 
 
 def _readonly_database(path: Path) -> sqlite3.Connection:
     resolved = path.expanduser()
     if not resolved.is_absolute():
-        raise ResponseAgentError("QuietWard database path must be absolute")
+        raise AdapterCredentialError("QuietWard database path must be absolute")
     if resolved.is_symlink() or not resolved.is_file():
-        raise ResponseAgentError("QuietWard database must be a normal existing file")
+        raise AdapterCredentialError("QuietWard database must be a normal existing file")
     uri = "file:" + quote(resolved.as_posix(), safe="/") + "?mode=ro"
     try:
         connection = sqlite3.connect(uri, uri=True, timeout=5.0)
     except sqlite3.Error as exc:
-        raise ResponseAgentError("QuietWard database could not be opened read-only") from exc
+        raise AdapterCredentialError("QuietWard database could not be opened read-only") from exc
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
     return connection
@@ -110,7 +120,7 @@ def _max_rowid(connection: sqlite3.Connection) -> int:
     try:
         row = connection.execute("SELECT COALESCE(MAX(rowid), 0) AS value FROM events").fetchone()
     except sqlite3.Error as exc:
-        raise ResponseAgentError("QuietWard database does not expose the expected events table") from exc
+        raise AdapterCredentialError("QuietWard database does not expose the expected events table") from exc
     return int(row["value"] if row is not None else 0)
 
 
@@ -118,12 +128,12 @@ def _validate_database_host(connection: sqlite3.Connection, expected_host_id: st
     try:
         rows = list(connection.execute("SELECT DISTINCT host_id FROM events LIMIT 3"))
     except sqlite3.Error as exc:
-        raise ResponseAgentError("QuietWard database does not expose the expected events table") from exc
+        raise AdapterCredentialError("QuietWard database does not expose the expected events table") from exc
     hosts = {str(row["host_id"]) for row in rows if row["host_id"] not in (None, "")}
     if len(hosts) > 1:
-        raise ResponseAgentError("QuietWard adapter accepts a single-host detector database only")
+        raise AdapterCredentialError("QuietWard adapter accepts a single-host detector database only")
     if hosts and hosts != {expected_host_id}:
-        raise ResponseAgentError(
+        raise AdapterCredentialError(
             "QuietWard database host does not match the enrolled Response agent host"
         )
 
@@ -149,7 +159,7 @@ def _event_rows(
             )
         )
     except sqlite3.Error as exc:
-        raise ResponseAgentError("QuietWard events schema is incompatible with the Response adapter") from exc
+        raise AdapterCredentialError("QuietWard events schema is incompatible with the Response adapter") from exc
 
 
 def _severity(value: Any) -> str:
@@ -230,15 +240,15 @@ def _typed_sections(kind: str, subject: str, attributes: dict[str, Any]) -> dict
 def translate_row(row: sqlite3.Row, *, host_id: str) -> dict[str, Any]:
     row_host = str(row["host_id"])
     if row_host != host_id:
-        raise ResponseAgentError(
+        raise AdapterCredentialError(
             "QuietWard event host does not match the enrolled Response agent host"
         )
     try:
         original = json.loads(str(row["payload_json"]))
     except json.JSONDecodeError as exc:
-        raise ResponseAgentError("QuietWard event payload is invalid JSON") from exc
+        raise AdapterCredentialError("QuietWard event payload is invalid JSON") from exc
     if not isinstance(original, dict):
-        raise ResponseAgentError("QuietWard event payload must be an object")
+        raise AdapterCredentialError("QuietWard event payload must be an object")
 
     kind = _bounded(row["kind"], 128).lower()
     subject = _bounded(row["subject"], 1024)
@@ -281,6 +291,7 @@ def translate_row(row: sqlite3.Row, *, host_id: str) -> dict[str, Any]:
             "operating_system": platform.system(),
             "adapter": ADAPTER_VERSION,
             "quietward_database_read_only": True,
+            "credential_scope": "quietward_event_ingestion_only",
         },
     }
     payload.update(_typed_sections(kind, subject, attributes))
@@ -291,21 +302,21 @@ class QuietWardEventAdapter:
     def __init__(
         self,
         *,
-        agent: ResponseAgent,
+        agent: AdapterClient,
         database_path: Path,
         state_path: Path | None = None,
         batch_size: int = 100,
         from_beginning: bool = False,
     ) -> None:
         if not 1 <= int(batch_size) <= MAX_BATCH:
-            raise ResponseAgentError(f"adapter batch size must be between 1 and {MAX_BATCH}")
+            raise AdapterCredentialError(f"adapter batch size must be between 1 and {MAX_BATCH}")
         self.agent = agent
         self.database_path = database_path.expanduser()
         self.state_path = state_path or (
             agent.config.state_dir / "quietward-response-adapter-state.json"
         )
         if not self.state_path.is_absolute():
-            raise ResponseAgentError("QuietWard adapter state path must be absolute")
+            raise AdapterCredentialError("QuietWard adapter state path must be absolute")
         self.batch_size = int(batch_size)
         self.from_beginning = bool(from_beginning)
 
@@ -314,11 +325,8 @@ class QuietWardEventAdapter:
         state = _load_state(self.state_path)
         if state:
             if state.get("host_id") != self.agent.config.host_id:
-                raise ResponseAgentError("QuietWard adapter state belongs to another host")
+                raise AdapterCredentialError("QuietWard adapter state belongs to another host")
             last_rowid = max(0, int(state.get("last_rowid") or 0))
-            # SQLite rowids can restart after database replacement/full reset. UUIDv5
-            # event translation makes replay safe, so reset the local cursor rather
-            # than silently missing a new low-rowid database generation.
             return 0 if last_rowid > maximum else last_rowid
         return 0 if self.from_beginning else maximum
 
@@ -349,7 +357,7 @@ class QuietWardEventAdapter:
             payload = translate_row(row, host_id=self.agent.config.host_id)
             try:
                 self.agent._request("POST", "/api/v1/events", payload)
-            except ResponseAgentError as exc:
+            except AdapterCredentialError as exc:
                 text = str(exc)
                 if "HTTP 409" not in text or "duplicate_event_id" not in text:
                     raise
@@ -362,10 +370,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Read QuietWard events from local SQLite in read-only mode and forward "
-            "them as signed QuietWard Response events. This adapter never writes QuietWard."
+            "them as signed QuietWard Response events using an event-only credential."
         )
     )
-    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--config", type=Path, required=True, help="Private adapter.json event-only credential")
     parser.add_argument("--quietward-db", type=Path, required=True)
     parser.add_argument("--state-file", type=Path)
     parser.add_argument("--batch-size", type=int, default=100)
@@ -383,8 +391,8 @@ def main() -> int:
     if args.max_backoff_seconds < args.interval_seconds or args.max_backoff_seconds > 900:
         raise SystemExit("--max-backoff-seconds is invalid")
 
-    config = AgentConfig.from_file(args.config.expanduser())
-    agent = ResponseAgent(config)
+    config = AdapterCredential.from_file(args.config.expanduser())
+    agent = EventOnlyClient(config)
     adapter = QuietWardEventAdapter(
         agent=agent,
         database_path=args.quietward_db,
@@ -407,7 +415,7 @@ def main() -> int:
                 print(json.dumps({"events_forwarded": forwarded}, sort_keys=True), flush=True)
             backoff = float(args.interval_seconds)
             stop.wait(float(args.interval_seconds))
-        except ResponseAgentError as exc:
+        except AdapterCredentialError as exc:
             detail = " ".join(str(exc).replace("\x00", "").split())[:1000]
             print(
                 json.dumps(
