@@ -87,7 +87,8 @@ def main() -> int:
         (
             "_STAGE_TRANSITIONS",
             "_explicit_high_signal",
-            "shared process",
+            "_shared_indicator_reasons",
+            'f"shared {label}"',
             "compatible high-signal attack stages:",
         ),
         "v1.2 correlation",
