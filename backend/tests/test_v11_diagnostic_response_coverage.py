@@ -72,6 +72,8 @@ def test_major_attack_families_receive_structured_response_plans(
         assert "collect_file_diagnostic" in plan["executable_actions"]
         assert "quarantine_artifact_by_handle" in plan["executable_actions"]
         assert "restore_quarantined_artifact_by_handle" in plan["executable_actions"]
+    if expected_family == "network":
+        assert "collect_network_diagnostic" in plan["executable_actions"]
 
 
 def test_executable_registry_is_narrow_and_typed() -> None:
@@ -79,6 +81,7 @@ def test_executable_registry_is_narrow_and_typed() -> None:
         "restart_quietward_demo_service",
         "collect_host_diagnostic",
         "collect_process_diagnostic",
+        "collect_network_diagnostic",
         "terminate_process_by_handle",
         "collect_file_diagnostic",
         "quarantine_artifact_by_handle",
@@ -88,6 +91,14 @@ def test_executable_registry_is_narrow_and_typed() -> None:
     demo = ACTION_REGISTRY["restart_quietward_demo_service"]
     assert demo.validate_parameters({}) == []
     assert demo.validate_parameters({"command": "whoami"}) == [
+        "this action accepts no parameters"
+    ]
+
+    network = ACTION_REGISTRY["collect_network_diagnostic"]
+    assert network.supported_os == ("linux",)
+    assert network.risk_level == "low"
+    assert network.validate_parameters({}) == []
+    assert network.validate_parameters({"remote_address": "203.0.113.5"}) == [
         "this action accepts no parameters"
     ]
 
