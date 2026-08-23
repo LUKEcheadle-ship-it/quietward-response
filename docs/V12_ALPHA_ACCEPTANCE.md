@@ -176,7 +176,7 @@ After the automated finalizer passes on the exact candidate SHA:
 5. Open a process/privilege incident and confirm process diagnostic and handle-bound process termination are clearly labeled.
 6. Open a Linux network incident and confirm `collect_network_diagnostic` is shown as a read-only executable diagnostic while firewall/host-isolation remains non-executable.
 7. Run the matching diagnostic and confirm handle-backed action UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
-8. Confirm there is no free-form PID, path, network target, command, or opaque-handle input for containment actions.
+8. Confirm there is no free-form PID, path, network target, command, or opaque-handle input for containment actions. In particular, there is no free-form PID, path, command, or opaque-handle input anywhere in the normal containment workflow.
 9. Confirm process handle choices show bounded process context and managed-file choices show relative path/hash context without exposing an absolute managed path.
 10. Confirm a quarantine result makes its rollback handle available to the restore selector.
 11. Rotate an enrolled Response-agent key with `scripts/rotate_response_agent_key.py`, confirm the new key ID appears in Agents, and confirm the agent can still sync/poll without printing the secret.
