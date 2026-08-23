@@ -6,9 +6,14 @@ import platform
 from pathlib import Path
 from typing import Any
 
-import response_agent as base
-from response_agent import AgentConfig, ResponseAgentError
-from response_agent_network import collect_network_diagnostic
+try:
+    import response_agent as base
+    from response_agent import AgentConfig, ResponseAgentError
+    from response_agent_network import collect_network_diagnostic
+except ImportError:  # package-style test import
+    from scripts import response_agent as base
+    from scripts.response_agent import AgentConfig, ResponseAgentError
+    from scripts.response_agent_network import collect_network_diagnostic
 
 # Extend the finite v1.2 agent protocol with one additional read-only action.
 # The base class continues to own auth, approval/policy validation, exactly-once
