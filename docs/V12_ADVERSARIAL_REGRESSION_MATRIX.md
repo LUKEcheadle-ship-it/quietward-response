@@ -45,6 +45,12 @@ A case is release-covered only when its mapped test runs in the full `pytest -W 
 | FILE-04 | Restore destination occupied | reject | `test_v12_resource_containment.py` |
 | FILE-05 | Quarantine object modified before restore | reject | resource/live tests |
 | FILE-06 | Quarantine/restore terminal replay | deterministic receipt; no duplicate move | resource/live tests |
+| NET-01 | Control plane injects raw remote network target into diagnostic | reject; action accepts no parameters | `test_v11_diagnostic_action_lifecycle.py` |
+| NET-02 | Linux network diagnostic would expose raw local/remote IP, UID or inode | public result omits them; address stays local behind handle | `test_v12_network_diagnostic.py` |
+| NET-03 | `/proc/net` contains more than bounded result capacity | at most 256 rows + explicit truncation | `test_v12_network_diagnostic.py` |
+| NET-04 | Network collector gains shell/subprocess execution | regression fail | `test_v12_network_diagnostic.py` / `verify_v12_surface.py` |
+| NET-05 | Non-Linux endpoint advertises Linux network diagnostic | capability absent | `test_v12_network_agent_integration.py` |
+| NET-06 | Network diagnostic terminal action replay | no second execution; signed stored result remains | `verify_v12_network_live.py` |
 | TRUST-01 | Evidence-integrity failure exists, process termination requested | policy deny | `test_v12_integrity_trust_freeze.py` |
 | TRUST-02 | Evidence-integrity failure exists, read-only diagnostic requested | allowed | `test_v12_integrity_trust_freeze.py` |
 | DATA-01 | Password/token in event payload | redacted before persistence | `test_v12_sensitive_redaction.py` |
@@ -73,15 +79,15 @@ A case is release-covered only when its mapped test runs in the full `pytest -W 
 
 - `PASS` means the mapped regression actually executed on the candidate SHA.
 - A test file existing in GitHub is not itself a qualification result.
-- A skipped required containment test blocks the release unless the acceptance document explicitly defines that platform as unsupported for the candidate.
-- No case permits testing against arbitrary non-test-owned processes/files.
+- A skipped required containment/network test blocks the release unless the acceptance document explicitly defines that platform as unsupported for the candidate.
+- No case permits testing against arbitrary non-test-owned processes/files or applying network changes.
 - No case authorizes generic shell execution, persistence, firewall changes, account mutation, container mutation or host isolation.
 
 ## Next matrix expansion
 
 After v1.2 qualifies, new action families must add cases for:
 
-- exact network-rule identity, automatic expiry and rollback;
+- exact network-rule identity, automatic expiry and rollback before any firewall action is considered;
 - persistence-object snapshot/restore;
 - container ID + image-digest binding;
 - identity/session exact-provider binding and break-glass behavior;
