@@ -67,11 +67,20 @@ def test_major_attack_families_receive_structured_response_plans(
 
     if expected_family in {"execution", "privilege"}:
         assert "collect_process_diagnostic" in plan["executable_actions"]
+    if event_type == "privilege_escalation":
         assert "terminate_process_by_handle" in plan["executable_actions"]
+    else:
+        assert "terminate_process_by_handle" not in plan["executable_actions"]
+
     if expected_family == "malware":
         assert "collect_file_diagnostic" in plan["executable_actions"]
+    if event_type == "malware_signature":
         assert "quarantine_artifact_by_handle" in plan["executable_actions"]
         assert "restore_quarantined_artifact_by_handle" in plan["executable_actions"]
+    else:
+        assert "quarantine_artifact_by_handle" not in plan["executable_actions"]
+        assert "restore_quarantined_artifact_by_handle" not in plan["executable_actions"]
+
     if expected_family == "network":
         assert "collect_network_diagnostic" in plan["executable_actions"]
 
@@ -103,6 +112,7 @@ def test_executable_registry_is_narrow_and_typed() -> None:
     ]
 
     process = ACTION_REGISTRY["terminate_process_by_handle"]
+    assert process.supported_os == ("linux", "windows")
     assert process.validate_parameters({"resource_handle": "qwrh1_1234567890abcdef"}) == []
     assert process.validate_parameters({"pid": 1234}) == [
         "this action requires exactly one resource_handle parameter"
@@ -110,6 +120,13 @@ def test_executable_registry_is_narrow_and_typed() -> None:
     assert process.validate_parameters({"resource_handle": "1234"}) == [
         "resource_handle format is invalid"
     ]
+
+    for action_type in (
+        "collect_file_diagnostic",
+        "quarantine_artifact_by_handle",
+        "restore_quarantined_artifact_by_handle",
+    ):
+        assert ACTION_REGISTRY[action_type].supported_os == ("linux", "windows")
 
 
 def test_demo_plan_stays_separate_from_real_containment(client, event_factory) -> None:
