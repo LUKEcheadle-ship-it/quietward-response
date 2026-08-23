@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.database.models import EventRecord
 from app.database.session import get_db
 from app.schemas.event import EventCreate, EventRead, IngestionResult
-from app.services.agent_auth import verify_agent_request
+from app.services.agent_auth import verify_agent_event_request
 from app.services.audit_service import record_audit
 from app.services.incident_service import event_to_dict
 from app.services.ingestion import (
@@ -53,7 +53,11 @@ async def receive_event(
 
     if settings.require_agent_auth_for_quietward_events and source == "quietward":
         raw = await request.body()
-        agent = verify_agent_request(
+        # QuietWard ingestion uses a derived event-only HMAC subkey. That subkey is
+        # deliberately not accepted by capability/polling/rotation/action-result
+        # routes, so compromise of the read-only adapter does not grant response
+        # execution authority.
+        agent = verify_agent_event_request(
             db,
             request,
             raw,
@@ -62,7 +66,7 @@ async def receive_event(
         if agent.host_id != payload.host_id:
             _audit_rejection(
                 db,
-                actor_type="agent",
+                actor_type="sensor_adapter",
                 actor_id=agent.agent_id,
                 payload=payload,
                 reason="agent_host_mismatch",
@@ -76,9 +80,6 @@ async def receive_event(
                 detail={"code": "agent_host_mismatch"},
             )
 
-        # Queued/offline observations may legitimately be old, but a future-dated
-        # event can poison host last-seen and incident chronology. Bound only the
-        # future side using the same server-clock tolerance as request replay auth.
         maximum_event_time = datetime.now(timezone.utc) + timedelta(
             seconds=settings.agent_replay_window_seconds
         )
@@ -86,7 +87,7 @@ async def receive_event(
         if event_time > maximum_event_time:
             _audit_rejection(
                 db,
-                actor_type="agent",
+                actor_type="sensor_adapter",
                 actor_id=agent.agent_id,
                 payload=payload,
                 reason="event_timestamp_too_far_in_future",
@@ -100,9 +101,6 @@ async def receive_event(
                 detail={"code": "event_timestamp_too_far_in_future"},
             )
     elif source != "quietward" and settings.environment.strip().lower() != "development":
-        # Sensor-neutral synthetic adapters are convenient for local demos, but they
-        # are not authenticated identities. Fail closed outside development until a
-        # source has its own authenticated adapter/trust contract.
         _audit_rejection(
             db,
             actor_type="unauthenticated_sensor",
