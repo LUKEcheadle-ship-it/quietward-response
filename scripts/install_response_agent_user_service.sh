@@ -21,8 +21,9 @@ if [[ -L "${config_path}" || ! -f "${config_path}" ]]; then
   echo "Response agent config must exist as a normal file: ${config_path}" >&2
   exit 2
 fi
-
-if [[ "$(stat -c '%a' "${config_path}")" =~ [2367][0-9]$ || "$(stat -c '%a' "${config_path}")" =~ [0-9][2367]$ ]]; then
+mode_text="$(stat -c '%a' "${config_path}")"
+mode=$((8#${mode_text}))
+if (( mode & 077 )); then
   echo "Response agent config must not be group/world accessible: ${config_path}" >&2
   exit 2
 fi
