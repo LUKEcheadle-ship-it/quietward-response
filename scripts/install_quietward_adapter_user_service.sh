@@ -40,8 +40,6 @@ fi
 mkdir -p "${install_root}" "${state_root}" "${unit_dir}" "$(dirname "${adapter_config}")"
 chmod 700 "${install_root}" "${state_root}" "${unit_dir}" "$(dirname "${adapter_config}")"
 
-# Derive a least-privilege event-only subkey. adapter.json deliberately does not
-# contain the Response endpoint's action/polling secret.
 python3 "${repo_root}/scripts/provision_quietward_adapter.py" \
   --agent-config "${agent_config}" \
   --adapter-config "${adapter_config}" \
@@ -51,6 +49,7 @@ chmod 600 "${adapter_config}"
 runtime_files=(
   forward_quietward_events.py
   quietward_adapter_credentials.py
+  reloading_adapter_client.py
 )
 for file in "${runtime_files[@]}"; do
   install -m 700 "${repo_root}/scripts/${file}" "${install_root}/${file}"
