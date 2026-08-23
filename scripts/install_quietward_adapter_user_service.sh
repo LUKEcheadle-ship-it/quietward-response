@@ -7,28 +7,29 @@ if [[ ${EUID} -eq 0 ]]; then
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-config_path="${1:-${HOME}/.config/quietward-response/agent.json}"
+agent_config="${1:-${HOME}/.config/quietward-response/agent.json}"
 quietward_db="${2:-${HOME}/.local/state/quietward/quietward.sqlite3}"
+adapter_config="${3:-${HOME}/.config/quietward-response/adapter.json}"
 install_root="${HOME}/.local/share/quietward-response-agent"
 state_root="${HOME}/.local/state/quietward-response-agent"
 unit_dir="${HOME}/.config/systemd/user"
 unit_path="${unit_dir}/quietward-response-quietward-adapter.service"
 
-for path in "${config_path}" "${quietward_db}"; do
+for path in "${agent_config}" "${quietward_db}" "${adapter_config}"; do
   case "${path}" in
     /*) ;;
     *) echo "Path must be absolute: ${path}" >&2; exit 2 ;;
   esac
 done
 
-if [[ -L "${config_path}" || ! -f "${config_path}" ]]; then
-  echo "Response agent config must exist as a normal file: ${config_path}" >&2
+if [[ -L "${agent_config}" || ! -f "${agent_config}" ]]; then
+  echo "Response agent config must exist as a normal file: ${agent_config}" >&2
   exit 2
 fi
-mode_text="$(stat -c '%a' "${config_path}")"
+mode_text="$(stat -c '%a' "${agent_config}")"
 mode=$((8#${mode_text}))
 if (( mode & 077 )); then
-  echo "Response agent config must not be group/world accessible: ${config_path}" >&2
+  echo "Response agent config must not be group/world accessible: ${agent_config}" >&2
   exit 2
 fi
 if [[ -L "${quietward_db}" || ! -f "${quietward_db}" ]]; then
@@ -36,29 +37,32 @@ if [[ -L "${quietward_db}" || ! -f "${quietward_db}" ]]; then
   exit 2
 fi
 
-mkdir -p "${install_root}" "${state_root}" "${unit_dir}"
-chmod 700 "${install_root}" "${state_root}" "${unit_dir}"
+mkdir -p "${install_root}" "${state_root}" "${unit_dir}" "$(dirname "${adapter_config}")"
+chmod 700 "${install_root}" "${state_root}" "${unit_dir}" "$(dirname "${adapter_config}")"
+
+# Derive a least-privilege event-only subkey. adapter.json deliberately does not
+# contain the Response endpoint's action/polling secret.
+python3 "${repo_root}/scripts/provision_quietward_adapter.py" \
+  --agent-config "${agent_config}" \
+  --adapter-config "${adapter_config}" \
+  --force >/dev/null
+chmod 600 "${adapter_config}"
 
 runtime_files=(
   forward_quietward_events.py
-  response_agent_v12.py
-  response_agent.py
-  response_agent_capabilities.py
-  response_agent_file_v12.py
-  response_agent_network.py
-  response_agent_resources.py
+  quietward_adapter_credentials.py
 )
 for file in "${runtime_files[@]}"; do
   install -m 700 "${repo_root}/scripts/${file}" "${install_root}/${file}"
 done
 
 python3 "${install_root}/forward_quietward_events.py" \
-  --config "${config_path}" \
+  --config "${adapter_config}" \
   --quietward-db "${quietward_db}" \
   --once >/dev/null
 
 sed \
-  -e "s|%h/.config/quietward-response/agent.json|${config_path}|g" \
+  -e "s|%h/.config/quietward-response/adapter.json|${adapter_config}|g" \
   -e "s|%h/.local/state/quietward/quietward.sqlite3|${quietward_db}|g" \
   "${repo_root}/deploy/quietward-response-quietward-adapter.service" > "${unit_path}"
 chmod 600 "${unit_path}"
@@ -73,4 +77,4 @@ fi
 
 echo "QuietWard to Response adapter service installed and active."
 echo "QuietWard database (read-only): ${quietward_db}"
-echo "Response config: ${config_path}"
+echo "Adapter credential (event-only): ${adapter_config}"
