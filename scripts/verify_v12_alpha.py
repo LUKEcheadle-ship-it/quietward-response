@@ -78,14 +78,18 @@ def _assert_v12_schema(database: Path) -> None:
             "pending_hmac_key_b64",
             "pending_key_expires_at",
             "previous_key_id",
-            "previous_hmac_key_b64",
-            "previous_key_expires_at",
+            "previous_key_revoked_at",
         }
         missing_agent = required_agent_columns - agent_columns
         if missing_agent:
             raise RuntimeError(
                 f"v1.2 migration missing agent hardening columns: {sorted(missing_agent)}"
             )
+        for retired_secret_column in ("previous_hmac_key_b64", "previous_key_expires_at"):
+            if retired_secret_column in agent_columns:
+                raise RuntimeError(
+                    f"v1.2 schema unexpectedly persists retired credential material: {retired_secret_column}"
+                )
 
         version = connection.execute(
             "SELECT version_num FROM alembic_version"
@@ -157,10 +161,7 @@ def main() -> int:
     python = _ensure_python()
 
     _run([python, "-m", "compileall", "-q", "app", "tests"], cwd=BACKEND)
-    _run(
-        [python, "-m", "compileall", "-q", "scripts", "response_agent_resources.py"],
-        cwd=ROOT,
-    )
+    _run([python, "-m", "compileall", "-q", "scripts", "response_agent_resources.py"], cwd=ROOT)
     _run([python, str(ROOT / "scripts" / "audit_public_release.py")], cwd=ROOT)
     _run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _run([python, str(ROOT / "scripts" / "verify_v12_surface.py")], cwd=ROOT)
@@ -181,7 +182,8 @@ def main() -> int:
 
     print("\nV1.2.0-ALPHA.1 STATIC/LOCAL GATE: PASS")
     print("Backend full pytest suite: PASS")
-    print("Typed action/plan surface: PASS")
+    print("Eight-action typed response surface: PASS")
+    print("Linux privacy-preserving network diagnostic: PASS")
     print("Opaque-handle disposable containment: PASS")
     print("Signed agent capability negotiation: PASS")
     print("Two-phase recoverable agent key rotation: PASS")
@@ -191,7 +193,7 @@ def main() -> int:
     print(f"Fresh and legacy migrations to {EXPECTED_ALEMBIC_HEAD}: PASS")
     print("Frontend typecheck/build/high-severity npm audit: PASS")
     print("Public quick-start and cleanup: PASS")
-    print("Live standalone containment acceptance remains a separate required gate.")
+    print("Live standalone containment/network acceptance remains a separate required gate.")
     return 0
 
 
