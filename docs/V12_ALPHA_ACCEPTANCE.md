@@ -21,7 +21,7 @@ It runs:
 1. Python/backend compile checks.
 2. Public-release secret/artifact audit.
 3. Full backend pytest suite with warnings treated as errors.
-4. v1.2 typed action/plan surface verification.
+4. v1.2 eight-action typed action/plan surface verification.
 5. Fresh Alembic migration plus model/migration drift check.
 6. Historical Phase 1 database upgrade and audit-chain backfill qualification.
 7. `npm ci`.
@@ -29,19 +29,32 @@ It runs:
 9. production frontend build.
 10. high-severity npm audit.
 11. public quick-start smoke and cleanup.
-12. capability-aware standalone live Response HTTP containment acceptance.
+12. capability-aware standalone live Response HTTP process/file containment acceptance.
+13. Linux live privacy-preserving network-diagnostic acceptance.
 
 ## Required automated properties
 
 ### Control plane
 
-- registry is exactly the documented seven-action v1.2 surface;
+- registry is exactly the documented eight-action v1.2 surface;
 - every action requires analyst approval;
 - server revalidates action registry, parameters, recommendation binding, incident state, host, agent, OS, approval and expiry before dispatch;
 - generic shell/command/script actions remain absent;
-- raw `pid` and raw `path` parameter shapes are rejected;
-- handle-backed process termination/quarantine action TTL is at most 240 seconds;
+- raw `pid`, raw `path`, and raw network-target parameter shapes are rejected;
+- process termination/quarantine TTL is at most 240 seconds;
 - pre-v1.2 incidents do not receive new executable actions retroactively without persisted recommendation authorization.
+
+### Linux network diagnostic
+
+- `collect_network_diagnostic` is Linux-only, low-risk, read-only and accepts no parameters;
+- the agent reads bounded `/proc/net/{tcp,tcp6,udp,udp6}` state without shell/subprocess execution;
+- at most 256 rows are returned and truncation is explicit;
+- public result rows contain protocol/family, local/remote scope, ports, state, hashed remote identity when applicable, and an opaque socket handle;
+- raw local/remote IP addresses, UID and inode remain agent-local and are not returned to Response;
+- unspecified listener endpoints do not emit a meaningless remote-address hash;
+- server-supplied network targets are rejected;
+- terminal replay does not re-execute the diagnostic;
+- no firewall/network mutation or host isolation action is introduced by this release.
 
 ### Signed agent capability negotiation
 
@@ -55,8 +68,10 @@ It runs:
 - implausibly future-dated capability state fails policy;
 - a fresh signed report re-enables capability evaluation after stale/future state is corrected;
 - the same action passes this capability portion of policy only after the agent signs it as enabled;
+- Linux agents advertise `collect_network_diagnostic` through the official v1.2 agent path;
 - enrollment performs the first signed capability sync;
 - the qualified poll path refreshes capabilities before action polling;
+- key rotation/recovery preserves the same v1.2 capability set;
 - the incident UI offers non-demo actions only on affected agents that signed the exact action as enabled;
 - the Agents UI exposes the signed enabled-action state and last capability timestamp.
 
@@ -159,17 +174,18 @@ After the automated finalizer passes on the exact candidate SHA:
 3. Confirm the Agents page shows signed enabled capabilities and the last capability-report time for a v1.2 agent.
 4. Open a malware/file incident and confirm Response Plan shows file diagnostic, quarantine and rollback as executable only when the incident recommendation set enables them.
 5. Open a process/privilege incident and confirm process diagnostic and handle-bound process termination are clearly labeled.
-6. Run the matching diagnostic and confirm handle-backed action UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
-7. Confirm there is no free-form PID, path, command, or opaque-handle input for containment actions.
-8. Confirm process handle choices show bounded process context (PID/image) and managed-file choices show relative path/hash context without exposing an absolute managed path.
-9. Confirm a quarantine result makes its rollback handle available to the restore selector.
-10. Rotate an enrolled Response-agent key with `scripts/rotate_response_agent_key.py`, confirm the new key ID appears in Agents, and confirm the agent can still sync/poll without printing the secret.
-11. Confirm the old pre-rotation credential is rejected immediately after activation.
-12. Simulate an interrupted rotation by retaining a staged `.next` config and confirm `--recover-next` completes activation/promotion without exposing the secret.
-13. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
-14. Confirm clearing the browser session token removes authenticated UI access.
-15. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
-16. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, or raw path inputs.
+6. Open a Linux network incident and confirm `collect_network_diagnostic` is shown as a read-only executable diagnostic while firewall/host-isolation remains non-executable.
+7. Run the matching diagnostic and confirm handle-backed action UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
+8. Confirm there is no free-form PID, path, network target, command, or opaque-handle input for containment actions.
+9. Confirm process handle choices show bounded process context and managed-file choices show relative path/hash context without exposing an absolute managed path.
+10. Confirm a quarantine result makes its rollback handle available to the restore selector.
+11. Rotate an enrolled Response-agent key with `scripts/rotate_response_agent_key.py`, confirm the new key ID appears in Agents, and confirm the agent can still sync/poll without printing the secret.
+12. Confirm the old pre-rotation credential is rejected immediately after activation.
+13. Simulate an interrupted rotation by retaining a staged `.next` config and confirm `--recover-next` completes activation/promotion without exposing the secret.
+14. In a production/non-loopback test configuration, confirm the console requires a bearer token and a viewer token cannot mutate.
+15. Confirm clearing the browser session token removes authenticated UI access.
+16. Export an audit checkpoint, append normal analyst activity, and confirm the retained checkpoint still verifies the historical prefix.
+17. Confirm no action UI exposes command, shell, PowerShell, service-name, firewall-rule, raw PID, raw path, or raw network-target inputs.
 
 Record the exact candidate SHA and PASS/FAIL for this smoke before tagging/publishing the alpha.
 
