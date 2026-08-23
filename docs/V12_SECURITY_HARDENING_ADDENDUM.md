@@ -54,13 +54,12 @@ A deterministic redaction layer removes obvious credential-bearing fields and co
 
 - validated event payloads and summaries;
 - action result data/evidence/errors;
-- analyst approval/rejection notes.
+- analyst approval/rejection notes;
+- central audit details before they enter the hash chain.
 
 Examples include passwords, passphrases, bearer/access/refresh/session tokens, Authorization/Cookie fields, API/client secrets, credentials and private-key fields. Useful structural values such as `key_id` and `token_count` are not removed merely because their names contain `key` or `token`.
 
-The redaction traversal is depth-bounded. Redaction is loss prevention, **not database encryption**. Incident evidence remains sensitive.
-
-Central audit-detail redaction remains a release-hardening item so future audit callers cannot accidentally bypass the caller-level scrubbers.
+The redaction traversal is depth-bounded. Redaction is loss prevention, **not database encryption**. Incident evidence remains sensitive. The release gate also runs tracked-artifact and durable-persistence audits so a new caller cannot silently reintroduce obvious credential-bearing values.
 
 ## Signed audit anchors can be enforced at startup
 
@@ -87,6 +86,7 @@ The v1.2 containment model remains unchanged:
 
 - no raw PID action parameter;
 - no raw file path action parameter;
+- no raw network target action parameter;
 - no shell/PowerShell/cmd/bash/script action;
 - process/file mutators accept only `qwrh1_...` local handles;
 - handles are incident/host/agent bound;
@@ -98,6 +98,10 @@ The v1.2 containment model remains unchanged:
 
 The normal browser UI does not provide a free-form handle box: it offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
 
+## Network investigation stays read-only
+
+`collect_network_diagnostic` is a Linux-only v1.2 investigation action. It reads bounded `/proc/net` state without a shell/subprocess path, returns no raw network address/UID/inode, caps public rows at 256 with explicit truncation, and issues opaque local socket handles for correlation. It accepts no network target parameter and cannot modify firewall state or isolate a host.
+
 ## Current v1.2 release blockers
 
 Before `v1.2.0-alpha.1` can be tagged/published:
@@ -107,10 +111,12 @@ Before `v1.2.0-alpha.1` can be tagged/published:
 3. fresh + historical database migration paths must pass;
 4. frontend `npm ci`, typecheck, production build and high-severity audit must pass;
 5. capability-aware live disposable process/file containment must pass;
-6. signed capability freshness, key rotation, trust-reset, integrity-freeze, redaction and checkpoint tests must pass;
-7. documented browser smoke must pass on the same SHA;
-8. no detector repository may be required or modified;
-9. public-release secret/artifact audit must pass.
+6. Linux live privacy-preserving network diagnostic acceptance must pass;
+7. signed capability freshness, key rotation, trust-reset, integrity-freeze, redaction and checkpoint tests must pass;
+8. tracked-artifact and durable sensitive-persistence audits must pass;
+9. documented browser smoke must pass on the same SHA;
+10. no detector repository may be required or modified;
+11. public-release secret/artifact audit must pass.
 
 Do not convert missing qualification into a documentation exception. Any failed gate blocks release.
 
