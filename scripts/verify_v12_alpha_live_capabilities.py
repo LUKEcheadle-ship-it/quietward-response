@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import verify_v12_alpha_live as base
+from response_agent_v12 import ResponseAgent
 from response_agent_capabilities import sync_capabilities
 
 
@@ -34,6 +35,7 @@ def _run_agent_action_with_capability_sync(
 
 
 def main() -> int:
+    base.ResponseAgent = ResponseAgent
     base._run_agent_action = _run_agent_action_with_capability_sync
     return base.main()
 
