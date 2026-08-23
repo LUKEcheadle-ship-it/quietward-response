@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
+import os
+import secrets
 import socket
+import stat
 from pathlib import Path
 from typing import Any
 
 from response_agent_resources import HANDLE_TTL_SECONDS, ResourceError, ResourceHandleStore
 
 MAX_NETWORK_RESULTS = 256
+NETWORK_PRIVACY_KEY_BYTES = 32
+NETWORK_PRIVACY_KEY_FILENAME = "response-agent-network-privacy.bin"
 _PROC_TABLES = (
     ("tcp", "ipv4", Path("/proc/net/tcp")),
     ("tcp", "ipv6", Path("/proc/net/tcp6")),
@@ -48,7 +54,6 @@ def _decode_address(raw: str, family: str) -> str:
     else:
         if len(value) != 16:
             raise ResourceError("Linux IPv6 network table address length is invalid")
-        # /proc/net/tcp6 exposes the address as four little-endian 32-bit words.
         packed = b"".join(value[index : index + 4][::-1] for index in range(0, 16, 4))
         af = socket.AF_INET6
     try:
@@ -88,8 +93,74 @@ def _scope(address: str) -> str:
     return "reserved"
 
 
-def _address_hash(address: str) -> str:
-    return hashlib.sha256(("qwr-network-v1:" + address).encode("utf-8")).hexdigest()[:32]
+def _write_all(descriptor: int, data: bytes) -> None:
+    offset = 0
+    while offset < len(data):
+        written = os.write(descriptor, data[offset:])
+        if written <= 0:
+            raise OSError("short network privacy-key write")
+        offset += written
+
+
+def _network_privacy_key(store: ResourceHandleStore) -> bytes:
+    """Load/create an endpoint-local key used only to pseudonymize remote addresses.
+
+    The Response server never receives this key. This avoids the brute-force weakness
+    of publishing a plain SHA-256 digest of low-entropy IPv4 addresses while still
+    allowing one endpoint to correlate the same destination across diagnostics.
+    """
+    store_path = getattr(store, "path", None)
+    if not isinstance(store_path, Path):
+        raise ResourceError("resource handle store does not expose a local state path")
+    state_dir = store_path.parent
+    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    key_path = state_dir / NETWORK_PRIVACY_KEY_FILENAME
+
+    if key_path.is_symlink():
+        raise ResourceError("network privacy key must not be a symbolic link")
+    try:
+        descriptor = os.open(
+            key_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+    except FileExistsError:
+        descriptor = -1
+    except OSError as exc:
+        raise ResourceError("network privacy key could not be created") from exc
+    if descriptor >= 0:
+        try:
+            data = secrets.token_bytes(NETWORK_PRIVACY_KEY_BYTES)
+            _write_all(descriptor, data)
+            os.fsync(descriptor)
+        except OSError as exc:
+            raise ResourceError("network privacy key could not be written") from exc
+        finally:
+            os.close(descriptor)
+
+    try:
+        metadata = key_path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ResourceError("network privacy key is unavailable") from exc
+    if not stat.S_ISREG(metadata.st_mode) or key_path.is_symlink():
+        raise ResourceError("network privacy key must be a regular private file")
+    if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ResourceError("network privacy key permissions are not private")
+    try:
+        key = key_path.read_bytes()
+    except OSError as exc:
+        raise ResourceError("network privacy key could not be read") from exc
+    if len(key) != NETWORK_PRIVACY_KEY_BYTES:
+        raise ResourceError("network privacy key has invalid length")
+    return key
+
+
+def _address_pseudonym(address: str, key: bytes) -> str:
+    return hmac.new(
+        key,
+        ("qwr-network-v1:" + address).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:32]
 
 
 def _read_table(protocol: str, family: str, path: Path) -> list[dict[str, Any]]:
@@ -131,6 +202,7 @@ def collect_network_diagnostic(store: ResourceHandleStore) -> dict[str, Any]:
     if not Path("/proc/net").is_dir():
         raise ResourceError("network diagnostics are currently supported only on Linux /proc hosts")
 
+    privacy_key = _network_privacy_key(store)
     all_rows: list[dict[str, Any]] = []
     for protocol, family, path in _PROC_TABLES:
         all_rows.extend(_read_table(protocol, family, path))
@@ -180,9 +252,9 @@ def collect_network_diagnostic(store: ResourceHandleStore) -> dict[str, Any]:
             "local_port": int(item["local_port"]),
             "remote_scope": remote_scope,
             "remote_port": int(item["remote_port"]),
-            "remote_address_sha256": None
+            "remote_address_hmac_sha256": None
             if remote_unspecified
-            else _address_hash(str(item["remote_address"])),
+            else _address_pseudonym(str(item["remote_address"]), privacy_key),
             "state": item["state"],
         }
         row = dict(display)
@@ -205,4 +277,5 @@ def collect_network_diagnostic(store: ResourceHandleStore) -> dict[str, Any]:
         "connections": returned,
         "truncated": len(all_rows) > MAX_NETWORK_RESULTS,
         "raw_network_addresses_returned": False,
+        "remote_address_identity": "endpoint_local_hmac_sha256_128",
     }
