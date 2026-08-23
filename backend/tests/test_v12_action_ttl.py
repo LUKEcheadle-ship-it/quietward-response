@@ -9,6 +9,7 @@ V12_ACTIONS = [
     "restart_quietward_demo_service",
     "collect_host_diagnostic",
     "collect_process_diagnostic",
+    "collect_network_diagnostic",
     "terminate_process_by_handle",
     "collect_file_diagnostic",
     "quarantine_artifact_by_handle",
@@ -131,6 +132,34 @@ def test_read_only_diagnostic_retains_longer_approval_window(client, event_facto
             "target_agent_id": enrollment["agent_id"],
             "target_host_id": host_id,
             "action_type": "collect_host_diagnostic",
+            "parameters": {},
+        },
+    )
+    assert action.status_code == 201, action.text
+    assert _seconds(action.json()) == 600
+
+
+def test_network_diagnostic_uses_bounded_read_only_approval_window(client, event_factory) -> None:
+    host_id = "host-network-diagnostic-ttl"
+    created = client.post(
+        "/api/v1/events",
+        json=event_factory(
+            host_id=host_id,
+            event_type="outbound_connection",
+            category="network",
+            severity="high",
+            metadata={"operating_system": "Linux"},
+        ),
+    )
+    assert created.status_code == 201, created.text
+    enrollment = _enroll(client, host_id)
+    action = client.post(
+        f"/api/v1/incidents/{created.json()['incident_id']}/actions",
+        headers={"X-Actor-ID": "ttl-test"},
+        json={
+            "target_agent_id": enrollment["agent_id"],
+            "target_host_id": host_id,
+            "action_type": "collect_network_diagnostic",
             "parameters": {},
         },
     )
