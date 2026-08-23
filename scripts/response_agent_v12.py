@@ -2,18 +2,58 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import signal
+import stat
 from pathlib import Path
 from typing import Any
 
 try:
     import response_agent as base
-    from response_agent import AgentConfig, ResponseAgentError
+    from response_agent import ResponseAgentError
     from response_agent_network import collect_network_diagnostic
 except ImportError:  # package-style test import
     from scripts import response_agent as base
-    from scripts.response_agent import AgentConfig, ResponseAgentError
+    from scripts.response_agent import ResponseAgentError
     from scripts.response_agent_network import collect_network_diagnostic
+
+_MAX_AGENT_CONFIG_BYTES = 64 * 1024
+
+
+def _private_config_path(path: Path) -> Path:
+    resolved = path.expanduser()
+    if not resolved.is_absolute():
+        raise ResponseAgentError("Response agent config path must be absolute")
+    if resolved.is_symlink():
+        raise ResponseAgentError("Response agent config must not be a symbolic link")
+    try:
+        info = resolved.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise ResponseAgentError(f"Response agent config file is unavailable: {resolved}") from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise ResponseAgentError("Response agent config must be a regular file")
+    if info.st_size <= 0 or info.st_size > _MAX_AGENT_CONFIG_BYTES:
+        raise ResponseAgentError("Response agent config size is invalid")
+    if os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077:
+        raise ResponseAgentError("Response agent config must not be group/world accessible")
+    return resolved
+
+
+class AgentConfig(base.AgentConfig):
+    """v1.2 config loader that enforces the credential-file boundary at runtime."""
+
+    @classmethod
+    def from_file(cls, path: Path) -> "AgentConfig":
+        resolved = _private_config_path(path)
+        try:
+            value = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ResponseAgentError("Response agent config is unreadable or invalid JSON") from exc
+        if not isinstance(value, dict):
+            raise ResponseAgentError("Response agent config must be a JSON object")
+        return cls.from_mapping(value)
+
 
 # Extend the finite v1.2 agent protocol with one additional read-only action.
 # The base class continues to own auth, approval/policy validation, exactly-once
@@ -21,15 +61,49 @@ except ImportError:  # package-style test import
 base._ACTION_PARAMETER_MODE.setdefault("collect_network_diagnostic", "none")
 
 
+def _process_termination_supported() -> bool:
+    system = platform.system().lower()
+    if system == "windows":
+        return True
+    if system != "linux":
+        return False
+    return hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal")
+
+
 class ResponseAgent(base.ResponseAgent):
     """Canonical v1.2 Response agent including bounded Linux network diagnostics."""
 
     def capabilities(self) -> dict[str, Any]:
         value = super().capabilities()
+        system = platform.system().lower()
         read_only = [str(item) for item in value.get("read_only_actions", [])]
-        if platform.system().lower() == "linux" and "collect_network_diagnostic" not in read_only:
+        if system == "linux" and "collect_network_diagnostic" not in read_only:
             read_only.append("collect_network_diagnostic")
+        if system not in {"linux", "windows"}:
+            read_only = [item for item in read_only if item != "collect_process_diagnostic"]
         value["read_only_actions"] = read_only
+
+        mutating = {
+            str(key): bool(enabled)
+            for key, enabled in dict(value.get("mutating_actions", {})).items()
+        }
+        mutating["terminate_process_by_handle"] = bool(
+            mutating.get("terminate_process_by_handle")
+            and _process_termination_supported()
+        )
+        managed_file_supported = bool(
+            system in {"linux", "windows"} and self.config.managed_roots
+        )
+        mutating["quarantine_artifact_by_handle"] = bool(
+            mutating.get("quarantine_artifact_by_handle") and managed_file_supported
+        )
+        mutating["restore_quarantined_artifact_by_handle"] = bool(
+            mutating.get("restore_quarantined_artifact_by_handle")
+            and managed_file_supported
+        )
+        value["mutating_actions"] = mutating
+        value["runtime_platform"] = system
+        value["safe_process_termination_supported"] = _process_termination_supported()
         return value
 
     def _execute_action(
@@ -39,6 +113,8 @@ class ResponseAgent(base.ResponseAgent):
         recover_after_started: bool,
     ) -> dict[str, Any]:
         if str(action.get("action_type")) == "collect_network_diagnostic":
+            if platform.system().lower() != "linux":
+                raise ResponseAgentError("network diagnostic is supported only on Linux")
             try:
                 return collect_network_diagnostic(self.resources)
             except Exception as exc:
