@@ -5,10 +5,10 @@ import stat
 from pathlib import Path
 from typing import Any
 
-try:
-    import response_agent_resources as resources
-except ImportError:  # package-style test import
+try:  # package-style qualification import
     from scripts import response_agent_resources as resources
+except ImportError:  # direct script/runtime import
+    import response_agent_resources as resources
 
 FILE_DIAGNOSTIC_BYTE_BUDGET = 256 * 1024 * 1024
 
