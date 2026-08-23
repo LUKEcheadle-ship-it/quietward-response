@@ -94,10 +94,12 @@ It reads bounded `/proc/net/{tcp,tcp6,udp,udp6}` state directly without invoking
 - local/remote scope;
 - local/remote ports;
 - connection state;
-- a truncated SHA-256 identity for a concrete remote address when applicable;
+- an endpoint-local HMAC-SHA256 pseudonym for a concrete remote address when applicable;
 - a short-lived local opaque socket handle.
 
-Raw local/remote IP addresses, socket UID, and inode remain agent-local and are not returned to the control plane. Firewall changes and host isolation remain unavailable.
+Raw local/remote IP addresses, socket UID, and inode remain agent-local and are not returned to the control plane. A separate random 32-byte endpoint-local pseudonym key is stored only in the private agent state directory as `response-agent-network-privacy.bin`; it never enters API results and the release audit rejects it if accidentally tracked. This preserves same-endpoint destination correlation without exposing a brute-forceable plain digest of low-entropy IPv4 addresses.
+
+Firewall changes and host isolation remain unavailable.
 
 ## Signed endpoint capabilities
 
@@ -283,7 +285,7 @@ The agent initiates all network connections outward and exposes no inbound comma
 ### Suspicious network activity
 
 1. On a Linux Response agent, run/approve `collect_network_diagnostic`.
-2. Review bounded scope/port/state context and hashed remote identity.
+2. Review bounded scope/port/state context and the endpoint-local keyed remote-address pseudonym.
 3. Correlate with process/host evidence.
 4. Network mutation remains manual because firewall/host-isolation executors are intentionally not included in v1.2.
 
