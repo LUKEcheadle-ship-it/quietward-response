@@ -22,6 +22,7 @@ HEADER_NONCE = "X-QWR-Nonce"
 HEADER_SIGNATURE = "X-QWR-Signature"
 HEADER_KEY_ID = "X-QWR-Key-ID"
 DEFAULT_PENDING_KEY_SECONDS = 300
+EVENT_INGESTION_SUBKEY_DOMAIN = b"quietward-response-event-ingestion-v1\0"
 
 
 def _utcnow() -> datetime:
@@ -37,6 +38,26 @@ def _as_utc(value: datetime) -> datetime:
 def derive_hmac_key(secret: str) -> bytes:
     """Derive fixed-size HMAC key material from the one-time enrollment secret."""
     return hashlib.sha256(("quietward-response-v1:" + secret).encode("utf-8")).digest()
+
+
+def derive_event_ingestion_subkey(agent_hmac_key: bytes) -> bytes:
+    """Derive a least-privilege key accepted only by the QuietWard event route.
+
+    This subkey is intentionally one-way from the endpoint HMAC key: possessing it
+    does not reveal the endpoint key and it is never accepted for capability,
+    polling, rotation, or action-result authentication.
+    """
+    if len(agent_hmac_key) != 32:
+        raise ValueError("agent HMAC key must be 32 bytes")
+    return hmac.new(
+        agent_hmac_key,
+        EVENT_INGESTION_SUBKEY_DOMAIN,
+        hashlib.sha256,
+    ).digest()
+
+
+def derive_event_ingestion_subkey_from_secret(secret: str) -> bytes:
+    return derive_event_ingestion_subkey(derive_hmac_key(secret))
 
 
 def canonical_target(path: str, query: str = "") -> str:
@@ -64,6 +85,30 @@ def sign_request(
     key = derive_hmac_key(secret)
     return hmac.new(
         key,
+        canonical_request(
+            method=method,
+            target=target,
+            timestamp=timestamp,
+            nonce=nonce,
+            body=body,
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def sign_event_ingestion_request(
+    event_subkey: bytes,
+    *,
+    method: str,
+    target: str,
+    timestamp: str,
+    nonce: str,
+    body: bytes,
+) -> str:
+    if len(event_subkey) != 32:
+        raise ValueError("event-ingestion subkey must be 32 bytes")
+    return hmac.new(
+        event_subkey,
         canonical_request(
             method=method,
             target=target,
@@ -152,6 +197,20 @@ def _normal_verification_key(agent: AgentRecord, key_id: str, _now: datetime) ->
         return base64.b64decode(agent.hmac_key_b64)
     # Retired key material is not stored, so normal traffic has no old-key fallback.
     raise _auth_error("invalid_key_id", "credential key identifier does not match")
+
+
+def _event_ingestion_verification_key(
+    agent: AgentRecord,
+    key_id: str,
+    _now: datetime,
+) -> bytes:
+    if not hmac.compare_digest(agent.key_id, key_id):
+        raise _auth_error("invalid_key_id", "credential key identifier does not match")
+    try:
+        main_key = base64.b64decode(agent.hmac_key_b64)
+        return derive_event_ingestion_subkey(main_key)
+    except (ValueError, TypeError) as exc:
+        raise _auth_error("invalid_agent_key", "stored endpoint key is invalid") from exc
 
 
 def _pending_verification_key(agent: AgentRecord, key_id: str, now: datetime) -> bytes:
@@ -249,6 +308,24 @@ def verify_agent_request(
         replay_window_seconds=replay_window_seconds,
         allow_disabled=allow_disabled,
         selector=_normal_verification_key,
+    )
+
+
+def verify_agent_event_request(
+    session: Session,
+    request: Request,
+    body: bytes,
+    *,
+    replay_window_seconds: int,
+) -> AgentRecord:
+    """Verify a QuietWard event using the event-only derived subkey."""
+    return _verify_agent_request_with_key_selector(
+        session,
+        request,
+        body,
+        replay_window_seconds=replay_window_seconds,
+        allow_disabled=False,
+        selector=_event_ingestion_verification_key,
     )
 
 
