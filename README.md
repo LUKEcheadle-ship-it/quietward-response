@@ -1,43 +1,114 @@
 # QuietWard Response
 
-QuietWard Response is a standalone incident-investigation and controlled-response platform. It accepts validated security telemetry, correlates observations into incidents, produces deterministic response plans, manages analyst approval and policy, dispatches narrowly typed actions to a Response-owned agent, and maintains a tamper-evident audit trail.
+QuietWard Response is a standalone incident-investigation and controlled-response platform. It accepts authenticated security telemetry, correlates observations into incidents, produces deterministic response plans, manages analyst approval and policy, dispatches narrowly typed actions to a Response-owned endpoint agent, and maintains tamper-evident audit records.
 
-It is a **separate product and repository from QuietWard**. Response does not require Response code inside QuietWard and does not modify the QuietWard repository.
+It is a **separate product and repository from QuietWard**. Response code does not belong inside the QuietWard repository.
 
 > **Current release candidate:** `v1.2.0-alpha.1` (`1.2.0a1`) on `feature/response-v12-hardening`.
 >
-> v1.2 adds bounded host/process/file/network diagnostics, short-lived incident-bound opaque resource handles, opt-in exact-process termination, reversible managed-file quarantine/restore, signed endpoint capability negotiation, agent-key rotation, analyst bearer RBAC, API abuse bounds, sensitive-field redaction, and signed audit checkpoints. There is still **no generic remote command surface**.
+> The candidate is still blocked on exact-SHA automated/platform/browser qualification. Feature scope is frozen; only qualification-driven corrections should be added.
+
+## What v1.2 adds
+
+- continuously running capability-aware endpoint agent;
+- deterministic incident correlation and response planning;
+- stronger v1.2 correlation requiring shared concrete indicators or compatible high-signal attack stages rather than same-category coincidence;
+- eight finite approval-gated actions;
+- short-lived incident/agent/host-bound opaque resource handles;
+- read-only host/process/file diagnostics;
+- Linux read-only privacy-preserving network diagnostic;
+- opt-in exact-process termination on qualified Linux/Windows hosts;
+- reversible managed-file quarantine/restore on Linux/Windows;
+- signed endpoint capability negotiation;
+- two-phase endpoint-key rotation;
+- viewer/responder/admin bearer RBAC;
+- request-size/rate bounds;
+- sensitive-field redaction before persistence;
+- signed externalizable audit checkpoints;
+- integrity-compromise mutation freeze;
+- optional **Response-owned read-only QuietWard adapter**.
+
+There is still **no generic remote command surface**.
+
+## How QuietWard and Response stay separate
+
+QuietWard remains a public observation-only endpoint monitor. Response is a separate controlled-response product.
+
+When both are used together, this repository provides:
+
+`scripts/forward_quietward_events.py`
+
+The adapter:
+
+- opens the local QuietWard SQLite database with `mode=ro` and `PRAGMA query_only=ON`;
+- never imports the QuietWard Python package;
+- never writes QuietWard tables;
+- validates that the detector host matches the enrolled Response agent host;
+- deterministically maps QuietWard event IDs to retry-safe UUIDv5 Response IDs;
+- preserves stored assessment severity and bounded evidence;
+- submits `source=quietward` through the normal HMAC-authenticated Response agent credential;
+- stores only its own private delivery cursor under Response agent state.
+
+This keeps the two repositories independent while providing a qualified integration boundary.
 
 ## Response coverage
 
 `GET /api/v1/incidents/{incident_id}/response-plan`
 
-Plans cover malware/ransomware, execution/privilege, identity attacks, persistence, network/C2 activity, containers/Kubernetes, vulnerabilities/configuration, evidence/sensor integrity, and operational failures.
+Plans cover malware/ransomware, execution/privilege, identity attacks, persistence, network/C2 activity, containers/Kubernetes, vulnerabilities/configuration, evidence/sensor integrity and operational failures.
 
-Every plan separates investigation, containment, recovery, escalation, and the exact executable action list. Planned/manual/blocked guidance is not executable code.
+Every plan separates investigation, containment, recovery, escalation and the exact executable action list. Planned/manual/blocked guidance is not executable code.
 
-## v1.2 executable action surface
+### Correlation policy
+
+v1.2 does **not** merge incidents merely because two events share a category.
+
+Correlation requires either:
+
+- a shared concrete process/file/network/persistence indicator; or
+- a compatible attack-stage transition where at least one side contains explicit high-signal evidence and the highest evidence severity is high/critical.
+
+This is intentionally stricter than the earlier broad same-category correlation behavior.
+
+## v1.2 action surface
 
 The registry is explicit and finite:
 
-| Action | Type | Targeting |
+| Action | Type | Qualified targeting |
 |---|---|---|
 | `restart_quietward_demo_service` | demo state change | no parameters |
 | `collect_host_diagnostic` | read-only | no parameters |
-| `collect_process_diagnostic` | read-only | bounded process snapshot; issues process handles |
-| `collect_network_diagnostic` | read-only, Linux | bounded `/proc/net` snapshot; raw network addresses are not returned |
-| `terminate_process_by_handle` | high-impact containment | short-lived opaque process handle only |
-| `collect_file_diagnostic` | read-only | configured managed roots only; issues file handles |
-| `quarantine_artifact_by_handle` | reversible containment | short-lived opaque managed-file handle only |
-| `restore_quarantined_artifact_by_handle` | rollback | quarantine rollback handle only |
+| `collect_process_diagnostic` | read-only | bounded Linux/Windows process snapshot; issues handles |
+| `collect_network_diagnostic` | read-only | Linux `/proc/net`; no raw network target |
+| `terminate_process_by_handle` | high-impact containment | Linux/Windows opaque process handle only |
+| `collect_file_diagnostic` | read-only | Linux/Windows configured managed roots only |
+| `quarantine_artifact_by_handle` | reversible containment | Linux/Windows managed-file handle only |
+| `restore_quarantined_artifact_by_handle` | rollback | Linux/Windows rollback handle only |
 
-All eight actions require explicit analyst approval and deterministic server policy.
+Every registered action requires analyst approval and deterministic server policy.
 
-There is no shell, PowerShell, cmd, bash, generic script, raw PID, raw filesystem path, or raw network-target execution API.
+There is no shell, PowerShell, cmd, bash, generic script, raw PID, raw filesystem path or raw network-target execution API.
+
+### High-impact recommendation threshold
+
+Read-only investigation remains broad. Mutating actions require stronger evidence:
+
+`terminate_process_by_handle` is exposed only for:
+
+- high/critical privilege escalation; or
+- high/critical process execution with explicit high-signal evidence such as reverse shell, credential dumping/theft, process injection, web shell, suspicious document/interpreter ancestry or ransomware-impact behavior.
+
+File quarantine/restore is exposed only for:
+
+- malware-signature or YARA evidence;
+- high/critical newly created executable evidence; or
+- high/critical file evidence with an explicit known-bad-hash marker.
+
+A generic process start or generic file change does not expose destructive containment.
 
 ## Opaque resource handles
 
-A Response agent creates random `qwrh1_...` handles from its own local observation of a resource. The control plane cannot invent a PID, file path, or socket identity.
+A Response agent creates random `qwrh1_...` handles from its own local observation of a resource. The control plane cannot invent a PID, file path or socket identity.
 
 Handles are:
 
@@ -47,11 +118,11 @@ Handles are:
 - single-consumption for mutating operations;
 - revalidated against current local identity before mutation.
 
-Process termination and file quarantine are capped at 240-second action TTLs. Normal analyst UI does not expose free-form opaque-handle entry: it offers only unexpired handles returned by successful prior actions for the same incident and selected agent.
+Process termination and quarantine action TTLs are capped at 240 seconds. Normal analyst UI offers only unexpired handles returned by successful prior actions for the same incident and selected agent; it does not expose a free-form PID/path/handle target box.
 
 ## Process containment boundary
 
-Process diagnostics and exact-process termination are implemented on Linux and Windows without server-supplied commands.
+Process diagnostics and exact-process termination are qualified only for Linux/Windows candidate paths.
 
 The agent:
 
@@ -60,46 +131,96 @@ The agent:
 - binds handles to identity data beyond PID;
 - revalidates identity immediately before termination;
 - rejects stale/reused PID identities;
-- uses pidfd-bound signaling on Linux where qualified;
+- uses pidfd-bound signaling on Linux when available;
 - performs bounded exit verification;
-- fails closed when an interrupted termination result is indeterminate.
+- fails closed when an interrupted outcome is indeterminate.
 
-High-impact process termination is disabled by default in local agent configuration.
+Linux termination is not advertised in signed endpoint capabilities when pidfd support is unavailable. High-impact termination is disabled by default in local config.
 
 ## File containment boundary
 
-File diagnostics/quarantine operate only inside explicitly configured Response-agent managed roots.
+File diagnostics/quarantine operate only inside explicitly configured Response-agent managed roots on Linux/Windows.
 
 The agent:
 
-- enumerates bounded regular files;
 - excludes symbolic links;
 - never accepts a server-supplied path;
 - binds identity to filesystem metadata plus SHA-256 content;
+- caps each eligible file at 64 MiB;
+- caps total file hashing per diagnostic action at **256 MiB**;
+- reports scanned bytes/budget/truncation;
 - revalidates before quarantine and verifies after the move;
-- writes into a private quarantine directory outside all managed roots;
 - creates a separate rollback handle;
-- refuses restore when the original path is occupied, outside the managed root, or the quarantine object changed;
-- records consumption receipts so exact replay cannot apply a mutation twice.
+- refuses restore when the original path is occupied/outside the root or the quarantine object changed;
+- records consumption receipts so terminal replay does not repeat mutation.
 
 The remaining documented file limitation is the narrow same-user filesystem race between final identity verification and a portable cross-platform move. Platform-specific descriptor/handle-relative hardening remains future work.
 
 ## Network diagnostic boundary
 
-`collect_network_diagnostic` is currently **Linux-only and read-only**.
+`collect_network_diagnostic` is **Linux-only and read-only**.
 
-It reads bounded `/proc/net/{tcp,tcp6,udp,udp6}` state directly without invoking a shell or subprocess and returns at most 256 rows containing:
+It reads bounded `/proc/net/{tcp,tcp6,udp,udp6}` state directly without invoking a shell/subprocess and returns at most 256 rows containing protocol/family, local/remote scope, ports, state, an endpoint-local keyed remote-address pseudonym and a short-lived local socket handle.
 
-- protocol and address family;
-- local/remote scope;
-- local/remote ports;
-- connection state;
-- an endpoint-local HMAC-SHA256 pseudonym for a concrete remote address when applicable;
-- a short-lived local opaque socket handle.
+Raw local/remote IPs, socket UID and inode stay local to the agent. A private random 32-byte key in the Response-agent state directory drives HMAC-SHA256 pseudonyms, preventing the server from receiving a brute-forceable plain IP digest while retaining same-endpoint correlation.
 
-Raw local/remote IP addresses, socket UID, and inode remain agent-local and are not returned to the control plane. A separate random 32-byte endpoint-local pseudonym key is stored only in the private agent state directory as `response-agent-network-privacy.bin`; it never enters API results and the release audit rejects it if accidentally tracked. This preserves same-endpoint destination correlation without exposing a brute-forceable plain digest of low-entropy IPv4 addresses.
+Firewall changes and host isolation are not available in v1.2.
 
-Firewall changes and host isolation remain unavailable.
+## Continuous endpoint agent
+
+Normal operation is continuous:
+
+```text
+python scripts/poll_response_agent.py --config PATH_TO_AGENT_JSON
+```
+
+The agent:
+
+- refreshes signed capability state before every poll;
+- polls on a bounded interval;
+- exits cleanly on SIGTERM/SIGINT;
+- uses bounded exponential backoff during API/network failure;
+- exposes `--once` only for diagnostics/qualification.
+
+User-scoped deployment helpers:
+
+Linux:
+
+```text
+./scripts/install_response_agent_user_service.sh /absolute/path/to/agent.json
+```
+
+Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_response_agent_windows.ps1 -ConfigFile C:\absolute\path\agent.json
+```
+
+The Windows path uses a limited current-user scheduled task. The Linux path uses a user systemd service with `NoNewPrivileges=true` and other service hardening.
+
+The runtime config loader rejects relative, symlinked, abnormal, oversized and group/world-readable POSIX credential files. OS-backed secret storage remains a later hardening target.
+
+## Install the optional QuietWard adapter
+
+Enroll the Response agent using the **exact QuietWard host ID**. Then install the read-only adapter.
+
+Linux default QuietWard DB path:
+
+```text
+./scripts/install_quietward_adapter_user_service.sh \
+  /absolute/path/to/agent.json \
+  /home/USER/.local/state/quietward/quietward.sqlite3
+```
+
+Windows default installed QuietWard DB path:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_quietward_adapter_windows.ps1 `
+  -ConfigFile C:\absolute\path\agent.json `
+  -QuietWardDatabase "$env:LOCALAPPDATA\QuietWard\state\quietward.sqlite3"
+```
+
+By default the adapter starts from the current end of the QuietWard event table and forwards future events. `--from-beginning` is available for deliberate backfill. Deterministic Response UUIDs make retry/DB-reset replay idempotent.
 
 ## Signed endpoint capabilities
 
@@ -109,20 +230,7 @@ Agents sign supported and locally enabled action sets to:
 
 The report attests `arbitrary_command_execution=false` and uses the `qwrh1` handle protocol.
 
-Server policy refuses non-demo actions when:
-
-- the agent never reported capabilities;
-- the report is older than 15 minutes or implausibly future-dated;
-- the exact action is not locally enabled;
-- the agent is disabled or bound to another host.
-
-The official enrollment path sends the first signed report. The official poll path refreshes it before every poll:
-
-```text
-python scripts/poll_response_agent.py --config PATH_TO_AGENT_JSON
-```
-
-The Agents page shows Fresh / Stale / Never reported capability state and the signed enabled action set.
+Server policy refuses non-demo actions when capability state is missing, older than 15 minutes, implausibly future-dated or does not enable the exact action. The endpoint remains the final independent allowlist authority.
 
 ## Agent credential rotation
 
@@ -132,14 +240,7 @@ Use:
 python scripts/rotate_response_agent_key.py --config PATH_TO_AGENT_JSON
 ```
 
-Rotation is two-phase:
-
-1. current credential prepares a five-minute pending credential;
-2. helper stores it privately in a `.next` sidecar;
-3. pending credential proves possession and activates itself;
-4. old credential is immediately revoked for normal HMAC traffic;
-5. new key proves normal traffic through capability sync;
-6. `.next` atomically replaces the original local config.
+Rotation is prepare → prove replacement → activate. A private `.next` sidecar is written before activation; activation immediately revokes the old credential for normal HMAC traffic; the promoted key then proves normal capability traffic before `.next` replaces the original config.
 
 Recover an interrupted staged rotation with:
 
@@ -147,11 +248,11 @@ Recover an interrupted staged rotation with:
 python scripts/rotate_response_agent_key.py --config PATH_TO_AGENT_JSON --recover-next
 ```
 
-Retired HMAC key material is not persisted after activation. One-time secrets are excluded from normal listings/audit details and are not printed by the helper.
+Retired HMAC secret material is not persisted after activation. One-time secrets are not printed by helpers or returned in normal listings/audit details.
 
 ## Analyst authentication and RBAC
 
-Loopback `development` retains the local `X-Actor-ID` convenience path.
+Loopback development retains the local `X-Actor-ID` convenience path.
 
 Outside loopback development, Response will not start without `QWR_ANALYST_CREDENTIALS`.
 
@@ -159,7 +260,7 @@ Roles:
 
 - `viewer` — read-only;
 - `responder` — incident changes plus action create/approve/reject;
-- `admin` — responder plus agent enable/disable and unclassified mutation endpoints.
+- `admin` — responder plus agent enable/disable and other explicit administrative mutation endpoints.
 
 Generate a high-entropy token/hash entry:
 
@@ -167,38 +268,37 @@ Generate a high-entropy token/hash entry:
 python scripts/generate_analyst_token.py --actor-id alice --role admin
 ```
 
-Configuration stores only the SHA-256 token hash. Browser bearer tokens are session-scoped; TLS and normal XSS/CSP hygiene remain required for remote deployment.
+Configuration stores only the SHA-256 token hash. TLS remains required outside trusted loopback development.
 
-## Evidence and audit hardening
+## Audit/evidence hardening
 
-Sensitive credential-like fields are redacted before event/action/note persistence.
+Sensitive credential-like fields are centrally redacted before new audit/event/action-note persistence.
 
-The database audit trail remains hash chained. v1.2 also supports externally retainable HMAC-signed checkpoints:
+The database audit trail is hash chained. v1.2 also supports externally retainable HMAC-signed checkpoints:
 
 - `GET /api/v1/audit/checkpoint`
 - `POST /api/v1/audit/checkpoint/verify`
 
-A retained signed checkpoint can detect ordinary chain tamper, consistent full-history recomputation after the checkpoint, deletion/truncation of already-checkpointed history, and checkpoint signature tamper.
+A retained signed checkpoint can detect ordinary chain tamper, consistent full-history recomputation after the checkpoint, deletion/truncation of already-checkpointed history and checkpoint signature tamper.
 
 Production/non-loopback deployments must replace the development checkpoint secret using `QWR_AUDIT_CHECKPOINT_SECRET`. A trusted retained checkpoint can also be required at startup via `QWR_TRUSTED_AUDIT_CHECKPOINT_PATH`.
 
-This is stronger tamper evidence, not a claim of immutable/WORM external storage.
+This is stronger tamper evidence, not immutable/WORM external storage.
 
 ## API abuse bounds
 
-The qualified single-process/single-worker runtime enforces:
+The qualified v1.2 runtime remains single process/single worker and applies:
 
-- request-size limit (`QWR_API_MAX_REQUEST_BYTES`, default 1 MiB);
-- per-client `/api/v1` rate limit (`QWR_API_RATE_LIMIT_PER_MINUTE`, default 600/minute);
-- fail-closed 413/429 responses;
+- request-size limit (default 1 MiB);
+- per-client `/api/v1` process-local rate limit (default 600/minute);
 - bounded ActionResult/evidence sizes;
 - `no-store`, `nosniff`, frame, referrer and permissions-policy headers.
 
-Multi-worker shared rate limiting remains outside the v1.2 qualified boundary.
+Shared multi-worker rate/audit/replay primitives remain post-alpha work.
 
 ## Integrity trust freeze
 
-When an incident contains explicit sensor/evidence integrity compromise, medium/high/critical state-changing actions are blocked by deterministic policy until the trust issue is resolved. A compromised sensor cannot use its own tamper evidence as justification for destructive automatic response.
+When an incident contains explicit sensor/evidence integrity compromise, medium/high/critical state-changing actions are blocked by deterministic policy. Read-only investigation remains available.
 
 ## Quick start
 
@@ -216,114 +316,33 @@ Local defaults:
 - API: `http://localhost:8002`
 - API docs: `http://localhost:8002/docs`
 - Health: `http://localhost:8002/health`
-- Audit verification: `http://localhost:8002/api/v1/audit/verify`
 
-## Enroll a Response agent
-
-Basic agent:
+Enroll an agent:
 
 ```text
 python scripts/enroll_response_agent.py \
-  --host-id response-host \
+  --host-id HOST_ID \
   --token YOUR_ENROLLMENT_TOKEN
 ```
 
-Opt in to exact-process termination:
-
-```text
-python scripts/enroll_response_agent.py \
-  --host-id response-host \
-  --token YOUR_ENROLLMENT_TOKEN \
-  --enable-process-termination
-```
-
-Opt in to managed-file quarantine/restore:
-
-```text
-python scripts/enroll_response_agent.py \
-  --host-id response-host \
-  --token YOUR_ENROLLMENT_TOKEN \
-  --managed-root /absolute/path/to/managed/data \
-  --enable-file-quarantine
-```
-
-The helper writes the one-time secret into a permission-hardened private JSON config and does not print it. OS-backed agent secret storage remains a post-alpha hardening target.
-
-Inspect the canonical v1.2 capability surface locally:
+Opt-in flags remain available for process termination and configured managed-file quarantine. Inspect the canonical signed-capability surface locally with:
 
 ```text
 python scripts/response_agent_v12.py capabilities --config PATH_TO_AGENT_JSON
 ```
 
-For normal operation use the capability-aware poller:
+## Runtime health truth
 
-```text
-python scripts/poll_response_agent.py --config PATH_TO_AGENT_JSON
-```
+`GET /health` reports:
 
-The agent initiates all network connections outward and exposes no inbound command listener.
+- `response_scope=typed_controlled_response_v12`;
+- finite action counts;
+- `generic_command_execution=false`;
+- `single_worker_required=true`.
 
-## Typical workflows
+The backward-compatible `remediation_enabled=false` field means arbitrary/general host remediation is still disabled; it does not mean the finite registered v1.2 controlled actions are absent.
 
-### Suspicious process
-
-1. Run/approve `collect_process_diagnostic`.
-2. UI offers eligible unexpired process handles from that same incident/agent.
-3. Prepare/approve `terminate_process_by_handle` before its short TTL expires.
-4. Agent independently revalidates exact process identity and local capability opt-in.
-5. Signed result and audit record return to Response.
-
-### Suspicious file
-
-1. Configure a managed root.
-2. Run/approve `collect_file_diagnostic`.
-3. Select an eligible file handle from the same incident/agent.
-4. Prepare/approve `quarantine_artifact_by_handle`.
-5. Preserve the returned rollback handle.
-6. Use `restore_quarantined_artifact_by_handle` only when restoration is appropriate.
-
-### Suspicious network activity
-
-1. On a Linux Response agent, run/approve `collect_network_diagnostic`.
-2. Review bounded scope/port/state context and the endpoint-local keyed remote-address pseudonym.
-3. Correlate with process/host evidence.
-4. Network mutation remains manual because firewall/host-isolation executors are intentionally not included in v1.2.
-
-## Core API
-
-Investigation:
-
-- `POST /api/v1/events`
-- `GET /api/v1/events`
-- `GET /api/v1/hosts`
-- `GET /api/v1/hosts/{host_id}`
-- `GET /api/v1/incidents`
-- `GET /api/v1/incidents/{incident_id}`
-- `GET /api/v1/incidents/{incident_id}/response-plan`
-- `PATCH /api/v1/incidents/{incident_id}`
-- `GET /api/v1/overview`
-
-Controlled response:
-
-- `POST /api/v1/agents/enroll`
-- `GET /api/v1/agents`
-- `GET /api/v1/agents/{agent_id}`
-- `PATCH /api/v1/agents/{agent_id}`
-- `POST /api/v1/agents/{agent_id}/capabilities`
-- `POST /api/v1/agents/{agent_id}/rotate-key`
-- `POST /api/v1/agents/{agent_id}/activate-key`
-- `GET /api/v1/actions/registry`
-- `POST /api/v1/incidents/{incident_id}/actions`
-- `GET /api/v1/incidents/{incident_id}/actions`
-- `POST /api/v1/actions/{action_id}/approve`
-- `POST /api/v1/actions/{action_id}/reject`
-- `GET /api/v1/agents/{agent_id}/actions/pending`
-- `POST /api/v1/actions/{action_id}/result`
-- `GET /api/v1/audit/verify`
-- `GET /api/v1/audit/checkpoint`
-- `POST /api/v1/audit/checkpoint/verify`
-
-## v1.2 qualification
+## Qualification
 
 Exact clean candidate wrapper:
 
@@ -334,16 +353,27 @@ python scripts/finalize_v12_alpha.py
 It requires:
 
 1. full backend compile/pytest with warnings treated as errors;
-2. public-release/sensitive-persistence audits;
-3. exact eight-action static surface verification;
-4. fresh and Phase 1→v1.2 Alembic migration qualification;
-5. frontend `npm ci`, typecheck, production build and high-severity npm audit;
-6. quick-start cleanup smoke;
-7. capability-aware live process and file containment acceptance;
-8. live Linux privacy-preserving network diagnostic acceptance;
-9. audit verification and exactly-once terminal replay checks.
+2. secret/artifact and durable sensitive-persistence audits;
+3. exact eight-action surface verification;
+4. release-correction daemon/adapter/decision/privacy source gate;
+5. fresh and Phase 1→v1.2 Alembic migration qualification;
+6. frontend `npm ci`, typecheck, production build and high-severity npm audit;
+7. quick-start cleanup smoke;
+8. capability-aware live process/file containment;
+9. live Linux privacy-preserving network diagnostic;
+10. live read-only QuietWard SQLite → authenticated Response incident/plan acceptance;
+11. audit verification and exactly-once terminal replay checks.
 
-Then perform the browser smoke in `docs/V12_ALPHA_ACCEPTANCE.md` on the exact candidate SHA. Both gates are required before tag/publication.
+Then perform every browser-smoke item in `docs/V12_ALPHA_ACCEPTANCE.md` on the **same exact candidate SHA**.
+
+See:
+
+- `docs/V12_REVIEW_GUIDE.md`
+- `docs/V12_RELEASE_CORRECTIONS.md`
+- `docs/V12_ALPHA_THREAT_MODEL.md`
+- `docs/V12_ADVERSARIAL_REGRESSION_MATRIX.md`
+- `docs/V12_RELEASE_CHECKLIST.md`
+- `docs/releases/v1.2.0-alpha.1.md`
 
 ## Still intentionally unavailable
 
@@ -363,14 +393,16 @@ Then perform the browser smoke in `docs/V12_ALPHA_ACCEPTANCE.md` on the exact ca
 ## Known alpha limitations
 
 - analyst auth is bearer RBAC, not enterprise OIDC/SSO;
-- browser token is session-scoped JavaScript storage;
 - HMAC transport requires TLS outside loopback/trusted development;
-- agent secret is permission-hardened JSON unless stronger external secret storage is supplied;
-- audit checkpoints are externally retainable tamper anchors, not immutable external storage;
+- endpoint secret remains permission-hardened local JSON rather than OS-backed credential storage;
+- active server-side symmetric agent verification keys remain credential-equivalent DB material;
+- audit checkpoints require genuinely independent retention to protect against DB rewrite/truncation;
 - API qualification remains single process/single worker;
-- network diagnostic is Linux-only in v1.2;
+- network diagnostic is Linux-only;
+- process/file diagnostics are intentionally bounded and may require future safe endpoint-side filtering/search on very busy hosts;
 - quarantine is limited to configured managed roots and is not an antivirus vault;
-- network mutation, identity, persistence, container, service, and package/configuration mutation remain future narrow executors;
+- a narrow same-user verify→move filesystem race remains documented;
+- network mutation, identity, persistence, container, service and package/configuration mutation remain future narrow executors;
 - this is not an autonomous remediation system.
 
 Licensed under Apache-2.0.
