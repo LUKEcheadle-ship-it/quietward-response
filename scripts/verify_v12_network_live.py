@@ -4,12 +4,14 @@ from __future__ import annotations
 import os
 import platform
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 from response_agent_capabilities import sync_capabilities
+from response_agent_network import NETWORK_PRIVACY_KEY_BYTES, NETWORK_PRIVACY_KEY_FILENAME
 from response_agent_v12 import AgentConfig, ResponseAgent
 from verify_v1_live import BACKEND, _free_port, _json_request, _python, _wait_for_health
 from verify_v12_alpha_live import (
@@ -35,6 +37,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="qwr-v12-network-live-") as temporary:
         root = Path(temporary)
         database = root / "response.db"
+        state_dir = (root / "agent-state").resolve()
         env = os.environ.copy()
         env.update(
             {
@@ -86,7 +89,7 @@ def main() -> int:
                     key_id=enrollment["key_id"],
                     secret=enrollment["secret"],
                     host_id=host_id,
-                    state_dir=(root / "agent-state").resolve(),
+                    state_dir=state_dir,
                 )
             )
             capabilities = sync_capabilities(agent)
@@ -138,6 +141,8 @@ def main() -> int:
                 raise RuntimeError(f"network diagnostic reported a state change: {result!r}")
             if result.get("raw_network_addresses_returned") is not False:
                 raise RuntimeError(f"network diagnostic privacy flag invalid: {result!r}")
+            if result.get("remote_address_identity") != "endpoint_local_hmac_sha256_128":
+                raise RuntimeError(f"network diagnostic address identity mode is invalid: {result!r}")
             connections = result.get("connections")
             if not isinstance(connections, list) or len(connections) > 256:
                 raise RuntimeError("network diagnostic result is not bounded to 256 rows")
@@ -157,11 +162,19 @@ def main() -> int:
                 handle = row.get("resource_handle")
                 if not isinstance(handle, str) or not handle.startswith("qwrh1_"):
                     raise RuntimeError("network diagnostic row is missing an opaque handle")
-                address_hash = row.get("remote_address_sha256")
-                if address_hash is not None and (
-                    not isinstance(address_hash, str) or len(address_hash) != 32
+                pseudonym = row.get("remote_address_hmac_sha256")
+                if pseudonym is not None and (
+                    not isinstance(pseudonym, str) or len(pseudonym) != 32
                 ):
-                    raise RuntimeError("network diagnostic remote-address hash is malformed")
+                    raise RuntimeError("network diagnostic remote-address pseudonym is malformed")
+
+            privacy_key = state_dir / NETWORK_PRIVACY_KEY_FILENAME
+            if not privacy_key.is_file() or privacy_key.is_symlink():
+                raise RuntimeError("network diagnostic did not create a normal local privacy key")
+            if len(privacy_key.read_bytes()) != NETWORK_PRIVACY_KEY_BYTES:
+                raise RuntimeError("network diagnostic local privacy key length is invalid")
+            if os.name != "nt" and stat.S_IMODE(privacy_key.stat().st_mode) & 0o077:
+                raise RuntimeError("network diagnostic local privacy key permissions are too broad")
 
             if agent.poll_once() != 0:
                 raise RuntimeError("terminal network diagnostic was unexpectedly re-executed")
@@ -173,6 +186,7 @@ def main() -> int:
             print(f"connections_returned={len(connections)}")
             print(f"truncated={bool(result.get('truncated'))}")
             print("raw_network_addresses_returned=no")
+            print("remote_address_identity=endpoint_local_hmac_sha256_128")
             print("server_supplied_network_target=rejected")
             print("terminal_replay=no_reexecution")
             return 0
