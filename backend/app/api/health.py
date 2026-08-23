@@ -13,15 +13,30 @@ router = APIRouter(tags=["health"])
 @router.get("/api/v1/health")
 def health(db: Session = Depends(get_db)) -> dict[str, object]:
     db.execute(text("SELECT 1"))
+    mutating = {
+        action_type
+        for action_type, definition in ACTION_REGISTRY.items()
+        if definition.risk_level in {"medium", "high", "critical"}
+        or action_type == "restart_quietward_demo_service"
+    }
+    diagnostics = {
+        action_type
+        for action_type in ACTION_REGISTRY
+        if action_type.startswith("collect_")
+    }
     return {
         "status": "ok",
         "service": "quietward-response",
         "version": __version__,
         "database": "ok",
-        # Backward-compatible Phase 1 flag: general host remediation is still off.
+        # Generic/arbitrary remediation remains disabled; only registered typed
+        # actions can execute through approval + deterministic policy + agent allowlist.
         "remediation_enabled": False,
         "controlled_response_enabled": bool(ACTION_REGISTRY),
         "controlled_action_count": len(ACTION_REGISTRY),
-        "response_scope": "demo_fixture_only",
+        "read_only_diagnostic_count": len(diagnostics),
+        "state_changing_action_count": len(mutating),
+        "response_scope": "typed_controlled_response_v12",
+        "generic_command_execution": False,
         "single_worker_required": True,
     }
