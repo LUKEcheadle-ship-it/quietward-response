@@ -139,6 +139,7 @@ def main() -> int:
                     secret=enrollment["secret"],
                     host_id=host_id,
                     state_dir=(root / "agent-state").resolve(),
+                    enable_process_termination=True,
                 )
             )
             adapter = QuietWardEventAdapter(
@@ -162,6 +163,10 @@ def main() -> int:
             evidence = stored.get("evidence") or {}
             if evidence.get("quietward_event_id") != "fse-live-adapter-1":
                 raise RuntimeError(f"original QuietWard event ID was not preserved: {stored!r}")
+            process_evidence = stored.get("process") or {}
+            if "reverse_shell" not in set(process_evidence.get("suspicious_markers") or []):
+                raise RuntimeError(f"high-signal QuietWard marker was lost in translation: {stored!r}")
+
             if adapter.forward_once() != 0:
                 raise RuntimeError("adapter replayed an already checkpointed event")
             if _sha256(quietward_db) != quietward_before:
@@ -170,6 +175,19 @@ def main() -> int:
             incidents = _json_request(api_url + "/api/v1/incidents")
             if not incidents:
                 raise RuntimeError("adapter event did not create a Response incident")
+            incident_id = incidents[0].get("incident_id")
+            if not incident_id:
+                raise RuntimeError(f"adapter-created incident has no ID: {incidents!r}")
+            plan = _json_request(
+                api_url + f"/api/v1/incidents/{incident_id}/response-plan"
+            )
+            executable = set(plan.get("executable_actions") or [])
+            if "collect_process_diagnostic" not in executable:
+                raise RuntimeError(f"adapter evidence did not enable process diagnosis: {plan!r}")
+            if "terminate_process_by_handle" not in executable:
+                raise RuntimeError(f"qualified reverse-shell evidence did not enable handle termination: {plan!r}")
+            if any(item in executable for item in ("run_shell", "execute_command", "kill_pid")):
+                raise RuntimeError(f"adapter flow exposed a generic/raw command action: {plan!r}")
 
             print("V1.2 QUIETWARD ADAPTER LIVE ACCEPTANCE: PASS")
             print("detector_database_mode=read_only")
@@ -177,6 +195,9 @@ def main() -> int:
             print("signed_source=quietward")
             print("deterministic_checkpoint_replay=no_duplicate_send")
             print("response_incident_created=yes")
+            print("high_signal_process_diagnostic=yes")
+            print("handle_bound_process_containment=yes")
+            print("generic_command_surface=no")
             return 0
         finally:
             process.terminate()
