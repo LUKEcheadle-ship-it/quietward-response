@@ -140,6 +140,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 ),
                 _action(
                     "diagnostic",
+                    "Collect bounded network diagnostic",
+                    "On Linux, read bounded /proc network tables directly and return protocol, ports, address scope, hashed remote-address identity, and short-lived opaque socket handles. Raw network addresses and firewall changes remain unavailable.",
+                    registry_action_type="collect_network_diagnostic",
+                ),
+                _action(
+                    "diagnostic",
                     "Review network and owning-process context",
                     "Correlate listener or destination scope, protocol, port, owning process, first-seen time, and adjacent endpoint evidence.",
                 ),
