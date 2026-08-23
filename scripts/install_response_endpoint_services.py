@@ -135,7 +135,7 @@ def install(
                 description="QuietWard read-only event adapter for QuietWard Response",
                 exec_argv=[
                     str(python),
-                    str(repo_root / "scripts" / "quietward_event_adapter.py"),
+                    str(repo_root / "scripts" / "forward_quietward_events.py"),
                     "--config",
                     str(config_path),
                     "--quietward-db",
