@@ -1,11 +1,22 @@
 from __future__ import annotations
 
-from typing import Any
-
-from response_agent import ResponseAgent
+from typing import Any, Protocol
 
 
-def capability_report(agent: ResponseAgent) -> dict[str, Any]:
+class CapabilityReportingAgent(Protocol):
+    config: Any
+
+    def capabilities(self) -> dict[str, Any]: ...
+
+    def _request(
+        self,
+        method: str,
+        target: str,
+        payload: dict[str, Any] | None = None,
+    ) -> Any: ...
+
+
+def capability_report(agent: CapabilityReportingAgent) -> dict[str, Any]:
     capabilities = agent.capabilities()
     read_only = [str(item) for item in capabilities.get("read_only_actions", [])]
     mutating = {
@@ -24,7 +35,7 @@ def capability_report(agent: ResponseAgent) -> dict[str, Any]:
     }
 
 
-def sync_capabilities(agent: ResponseAgent) -> dict[str, Any]:
+def sync_capabilities(agent: CapabilityReportingAgent) -> dict[str, Any]:
     target = f"/api/v1/agents/{agent.config.agent_id}/capabilities"
     response = agent._request("POST", target, capability_report(agent))
     if not isinstance(response, dict):
