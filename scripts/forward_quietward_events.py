@@ -21,6 +21,7 @@ from quietward_adapter_credentials import (
     AdapterCredentialError,
     EventOnlyClient,
 )
+from reloading_adapter_client import ReloadingEventOnlyClient
 
 ADAPTER_VERSION = "quietward-response-adapter-v1"
 MAX_BATCH = 200
@@ -391,18 +392,29 @@ def main() -> int:
     if args.max_backoff_seconds < args.interval_seconds or args.max_backoff_seconds > 900:
         raise SystemExit("--max-backoff-seconds is invalid")
 
-    config = AdapterCredential.from_file(args.config.expanduser())
-    agent = EventOnlyClient(config)
+    if args.once:
+        config = AdapterCredential.from_file(args.config.expanduser())
+        adapter = QuietWardEventAdapter(
+            agent=EventOnlyClient(config),
+            database_path=args.quietward_db,
+            state_path=args.state_file.expanduser() if args.state_file else None,
+            batch_size=args.batch_size,
+            from_beginning=args.from_beginning,
+        )
+        print(json.dumps({"events_forwarded": adapter.forward_once()}, sort_keys=True))
+        return 0
+
+    # Continuous operation reloads adapter.json before every request. Endpoint-key
+    # rotation can therefore regenerate the event subkey without restarting the
+    # bridge or exposing agent.json to the adapter process.
+    client = ReloadingEventOnlyClient(args.config.expanduser())
     adapter = QuietWardEventAdapter(
-        agent=agent,
+        agent=client,
         database_path=args.quietward_db,
         state_path=args.state_file.expanduser() if args.state_file else None,
         batch_size=args.batch_size,
         from_beginning=args.from_beginning,
     )
-    if args.once:
-        print(json.dumps({"events_forwarded": adapter.forward_once()}, sort_keys=True))
-        return 0
 
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
