@@ -5,7 +5,8 @@ import argparse
 import os
 from pathlib import Path
 
-from response_agent import AgentConfig, ResponseAgent, ResponseAgentError, write_agent_config
+from response_agent_v12 import AgentConfig, ResponseAgent, ResponseAgentError
+from response_agent import write_agent_config
 from response_agent_capabilities import sync_capabilities
 
 
@@ -56,12 +57,8 @@ def _recover(path: Path, next_path: Path) -> int:
 
     activation: dict | None = None
     try:
-        # If activation already succeeded before the local crash, the staged new key
-        # can authenticate immediately and no second activation is needed.
         capability_state = sync_capabilities(rotated_agent)
     except ResponseAgentError:
-        # Otherwise prove possession of the staged pending secret, activate it, then
-        # verify that the promoted credential can sign normal traffic.
         activation = _activate(rotated_agent)
         capability_state = sync_capabilities(rotated_agent)
 
@@ -116,9 +113,6 @@ def main() -> int:
         enable_file_quarantine=current.enable_file_quarantine,
     )
 
-    # Persist the pending credential before activation. If activation or promotion is
-    # interrupted, --recover-next can finish with the staged NEW credential. The old
-    # key is revoked immediately once activation succeeds.
     write_agent_config(next_path, rotated, force=False)
     rotated_agent = ResponseAgent(rotated)
     activation = _activate(rotated_agent)
