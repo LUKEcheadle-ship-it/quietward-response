@@ -65,6 +65,16 @@ COLLECT_PROCESS_DIAGNOSTIC = ActionDefinition(
     implementation_version="2",
 )
 
+COLLECT_NETWORK_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_network_diagnostic",
+    description="Collect a bounded Linux /proc network snapshot with hashed remote-address context and short-lived opaque socket handles; raw network addresses are not returned.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux",),
+    reversible=True,
+    implementation_version="2",
+)
+
 TERMINATE_PROCESS_BY_HANDLE = ActionDefinition(
     action_type="terminate_process_by_handle",
     description="Terminate only the exact process identity represented by an unexpired agent-issued handle.",
@@ -118,6 +128,7 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         RESTART_QUIETWARD_DEMO_SERVICE,
         COLLECT_HOST_DIAGNOSTIC,
         COLLECT_PROCESS_DIAGNOSTIC,
+        COLLECT_NETWORK_DIAGNOSTIC,
         TERMINATE_PROCESS_BY_HANDLE,
         COLLECT_FILE_DIAGNOSTIC,
         QUARANTINE_ARTIFACT_BY_HANDLE,
