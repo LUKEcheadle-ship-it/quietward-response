@@ -77,13 +77,14 @@ def test_file_diagnostic_has_total_byte_budget(tmp_path: Path) -> None:
     assert result["truncated"] is True
 
 
-def test_release_contains_continuous_agent_and_adapter_installers() -> None:
+def test_release_contains_continuous_agent_and_least_privilege_adapter_installers() -> None:
     root = Path(__file__).resolve().parents[2]
     poller = (root / "scripts" / "poll_response_agent.py").read_text(encoding="utf-8")
     linux = (root / "scripts" / "install_response_agent_user_service.sh").read_text(encoding="utf-8")
     windows = (root / "scripts" / "install_response_agent_windows.ps1").read_text(encoding="utf-8")
     adapter_linux = (root / "scripts" / "install_quietward_adapter_user_service.sh").read_text(encoding="utf-8")
     adapter_windows = (root / "scripts" / "install_quietward_adapter_windows.ps1").read_text(encoding="utf-8")
+    adapter_runtime = (root / "scripts" / "forward_quietward_events.py").read_text(encoding="utf-8")
 
     assert "while not stop.is_set()" in poller
     assert '"--once"' in poller
@@ -91,8 +92,14 @@ def test_release_contains_continuous_agent_and_adapter_installers() -> None:
     assert "response_agent_file_v12.py" in linux
     assert "RunLevel Limited" in windows
     assert "forward_quietward_events.py" in adapter_linux
+    assert "provision_quietward_adapter.py" in adapter_linux
+    assert "adapter.json" in adapter_linux
     assert "forward_quietward_events.py" in adapter_windows
+    assert "provision_quietward_adapter.py" in adapter_windows
+    assert "adapter.json" in adapter_windows
     assert "RunLevel Limited" in adapter_windows
+    assert "ReloadingEventOnlyClient" in adapter_runtime
+    assert "quietward_event_ingestion_only" in adapter_runtime
 
 
 def test_health_reports_real_v12_scope(client) -> None:
