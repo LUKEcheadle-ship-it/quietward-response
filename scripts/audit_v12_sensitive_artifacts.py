@@ -9,10 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 _EXACT_BLOCKED_NAMES = {
     "agent.json",
+    "adapter.json",
     "response-agent.json",
     "response_agent.json",
     "quietward-response-agent.json",
     "quietward_response_agent.json",
+    "quietward-response-adapter.json",
+    "quietward_response_adapter.json",
     "agent-config.json",
     "agent_config.json",
     "response-agent-network-privacy.bin",
@@ -46,6 +49,8 @@ def _reason(path: Path) -> str | None:
     if name in _EXACT_BLOCKED_NAMES:
         if name == "response-agent-network-privacy.bin":
             return "endpoint-local network pseudonym key"
+        if "adapter" in name:
+            return "event-only adapter credential/config filename"
         return "agent credential/config filename"
 
     if name.endswith(".next") and (
@@ -80,6 +85,7 @@ def main() -> int:
 
     print("V1.2 SENSITIVE ARTIFACT AUDIT: PASS")
     print("tracked_agent_credentials=0")
+    print("tracked_adapter_event_credentials=0")
     print("tracked_staged_rotation_credentials=0")
     print("tracked_network_privacy_keys=0")
     return 0
