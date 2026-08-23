@@ -36,6 +36,7 @@ def _run_agent_action_with_capability_sync(
 
 def main() -> int:
     base.ResponseAgent = ResponseAgent
+    base.EXPECTED_ACTIONS.add("collect_network_diagnostic")
     base._run_agent_action = _run_agent_action_with_capability_sync
     return base.main()
 
