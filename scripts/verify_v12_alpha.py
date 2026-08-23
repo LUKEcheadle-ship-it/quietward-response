@@ -155,8 +155,6 @@ def _verify_v12_public_quick_start(python: str, temporary: Path) -> None:
     )
     _assert_v12_schema(database)
     _assert_frontend_port_available()
-    # Prove the durable-data credential scanner itself executes against the
-    # release-created database and finds no values the current redactor would remove.
     _run(
         [
             python,
@@ -181,6 +179,8 @@ def main() -> int:
             "-q",
             "scripts",
             "response_agent_resources.py",
+            "response_agent_v12.py",
+            "response_agent_capabilities.py",
             "audit_sensitive_persistence.py",
         ],
         cwd=ROOT,
@@ -189,6 +189,7 @@ def main() -> int:
     _run([python, str(ROOT / "scripts" / "audit_v12_sensitive_artifacts.py")], cwd=ROOT)
     _run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _run([python, str(ROOT / "scripts" / "verify_v12_surface.py")], cwd=ROOT)
+    _run([python, str(ROOT / "scripts" / "verify_v12_release_corrections.py")], cwd=ROOT)
 
     with tempfile.TemporaryDirectory(prefix="qwr-v12-alpha-") as temporary:
         temp_path = Path(temporary)
@@ -207,8 +208,10 @@ def main() -> int:
     print("\nV1.2.0-ALPHA.1 STATIC/LOCAL GATE: PASS")
     print("Backend full pytest suite: PASS")
     print("Eight-action typed response surface: PASS")
+    print("Release-correction surface/daemon/adapter contracts: PASS")
     print("Linux privacy-preserving network diagnostic: PASS")
     print("Opaque-handle disposable containment: PASS")
+    print("Bounded 256MiB total file diagnostic budget: PASS")
     print("Signed agent capability negotiation: PASS")
     print("Two-phase recoverable agent key rotation: PASS")
     print("Signed externalizable audit checkpoints: PASS")
@@ -219,7 +222,7 @@ def main() -> int:
     print(f"Fresh and legacy migrations to {EXPECTED_ALEMBIC_HEAD}: PASS")
     print("Frontend typecheck/build/high-severity npm audit: PASS")
     print("Public quick-start and cleanup: PASS")
-    print("Live standalone containment/network acceptance remains a separate required gate.")
+    print("Live standalone containment/network/QuietWard-adapter acceptance remain separate required gates.")
     return 0
 
 
