@@ -36,6 +36,7 @@ runtime_files=(
   response_agent_v12.py
   response_agent.py
   response_agent_capabilities.py
+  response_agent_file_v12.py
   response_agent_network.py
   response_agent_resources.py
 )
