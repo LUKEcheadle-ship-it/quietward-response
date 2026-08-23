@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.database.models import EventRecord, HostRecord
 from app.schemas.event import EventCreate
 from app.services.audit_service import record_audit
-from app.services.correlation import correlate_event
+from app.services.correlation_v12 import correlate_event
 from app.services.redaction import redact_sensitive, redact_sensitive_text
 
 
@@ -41,9 +41,6 @@ def _record_event_rejection(
 
 
 def _incoming_payload(event: EventCreate) -> dict[str, Any]:
-    # Pydantic has already normalized compatibility aliases. Redaction happens
-    # before either raw-compatible or normalized copies are persisted so obvious
-    # credential values never become durable event evidence.
     dumped = event.model_dump(mode="json")
     redacted = redact_sensitive(dumped)
     if not isinstance(redacted, dict):
