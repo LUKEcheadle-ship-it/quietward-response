@@ -9,7 +9,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from response_agent import AgentConfig, ResponseAgent, ResponseAgentError, write_agent_config
+from response_agent_v12 import AgentConfig, ResponseAgent, ResponseAgentError
+from response_agent import write_agent_config
 from response_agent_capabilities import sync_capabilities
 
 
