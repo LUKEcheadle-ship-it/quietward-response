@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-from pathlib import Path
 
 from finalize_v1 import EXPECTED_RESPONSE_REPO, ROOT, _verify_checkout
 
@@ -42,6 +41,7 @@ def main() -> int:
     _run("verify_v12_alpha.py")
     _run("verify_v12_alpha_live_capabilities.py")
     _run("verify_v12_network_live.py")
+    _run("verify_v12_quietward_adapter_live.py")
 
     print("\nQUIETWARD RESPONSE V1.2.0-ALPHA.1 AUTOMATED GATES: PASS")
     print(f"response_version={version}")
@@ -50,15 +50,17 @@ def main() -> int:
     print("Eight-action typed response surface: PASS")
     print("Fresh + Phase 1 upgrade migration qualification to 0003_agent_caps: PASS")
     print("Signed agent capability negotiation: PASS")
+    print("Continuous Response-agent runtime contracts: PASS")
     print("Two-phase crash-recoverable agent key rotation: PASS")
     print("Live handle-bound quarantine/restore: PASS")
     print("Live disposable exact-process termination: PASS")
     print("Live Linux privacy-preserving network diagnostic: PASS")
+    print("Live read-only QuietWard-to-Response adapter: PASS")
     print("Analyst bearer RBAC and authenticated audit identity: PASS")
     print("Signed externalizable audit checkpoints: PASS")
     print("API request-size/rate bounds: PASS")
     print("Raw PID/path/network-target and generic command targeting remain unavailable: PASS")
-    print("No detector repository checkout is required or modified by this finalizer.")
+    print("The adapter reads QuietWard state only; no detector repository checkout is required or modified.")
     print("Next: perform the documented browser UI smoke on this exact candidate SHA.")
     return 0
 
