@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from response_agent import AgentConfig, ResponseAgent
+from response_agent_v12 import AgentConfig, ResponseAgent
 from response_agent_capabilities import sync_capabilities
 
 
