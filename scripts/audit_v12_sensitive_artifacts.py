@@ -15,6 +15,7 @@ _EXACT_BLOCKED_NAMES = {
     "quietward_response_agent.json",
     "agent-config.json",
     "agent_config.json",
+    "response-agent-network-privacy.bin",
 }
 _SECRET_SUFFIXES = (
     ".pem",
@@ -43,10 +44,10 @@ def _reason(path: Path) -> str | None:
     full = path.as_posix().casefold()
 
     if name in _EXACT_BLOCKED_NAMES:
+        if name == "response-agent-network-privacy.bin":
+            return "endpoint-local network pseudonym key"
         return "agent credential/config filename"
 
-    # rotate_response_agent_key.py stages the new secret as `<config>.next`.
-    # Any such tracked sidecar is credential material, regardless of its JSON name.
     if name.endswith(".next") and (
         "agent" in name
         or "response" in name
@@ -80,6 +81,7 @@ def main() -> int:
     print("V1.2 SENSITIVE ARTIFACT AUDIT: PASS")
     print("tracked_agent_credentials=0")
     print("tracked_staged_rotation_credentials=0")
+    print("tracked_network_privacy_keys=0")
     return 0
 
 
