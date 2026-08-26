@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import platform
 import re
 import subprocess
 import sys
@@ -31,6 +32,14 @@ def _run(script: str) -> None:
 
 
 def main() -> int:
+    if platform.system().lower() != "linux":
+        raise RuntimeError(
+            "QuietWard Response v1.2 automated finalizer requires a native Linux host "
+            "because the mandatory privacy-preserving network gate reads /proc/net. "
+            "Run scripts/verify_v12_windows_live.py separately on Windows against "
+            "the same exact candidate SHA before claiming Windows qualification."
+        )
+
     version = _response_version()
     response_head = _verify_checkout(
         ROOT,
@@ -46,6 +55,7 @@ def main() -> int:
     print("\nQUIETWARD RESPONSE V1.2.0-ALPHA.1 AUTOMATED GATES: PASS")
     print(f"response_version={version}")
     print(f"response_head={response_head}")
+    print("qualification_platform=Linux")
     print("Full backend/static/local qualification: PASS")
     print("Eight-action typed response surface: PASS")
     print("Fresh + Phase 1 upgrade migration qualification to 0003_agent_caps: PASS")
@@ -61,7 +71,7 @@ def main() -> int:
     print("API request-size/rate bounds: PASS")
     print("Raw PID/path/network-target and generic command targeting remain unavailable: PASS")
     print("The adapter reads QuietWard state only; no detector repository checkout is required or modified.")
-    print("Next: perform the documented browser UI smoke on this exact candidate SHA.")
+    print("Next: run the documented Windows exact-SHA live gate and browser/platform smoke on the same SHA.")
     return 0
 
 
