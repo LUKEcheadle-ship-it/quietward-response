@@ -33,7 +33,7 @@ It:
 - refuses events whose host ID does not match the enrolled Response agent host;
 - deterministically maps the original QuietWard event ID to a stable UUIDv5 Response event ID;
 - preserves QuietWard assessment severity and bounded privacy-safe evidence;
-- sends `source=quietward` events through the normal HMAC-authenticated Response agent credential;
+- sends `source=quietward` events through the least-privilege event-ingestion HMAC credential;
 - maintains its own private delivery cursor in the Response agent state directory;
 - treats a deterministic duplicate as delivered but fails closed on an event-ID conflict.
 
@@ -74,6 +74,14 @@ Read-only diagnostics remain broadly available when relevant.
 
 A generic process start or generic file change no longer exposes destructive containment in the normal analyst workflow.
 
+## Fail-closed target-host policy
+
+The dispatch policy now rejects an action when its target host identifier has no corresponding `HostRecord`.
+
+This matters because agent/action host identifiers are intentionally stored separately from the host table and therefore a stale/corrupt host reference is possible even when normal API flows would not create one. The policy boundary no longer skips OS-family validation when the host row is missing; it records `TARGET_HOST_MISSING_REASON` and denies dispatch.
+
+Action creation also refuses a missing target host. Regression coverage constructs the stale-host state directly and verifies policy denial.
+
 ## Runtime capability truthfulness
 
 The canonical v1.2 agent now reports what the local host can actually execute:
@@ -85,7 +93,7 @@ The canonical v1.2 agent now reports what the local host can actually execute:
 
 The server registry also limits v1.2 process/file mutation to Linux and Windows; `unknown` and unqualified macOS mutation support were removed.
 
-## Agent credential-file enforcement
+## Agent credential and private-state enforcement
 
 `AgentConfig.from_file()` now fails closed when a POSIX credential file is:
 
@@ -95,7 +103,29 @@ The server registry also limits v1.2 process/file mutation to Linux and Windows;
 - empty/oversized;
 - group/world accessible.
 
-Windows installers reject reparse-point configuration files. OS-backed secret storage remains a later hardening goal.
+The canonical v1.2 runtime additionally routes its local ledger, demo state, handle-context and resource-handle state through `scripts/private_state_io.py`. The helper:
+
+- uses randomized temporary names rather than predictable `.tmp` files;
+- opens temporary files with exclusive creation and no-follow flags where supported;
+- uses bounded no-follow reads with pre/open/post identity checks;
+- rejects link/reparse state files;
+- rejects group/world-readable POSIX private state;
+- keeps private directories/files permission-hardened;
+- cleans temporary files on failure.
+
+The optional QuietWard adapter credential and delivery-cursor paths use the same hardened private-state implementation. Windows installers also reject reparse-point configuration files. OS-backed secret storage remains a later hardening goal.
+
+## Trusted audit-checkpoint file boundary
+
+The optional startup checkpoint is now treated as a security input rather than a plain JSON file. Startup rejects:
+
+- symbolic links/reparse points;
+- non-regular files;
+- group/world-writable POSIX checkpoint files;
+- oversized checkpoints;
+- files that change identity during validation/read.
+
+The reader uses a bounded no-follow open and verifies the same file before and after reading before signature/prefix verification proceeds.
 
 ## Bounded file diagnostic work
 
@@ -124,6 +154,9 @@ The exact-SHA finalizer now includes:
 
 - release-correction static/source gate;
 - full backend regression tests for correlation/recommendation thresholds;
+- fail-closed missing-host policy regression;
+- hardened private-state and adapter-state regression tests;
+- trusted checkpoint file-safety regression tests;
 - runtime config/OS-capability/file-budget tests;
 - standalone adapter unit tests;
 - live read-only QuietWard SQLite → authenticated Response incident acceptance;
