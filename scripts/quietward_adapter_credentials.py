@@ -79,13 +79,22 @@ def _atomic_private_json(path: Path, value: dict[str, Any], *, force: bool = Fal
     resolved = path.expanduser()
     if not resolved.is_absolute():
         raise AdapterCredentialError("adapter config path must be absolute")
+    if resolved.is_symlink():
+        raise AdapterCredentialError("adapter config path must not be a symbolic link")
     if resolved.exists() and not force:
         raise AdapterCredentialError(f"adapter config already exists: {resolved}")
     resolved.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = resolved.with_name(resolved.name + ".tmp")
+    temporary = resolved.with_name(
+        f".{resolved.name}.tmp-{os.getpid()}-{time.time_ns()}-{os.urandom(6).hex()}"
+    )
     data = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
     try:
+        descriptor = os.open(temporary, flags, 0o600)
         offset = 0
         while offset < len(data):
             written = os.write(descriptor, data[offset:])
@@ -93,9 +102,20 @@ def _atomic_private_json(path: Path, value: dict[str, Any], *, force: bool = Fal
                 raise OSError("short adapter credential write")
             offset += written
         os.fsync(descriptor)
-    finally:
         os.close(descriptor)
-    os.replace(temporary, resolved)
+        descriptor = None
+        os.replace(temporary, resolved)
+    except Exception:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
     try:
         resolved.chmod(0o600)
     except OSError:
