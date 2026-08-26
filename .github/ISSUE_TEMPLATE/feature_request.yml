@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement to QuietWard Response
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        QuietWard Response intentionally keeps endpoint execution narrow. Suggestions are welcome, but new executable capabilities must preserve typed actions, explicit approval, deterministic policy, endpoint-side validation, idempotency, and auditability.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What investigation or response problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the user-visible behavior rather than an unrestricted command mechanism.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and control boundary
+      description: If this changes endpoint behavior, explain how approval, policy, target validation, retry/idempotency, and auditing should work.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Incident investigation
+        - Correlation / recommendations
+        - Analyst console
+        - Endpoint integration
+        - Controlled response
+        - Audit / evidence
+        - Deployment / setup
+        - Documentation
+        - Other
+    validations:
+      required: true
