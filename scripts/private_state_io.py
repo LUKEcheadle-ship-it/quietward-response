@@ -60,6 +60,21 @@ def _private_parent(path: Path) -> Path:
     return parent
 
 
+def _fsync_directory(path: Path) -> None:
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_DIRECTORY", 0)
+        descriptor = os.open(path, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
 def atomic_private_json(path: Path, value: Any) -> None:
     target = path.expanduser()
     parent = _private_parent(target)
@@ -90,6 +105,7 @@ def atomic_private_json(path: Path, value: Any) -> None:
             target.chmod(0o600)
         except OSError:
             pass
+        _fsync_directory(parent)
     except Exception:
         if descriptor is not None:
             try:
