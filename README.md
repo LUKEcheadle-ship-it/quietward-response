@@ -4,9 +4,9 @@ QuietWard Response is a standalone incident-investigation and controlled-respons
 
 It is a **separate product and repository from QuietWard**. Response code does not belong inside the QuietWard repository.
 
-> **Current release candidate:** `v1.2.0-alpha.1` (`1.2.0a1`) on `feature/response-v12-hardening`.
+> **v1.2.0-alpha.1** (`1.2.0a1`) is the current experimental-alpha release line, prepared from `feature/response-v12-hardening`.
 >
-> The candidate is blocked only on exact-SHA Linux + Windows execution and the documented installed-service/browser/real-QuietWard smoke. Feature scope is frozen; only qualification-driven corrections should be added.
+> A tag/prerelease may be published only after the exact same SHA passes the native Linux finalizer, native Windows live gate, and documented installed-service/browser/real-QuietWard acceptance. When viewing an already tagged release, the GitHub release record is authoritative for the completed qualification status.
 
 ## What v1.2 adds
 
