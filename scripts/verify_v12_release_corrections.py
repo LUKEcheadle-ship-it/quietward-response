@@ -82,8 +82,8 @@ def main() -> int:
             "quietward_event_ingestion_only",
             "ReloadingEventOnlyClient",
             "host does not match the enrolled Response agent host",
-            "O_EXCL",
-            "O_NOFOLLOW",
+            "_atomic_private_json",
+            "load_private_json",
         ),
         "QuietWard adapter",
     )
@@ -109,8 +109,8 @@ def main() -> int:
             "event_hmac_key_b64",
             "EventOnlyClient",
             'target != "/api/v1/events"',
-            "O_EXCL",
-            "O_NOFOLLOW",
+            "load_private_json",
+            "atomic_private_json",
         ),
         "adapter least-privilege credential",
     )
