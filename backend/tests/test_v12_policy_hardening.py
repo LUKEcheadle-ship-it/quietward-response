@@ -3,12 +3,21 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from app.database.models import AgentRecord, EventRecord, HostRecord, IncidentRecord
+from app.database.models import (
+    ActionRecord,
+    AgentRecord,
+    ApprovalRecord,
+    EventRecord,
+    HostRecord,
+    IncidentRecord,
+)
 from app.services.policy_service import (
     AGENT_CAPABILITY_DISABLED_REASON,
     AGENT_CAPABILITY_MISSING_REASON,
     AGENT_CAPABILITY_STALE_REASON,
+    TARGET_HOST_MISSING_REASON,
     agent_capability_reason,
+    evaluate_action_policy,
     incident_integrity_compromised,
 )
 
@@ -67,6 +76,93 @@ def test_capability_policy_fails_closed_for_missing_stale_future_and_disabled_re
 
     # The legacy demo action remains exempt for backwards compatibility only.
     assert agent_capability_reason(missing, "restart_quietward_demo_service", now=now) is None
+
+
+def test_action_policy_rejects_missing_target_host_record(client) -> None:
+    now = datetime.now(timezone.utc)
+    host_id = "host-missing-policy-row"
+    incident_id = str(uuid4())
+    agent_id = str(uuid4())
+    action_id = str(uuid4())
+    approval_id = str(uuid4())
+
+    with client.app.state.database.session_factory() as session:
+        session.add(
+            IncidentRecord(
+                incident_id=incident_id,
+                title="Missing host policy boundary",
+                status="new",
+                severity="high",
+                confidence=1.0,
+                affected_hosts=[host_id],
+                created_at=now,
+                updated_at=now,
+                first_event_at=now,
+                last_event_at=now,
+                event_count=1,
+                probable_cause="synthetic policy regression",
+                correlation_reasons=[],
+                recommended_actions=[
+                    {
+                        "action_type": "diagnostic",
+                        "title": "Collect process diagnostic",
+                        "description": "Synthetic regression action",
+                        "enabled": True,
+                        "phase": "v1.2 — approval required",
+                        "registry_action_type": "collect_process_diagnostic",
+                        "requires_approval": True,
+                    }
+                ],
+            )
+        )
+        session.add(
+            AgentRecord(
+                agent_id=agent_id,
+                host_id=host_id,
+                display_name="missing-host-agent",
+                key_id=str(uuid4()),
+                hmac_key_b64="dGVzdA==",
+                created_at=now,
+                last_seen=now,
+                enabled=True,
+                agent_version="1.2.0-alpha.1-test",
+                supported_actions=["collect_process_diagnostic"],
+                enabled_actions=["collect_process_diagnostic"],
+                capabilities_updated_at=now,
+            )
+        )
+        action = ActionRecord(
+            action_id=action_id,
+            incident_id=incident_id,
+            target_agent_id=agent_id,
+            target_host_id=host_id,
+            action_type="collect_process_diagnostic",
+            parameters={},
+            requested_at=now,
+            requested_by="policy-tester",
+            approval_id=approval_id,
+            expires_at=now + timedelta(minutes=5),
+            status="approved",
+        )
+        session.add(action)
+        session.add(
+            ApprovalRecord(
+                approval_id=approval_id,
+                incident_id=incident_id,
+                action_id=action_id,
+                requested_by="policy-tester",
+                requested_at=now,
+                status="approved",
+                approved_by="policy-reviewer",
+                approved_at=now,
+                expires_at=now + timedelta(minutes=5),
+            )
+        )
+        session.commit()
+
+        allowed, reasons = evaluate_action_policy(session, action, now=now)
+        assert allowed is False
+        assert TARGET_HOST_MISSING_REASON in reasons
 
 
 def test_integrity_event_freezes_mutating_trust_path(tmp_path, client) -> None:
