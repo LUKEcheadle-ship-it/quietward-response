@@ -4,12 +4,18 @@
 
 QuietWard Response is an Apache-2.0 licensed, event-driven security platform that validates telemetry, correlates related observations into explainable incidents, reconstructs timelines, recommends investigation steps, coordinates explicitly approved typed response actions, and records a tamper-evident audit trail.
 
-> **Release:** `v1.0.0`  
-> **Qualified source:** `release/v1.0.0`  
+> **Qualified baseline:** `v1.0.0` / `release/v1.0.0`  
+> **Current public-beta maintenance source:** `main` (`v1.0.1` security maintenance)  
 > **Runtime/API version:** `1.0.0`  
 > **Intended use:** public-beta evaluation, homelabs, defensive-security research, and architecture demonstration on local/trusted networks.
 
-The v1.0.0 executable scope is deliberately narrow. It proves the complete secure response lifecycle while refusing arbitrary shell commands or general host control.
+The v1.0 executable scope is deliberately narrow. It proves the complete secure response lifecycle while refusing arbitrary shell commands or general host control.
+
+### August 2026 frontend security maintenance
+
+The qualified v1.0.0 baseline originally used Next.js 16.3.1. After upstream Critical Next.js advisories were published on August 25, 2026, the public-beta maintenance source was moved to Next.js **16.3.3** without changing the Response action, policy, API, or audit behavior. Public-beta users should clone current `main` rather than install the older v1.0.0 source archive.
+
+The frontend preserves the qualified dependency tree as a non-installable template and deterministically generates the patched local `package-lock.json` before every `npm ci` path (bootstrap, Docker build, and release verification). Existing local installations also verify the installed Next.js version and reinstall if needed.
 
 ## Why this project exists
 
@@ -47,7 +53,7 @@ The release completed:
 - browser route and incident-lifecycle smoke verification
 - post-lifecycle audit-chain verification
 
-The exact qualification contract is documented in [`docs/V1_ACCEPTANCE.md`](docs/V1_ACCEPTANCE.md).
+The exact qualification contract is documented in [`docs/V1_ACCEPTANCE.md`](docs/V1_ACCEPTANCE.md). The v1.0.1 maintenance change is dependency/install-path only; the qualified controlled-response runtime surface remains unchanged.
 
 ## Architecture
 
@@ -91,7 +97,7 @@ Windows users can also run:
 py -3.12 scripts\bootstrap_local.py
 ```
 
-The bootstrap path creates private local configuration, generates a random development enrollment token when needed, reconciles Python/frontend dependencies, applies migrations, starts both product surfaces, verifies readiness, and cleans up the process groups on shutdown.
+The bootstrap path creates private local configuration, generates a random development enrollment token when needed, reconciles Python/frontend dependencies, applies migrations, starts both product surfaces, verifies readiness, and cleans up the process groups on shutdown. The current maintenance bootstrap also generates the reviewed Next.js 16.3.3 lock and refuses to reuse a stale frontend installation.
 
 Default local surfaces:
 
@@ -119,7 +125,7 @@ docker compose up --build
 
 ## Controlled-response demonstration
 
-The only executable v1.0.0 action is:
+The only executable v1.0 action is:
 
 `restart_quietward_demo_service`
 
@@ -139,9 +145,9 @@ This demonstrates the response-control architecture without shipping unrestricte
 
 ## Security boundary
 
-QuietWard Response v1.0.0 is a local/trusted-network public-beta system, **not an Internet-facing production EDR/XDR/SOAR service**.
+QuietWard Response v1.0 is a local/trusted-network public-beta system, **not an Internet-facing production EDR/XDR/SOAR service**.
 
-v1.0.0 deliberately has:
+v1.0 deliberately has:
 
 - no shell / PowerShell / cmd / bash execution
 - no arbitrary process termination
@@ -187,7 +193,7 @@ Security vulnerabilities should be reported privately through GitHub Security Ad
 - [`docs/architecture.md`](docs/architecture.md) — system architecture
 - [`docs/threat-model.md`](docs/threat-model.md) — trust and security model
 - [`protocol/README.md`](protocol/README.md) — event/action protocol
-- [`CHANGELOG.md`](CHANGELOG.md) — v1.0.0 release details
+- [`CHANGELOG.md`](CHANGELOG.md) — release details
 - [`docs/PUBLIC_LAUNCH_KIT.md`](docs/PUBLIC_LAUNCH_KIT.md) — release, portfolio, and launch copy
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — development and contribution requirements
 
