@@ -20,6 +20,7 @@ from quietward_adapter_credentials import (
     AdapterCredential,
     AdapterCredentialError,
     EventOnlyClient,
+    _atomic_private_json,
 )
 from reloading_adapter_client import ReloadingEventOnlyClient
 
@@ -58,25 +59,7 @@ class AdapterClient(Protocol):
 
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_name(path.name + ".tmp")
-    payload = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        offset = 0
-        while offset < len(payload):
-            written = os.write(descriptor, payload[offset:])
-            if written <= 0:
-                raise OSError("short adapter-state write")
-            offset += written
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    os.replace(temporary, path)
-    try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+    _atomic_private_json(path, value, force=True)
 
 
 def _load_state(path: Path) -> dict[str, Any]:
