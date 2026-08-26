@@ -10,35 +10,6 @@ export interface RecommendedAction {
   requires_approval?: boolean;
 }
 
-export type ResponsePlanPriority = "routine" | "elevated" | "high" | "critical";
-export type ResponsePlanStepState = "available" | "manual" | "planned" | "blocked";
-
-export interface ResponsePlanStep {
-  step_id: string;
-  title: string;
-  description: string;
-  state: ResponsePlanStepState;
-  destructive: boolean;
-  requires_approval: boolean;
-  executable_action_type: string | null;
-}
-
-export interface ResponsePlan {
-  schema_version: "1.0";
-  plan_id: string;
-  incident_id: string;
-  mode: "advisory_with_controlled_actions";
-  priority: ResponsePlanPriority;
-  attack_families: string[];
-  objectives: string[];
-  investigation_steps: ResponsePlanStep[];
-  containment_steps: ResponsePlanStep[];
-  recovery_steps: ResponsePlanStep[];
-  escalation_conditions: string[];
-  executable_actions: string[];
-  limitations: string[];
-}
-
 export interface Incident {
   incident_id: string;
   title: string;

@@ -4,27 +4,21 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/States";
 import { ResponseActions } from "@/components/ResponseActions";
-import { ResponsePlanPanel } from "@/components/ResponsePlanPanel";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { apiFetch, formatTime } from "@/lib/api";
-import type { IncidentDetail, ResponsePlan } from "@/lib/types";
+import type { IncidentDetail } from "@/lib/types";
 
 export default function IncidentDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
-  const [plan, setPlan] = useState<ResponsePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const loadIncident = useCallback(async () => {
     if (!id) return;
-    const [nextIncident, nextPlan] = await Promise.all([
-      apiFetch<IncidentDetail>(`/api/v1/incidents/${id}`),
-      apiFetch<ResponsePlan>(`/api/v1/incidents/${id}/response-plan`),
-    ]);
-    setIncident(nextIncident);
-    setPlan(nextPlan);
+    const next = await apiFetch<IncidentDetail>(`/api/v1/incidents/${id}`);
+    setIncident(next);
     setError(null);
   }, [id]);
 
@@ -51,7 +45,7 @@ export default function IncidentDetailPage() {
   }
 
   if (error && !incident) return <ErrorState message={error} />;
-  if (!incident || !plan) return <LoadingState />;
+  if (!incident) return <LoadingState />;
 
   const diagnostic = incident.recommended_actions.filter((item) => item.action_type === "diagnostic");
   const remediation = incident.recommended_actions.filter((item) => item.action_type === "remediation");
@@ -95,8 +89,6 @@ export default function IncidentDetailPage() {
         </div>
       </section>
 
-      <ResponsePlanPanel plan={plan} />
-
       <div className="grid gap-7 xl:grid-cols-[1.15fr_.85fr]">
         <section>
           <p className="eyebrow">Chronology</p>
@@ -136,19 +128,16 @@ export default function IncidentDetailPage() {
 
           <section className="panel">
             <p className="eyebrow">Recommended actions</p>
-            <h3 className="mt-4 text-sm font-semibold text-emerald-300">Diagnostic guidance</h3>
+            <h3 className="mt-4 text-sm font-semibold text-emerald-300">Diagnostic actions</h3>
             <div className="mt-3 space-y-3">
               {diagnostic.map((item) => (
                 <div key={item.title} className="rounded-lg border border-emerald-500/15 bg-emerald-500/5 p-3">
-                  <div className="flex justify-between gap-2">
-                    <p className="text-sm font-medium text-white">{item.title}</p>
-                    <span className="text-[10px] uppercase text-emerald-200">{item.phase}</span>
-                  </div>
+                  <p className="text-sm font-medium text-white">{item.title}</p>
                   <p className="mt-1 text-xs leading-5 text-slate-400">{item.description}</p>
                 </div>
               ))}
             </div>
-            <h3 className="mt-6 text-sm font-semibold text-amber-200">Remediation guidance</h3>
+            <h3 className="mt-6 text-sm font-semibold text-amber-200">Remediation actions</h3>
             <div className="mt-3 space-y-3">
               {remediation.map((item) => (
                 <div key={item.title} className={`rounded-lg border border-amber-500/15 bg-amber-500/5 p-3 ${item.registry_action_type ? "" : "opacity-75"}`}>
@@ -160,7 +149,7 @@ export default function IncidentDetailPage() {
                   {item.registry_action_type ? (
                     <span className="mt-3 inline-block rounded border border-cyan/20 bg-cyan/10 px-2 py-1 text-[10px] uppercase text-cyan">Controlled action available below</span>
                   ) : (
-                    <span className="mt-3 inline-block rounded border border-line px-2 py-1 text-[10px] uppercase text-slate-500">Guidance only · not executable</span>
+                    <button disabled className="mt-3 cursor-not-allowed rounded border border-line px-3 py-1.5 text-xs text-slate-600">Not enabled</button>
                   )}
                 </div>
               ))}

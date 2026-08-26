@@ -15,8 +15,7 @@ class ActionDefinition:
     implementation_version: str
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
-        # The released QuietWard endpoint recognizes no arbitrary target/service/path
-        # parameter. Keep the alpha endpoint-executed surface exactly compatible.
+        # v1 deliberately exposes no arbitrary target/service/path parameter.
         if parameters:
             return ["this action accepts no parameters"]
         return []
@@ -32,9 +31,6 @@ RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
     implementation_version="1",
 )
 
-# Alpha rule: executable endpoint actions must remain compatible with the finished
-# public QuietWard release. Broad cyber-response coverage lives in the response-plan
-# engine until each future endpoint action has its own versioned typed contract.
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
     RESTART_QUIETWARD_DEMO_SERVICE.action_type: RESTART_QUIETWARD_DEMO_SERVICE,
 }

@@ -13,11 +13,6 @@ BLOCKED_EXACT_PATHS = {
     "backend/quietward-response.db",
     "quietward-response.db",
 }
-BLOCKED_SECRET_FILENAMES = {
-    "agent.json",
-    "response-agent.json",
-    "response-agent-config.json",
-}
 BLOCKED_SUFFIXES = {
     ".db",
     ".sqlite",
@@ -77,8 +72,6 @@ def _is_blocked_path(relative: str) -> str | None:
     name = Path(normalized).name
     if normalized in BLOCKED_EXACT_PATHS:
         return "local runtime/secret file must not be tracked"
-    if name.lower() in BLOCKED_SECRET_FILENAMES:
-        return "Response agent credential/config file must not be tracked"
     if name.startswith(".env") and normalized not in SAFE_ENV_FILES:
         return "environment file must not be tracked"
     suffix = Path(normalized).suffix.lower()
@@ -128,7 +121,7 @@ def main() -> int:
 
     # A secret removed from HEAD is still public if it remains in reachable git
     # history. Scan high-confidence token formats across all local refs and flag any
-    # historically tracked .env/private-key/database/agent-credential path for review.
+    # historically tracked .env/private-key/database path for explicit review.
     history_names = _git("log", "--all", "--name-only", "--pretty=format:")
     for raw_name in history_names.splitlines():
         name = raw_name.strip().replace("\\", "/")
@@ -148,6 +141,7 @@ def main() -> int:
     )
     findings.extend(_scan_text("git history", history_patch, include_machine_paths=False))
 
+    # Avoid printing matched secret material. Findings contain only type/path.
     unique = sorted(set(findings))
     if unique:
         print("PUBLIC RELEASE AUDIT: FAIL")
