@@ -21,6 +21,14 @@ foreach ($path in @($agentConfig, $database)) {
 }
 
 $python = (Get-Command python.exe -ErrorAction Stop).Source
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw "python.exe could not be resolved to a normal file"
+}
+$pythonItem = Get-Item -LiteralPath $python -Force
+if ($pythonItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw "python.exe must not be a reparse point/symlink"
+}
+
 $runtime = Join-Path $env:LOCALAPPDATA "QuietWardResponse\agent-runtime"
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 New-Item -ItemType Directory -Path (Split-Path -Parent $adapterConfig) -Force | Out-Null
@@ -36,12 +44,17 @@ if ($LASTEXITCODE -ne 0) {
 $runtimeFiles = @(
     "forward_quietward_events.py",
     "quietward_adapter_credentials.py",
-    "reloading_adapter_client.py"
+    "reloading_adapter_client.py",
+    "private_state_io.py"
 )
 foreach ($file in $runtimeFiles) {
     $source = Join-Path $PSScriptRoot $file
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "Missing adapter runtime file: $source"
+    }
+    $sourceItem = Get-Item -LiteralPath $source -Force
+    if ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Adapter runtime file must not be a reparse point/symlink: $source"
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $runtime $file) -Force
 }
