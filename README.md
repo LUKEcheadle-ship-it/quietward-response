@@ -1,45 +1,83 @@
 # QuietWard Response
 
-QuietWard Response is an event-driven incident investigation and controlled-response platform. It validates sensor events, tracks hosts, deterministically correlates related observations into incidents, reconstructs timelines, recommends investigation steps, and records a tamper-evident audit trail.
+**Incident investigation and controlled response without a generic remote-command surface.**
 
-The v1 line adds an optional two-way QuietWard integration: authenticated endpoint telemetry, replay-resistant agent polling, explicit human approval, deterministic policy evaluation, and one deliberately isolated demo remediation. There is still **no arbitrary command execution** and no general host-remediation surface.
+QuietWard Response is an Apache-2.0 licensed, event-driven security platform that validates telemetry, correlates related observations into explainable incidents, reconstructs timelines, recommends investigation steps, coordinates explicitly approved typed response actions, and records a tamper-evident audit trail.
 
-> **Release status:** `v1.0.0` is the first public controlled-response release. The final release qualification passed on 2026-08-19: 73 Response backend tests, migrations/drift checks, frontend typecheck/build/audit, 182 QuietWard tests, the real two-repository HTTP loop, quick-start cleanup, and a live browser UI smoke. The executable scope remains demo-fixture-only.
+> **Release:** `v1.0.0`  
+> **Qualified source:** `release/v1.0.0`  
+> **Runtime/API version:** `1.0.0`  
+> **Intended use:** public-beta evaluation, homelabs, defensive-security research, and architecture demonstration on local/trusted networks.
 
-## Relationship with QuietWard
+The v1.0.0 executable scope is deliberately narrow. It proves the complete secure response lifecycle while refusing arbitrary shell commands or general host control.
 
-| Project | Responsibility |
-|---|---|
-| **QuietWard** | Detection, endpoint telemetry, endpoint-side validation, optional polling of approved typed actions |
-| **QuietWard Response** | Correlation, investigation, recommendations, approval/policy, response coordination, and audit |
+## Why this project exists
 
-Neither project requires the other to exist. QuietWard remains fully functional when Response integration is disabled or unavailable.
+Many response systems eventually need to move from *detect* to *act*. QuietWard Response explores how to do that without making the control plane an unrestricted remote administration tool.
+
+The v1 safety path is:
+
+`authenticated event -> deterministic correlation -> incident -> investigation -> recommendation -> human approval -> deterministic policy -> endpoint allowlist -> controlled action -> signed result -> tamper-evident audit`
+
+An action must be explicitly registered before the API can create it, must be approved by an analyst, must pass deterministic server-side policy, and must be independently validated again by the endpoint before execution.
+
+## Public beta / portfolio snapshot
+
+- **Backend:** FastAPI, SQLAlchemy, Alembic
+- **Frontend:** Next.js analyst console
+- **Endpoint trust:** HMAC-SHA256 authenticated events, polling, and results
+- **Replay protection:** persisted nonces and bounded timestamp validation
+- **Response control:** typed action registry, explicit approval, deterministic policy, endpoint allowlist
+- **Reliability:** idempotent action/result handling and crash/retry reconciliation
+- **Audit:** hash-chained tamper-evident audit verification
+- **Deployment:** cross-platform local bootstrap plus Docker Compose/PostgreSQL-ready path
+- **License:** Apache-2.0
+
+### Qualified v1.0.0 evidence
+
+The release completed:
+
+- **73 QuietWard Response backend tests**
+- migration, upgrade, and ORM-drift verification
+- frontend TypeScript and production build checks
+- high-severity npm audit
+- public quick-start startup and clean shutdown verification
+- **182 companion QuietWard tests**
+- real two-repository signed event -> incident -> approval -> action -> result HTTP acceptance
+- browser route and incident-lifecycle smoke verification
+- post-lifecycle audit-chain verification
+
+The exact qualification contract is documented in [`docs/V1_ACCEPTANCE.md`](docs/V1_ACCEPTANCE.md).
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    Q[QuietWard / other sensors] -->|signed event| I[Event ingestion]
-    I --> N[Validation and normalization]
-    N --> C[Deterministic correlation]
+    Q[QuietWard / other sensors] -->|signed event| I[Validation + ingestion]
+    I --> C[Deterministic correlation]
     C --> X[Incident]
-    X --> T[Timeline and evidence]
-    T --> R[Assessment and recommendations]
+    X --> T[Timeline + evidence]
+    T --> R[Assessment + recommendations]
     R --> P[Human approval + deterministic policy]
     P -->|typed approved action| A[Agent-initiated polling]
-    A --> E[QuietWard endpoint allowlist]
+    A --> E[Endpoint allowlist]
     E -->|v1: demo fixture only| Z[Controlled action]
     Z -->|signed ActionResult| X
-    I --> U[Hash-chained audit]
+    I --> U[Tamper-evident audit]
     P --> U
     Z --> U
 ```
 
-See [architecture](docs/architecture.md), [event/action protocol](protocol/README.md), [threat model](docs/threat-model.md), [v1 acceptance](docs/V1_ACCEPTANCE.md), and [roadmap](docs/roadmap.md).
+QuietWard and QuietWard Response are separate projects. QuietWard handles detection/endpoint-side integration; Response handles correlation, investigation, recommendations, approval/policy, response coordination, and audit. Neither project requires the other to operate independently.
 
 ## Quick start
 
-Requirements: Python 3.12+, Node.js 22+, npm, and Git.
+Requirements:
+
+- Python 3.12+
+- Node.js 22+
+- npm
+- Git
 
 ```text
 git clone https://github.com/LUKEcheadle-ship-it/quietward-response.git
@@ -47,11 +85,15 @@ cd quietward-response
 python scripts/bootstrap_local.py
 ```
 
-On Windows, `py -3.12 scripts\bootstrap_local.py` is also supported when Python is installed through the Python launcher.
+Windows users can also run:
 
-`bootstrap_local.py` is the cross-platform first-run path. It creates a private local `.env` if needed, replaces the known development enrollment token with a random local token, creates/reconciles the Python virtual environment, installs dependencies, applies database migrations, installs frontend dependencies when needed, starts the API and frontend, and refuses to report ready unless both are reachable. It also terminates the full product process groups on shutdown so the API and frontend ports are released cleanly.
+```text
+py -3.12 scripts\bootstrap_local.py
+```
 
-A normal v1 startup begins with a clean incident database; it does **not** inject synthetic incidents.
+The bootstrap path creates private local configuration, generates a random development enrollment token when needed, reconciles Python/frontend dependencies, applies migrations, starts both product surfaces, verifies readiness, and cleans up the process groups on shutdown.
+
+Default local surfaces:
 
 - Frontend: <http://localhost:3001>
 - API: <http://localhost:8002>
@@ -59,166 +101,98 @@ A normal v1 startup begins with a clean incident database; it does **not** injec
 - Health: <http://localhost:8002/health>
 - Audit verification: <http://localhost:8002/api/v1/audit/verify>
 
-Press `Ctrl+C` to stop both services.
-
-### Bash launchers
-
-Linux/macOS users can also use the Bash wrappers:
-
-```bash
-bash scripts/bootstrap_local.sh
-```
-
-For a manually managed `.env`:
-
-```bash
-cp .env.example .env
-# replace QWR_ENROLLMENT_TOKEN with a random 24+ character value
-bash scripts/run_all.sh
-```
-
-To populate the original three safe synthetic investigation scenarios after startup:
+To populate safe synthetic investigation data after startup:
 
 ```text
 python scripts/seed_demo.py --api-url http://localhost:8002
 ```
 
-You can also set `QWR_SEED_DEMO=true` before startup when you specifically want those demo incidents created automatically.
-
-### Run components separately
-
-```bash
-bash scripts/run_backend.sh
-bash scripts/run_frontend.sh
-```
-
-The frontend launcher reads the repository API configuration so a local `QWR_API_PORT` / `NEXT_PUBLIC_API_URL` override does not leave the browser pointing at the default API port.
-
 ### Docker Compose
 
-Docker Compose uses PostgreSQL and maps the API and frontend to loopback only. Set a non-empty enrollment token before startup:
+Docker Compose uses PostgreSQL and maps the API/frontend to loopback by default:
 
 ```bash
 cp .env.example .env
-# replace QWR_ENROLLMENT_TOKEN in .env
+# replace QWR_ENROLLMENT_TOKEN in .env with a random 24+ character value
 docker compose up --build
 ```
 
-## Enroll a QuietWard endpoint
+## Controlled-response demonstration
 
-Start Response first, then enroll the endpoint once:
-
-```text
-python scripts/enroll_quietward.py --host-id YOUR_QUIETWARD_HOST_ID
-```
-
-The enrollment helper reads the Response URL and enrollment token from the repository `.env` by default. You can still override either with `--api-url` or `--token`.
-
-The command prints these one-time endpoint values:
-
-```text
-QUIETWARD_RESPONSE_ENABLED=true
-QUIETWARD_RESPONSE_URL=http://127.0.0.1:8002
-QUIETWARD_RESPONSE_AGENT_ID=...
-QUIETWARD_RESPONSE_KEY_ID=...
-QUIETWARD_RESPONSE_SECRET=...
-```
-
-Store the secret securely on the endpoint. Response stores derived HMAC key material rather than the original enrollment secret, but that derived material is still secret-equivalent.
-
-Authenticated agent requests bind the HTTP method, target path/query, Unix timestamp, random nonce, and SHA-256 body digest into an HMAC-SHA256 signature. The server enforces a bounded replay window and persists used agent nonces.
-
-## v1 controlled response demo
-
-The only executable v1 action is:
+The only executable v1.0.0 action is:
 
 `restart_quietward_demo_service`
 
-Despite the name, this does **not** restart an operating-system service. It modifies only a dedicated QuietWard-owned JSON demo fixture named `quietward-response-demo.json`. The endpoint rejects arbitrary action types, arbitrary service names, executable paths, shell fragments, and non-empty parameters.
+Despite the name, it **does not restart an operating-system service**. It modifies only a dedicated QuietWard-owned JSON demo fixture after:
 
-On the QuietWard integration build, initialize the fixture as unhealthy and send its authenticated event:
+1. an incident creates the eligible controlled recommendation;
+2. an analyst prepares the action;
+3. an analyst explicitly approves it;
+4. deterministic Response policy validates the request;
+5. the endpoint polls outward for work;
+6. the endpoint independently validates the typed action;
+7. the fixture changes exactly once;
+8. a signed terminal result returns to Response; and
+9. the lifecycle is recorded in the audit chain.
 
-```text
-python scripts/quietward_response_demo.py init-unhealthy --host-id YOUR_QUIETWARD_HOST_ID
-python scripts/quietward_response_demo.py sync --host-id YOUR_QUIETWARD_HOST_ID
-```
+This demonstrates the response-control architecture without shipping unrestricted endpoint authority.
 
-Response creates an incident and exposes the allowlisted recommendation. In the incident console:
+## Security boundary
 
-1. Choose the intended enabled QuietWard agent if more than one credential exists for an affected host.
-2. Prepare the controlled action.
-3. Approve it.
-4. Run another QuietWard `sync` or normal service cycle.
-5. QuietWard polls for the approved action, validates it locally, changes only the dedicated demo fixture, and returns a signed result.
-6. Response shows the terminal result and records the lifecycle in the audit chain.
+QuietWard Response v1.0.0 is a local/trusted-network public-beta system, **not an Internet-facing production EDR/XDR/SOAR service**.
 
-The endpoint persists execution intent and a terminal-result ledger, and the dedicated fixture records the applied action ID. This allows an interrupted `executing` action to be reconciled without changing the fixture twice. Event retries treat only an identical already-accepted event ID as successful delivery; reusing an event ID with different content is rejected as an integrity conflict.
+v1.0.0 deliberately has:
 
-## API
+- no shell / PowerShell / cmd / bash execution
+- no arbitrary process termination
+- no arbitrary service control
+- no file deletion or quarantine
+- no firewall modification
+- no host isolation
+- no LLM-generated command execution
+- no autonomous remediation
+- no multi-tenant or horizontally scaled deployment claim
+- no enterprise OIDC/RBAC claim
 
-Core endpoints:
+The API is qualified as a **single-process/single-worker** service. Analyst identity remains local-development grade, HMAC transport should use TLS outside loopback/trusted local development, and the audit chain provides tamper evidence rather than immutable storage.
 
-- `POST /api/v1/events`
-- `GET /api/v1/events`
-- `GET /api/v1/hosts`
-- `GET /api/v1/hosts/{host_id}`
-- `GET /api/v1/incidents`
-- `GET /api/v1/incidents/{incident_id}`
-- `PATCH /api/v1/incidents/{incident_id}`
-- `GET /api/v1/overview`
+See [`SECURITY.md`](SECURITY.md) and [`docs/threat-model.md`](docs/threat-model.md) for the complete security boundary.
 
-Controlled-response endpoints:
+## Verification
 
-- `POST /api/v1/agents/enroll`
-- `GET /api/v1/agents`
-- `GET /api/v1/agents/{agent_id}`
-- `PATCH /api/v1/agents/{agent_id}`
-- `GET /api/v1/actions/registry`
-- `POST /api/v1/incidents/{incident_id}/actions`
-- `GET /api/v1/incidents/{incident_id}/actions`
-- `POST /api/v1/actions/{action_id}/approve`
-- `POST /api/v1/actions/{action_id}/reject`
-- `GET /api/v1/agents/{agent_id}/actions/pending` — agent-authenticated
-- `POST /api/v1/actions/{action_id}/result` — agent-authenticated
-- `GET /api/v1/audit/verify`
-
-Events claiming `source=quietward` require authenticated agent delivery when `QWR_REQUIRE_AGENT_AUTH_FOR_QUIETWARD_EVENTS=true`. Synthetic/development sources remain available for the local demo; outside development, unauthenticated generic sensor sources fail closed until they have an authenticated adapter.
-
-## v1 verification
-
-The complete gate is:
+The full release gate is:
 
 ```text
 python scripts/finalize_v1.py --quietward-repo ../quietward
 ```
 
-The underlying gates can also be run separately:
+Underlying deterministic/live gates:
 
 ```text
 python scripts/verify_v1.py --quietward-repo ../quietward
 python scripts/verify_v1_live.py --quietward-repo ../quietward
 ```
 
-See [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) for exactly what each gate proves and the UI smoke requirements.
+The repository also includes a public-release audit that scans tracked content and reachable Git history for sensitive/runtime files, high-confidence credential patterns, and selected private machine paths.
 
-## Safety status
+## Public beta feedback
 
-QuietWard Response v1 is intentionally a controlled local/trusted-network response system, not an unrestricted remote administration service.
+Use GitHub Issues for reproducible bugs and feature requests. The included issue forms ask testers to sanitize logs and avoid posting credentials, private host data, customer information, or real incident evidence.
 
-Current guarantees are deliberately narrow:
+Security vulnerabilities should be reported privately through GitHub Security Advisories as described in [`SECURITY.md`](SECURITY.md).
 
-- no shell/PowerShell/cmd/bash action
-- no arbitrary process termination
-- no arbitrary service control
-- no file deletion/quarantine
-- no firewall modification
-- no host isolation
-- no LLM-generated command execution
-- agent-initiated polling instead of an inbound endpoint command listener
-- one demo-fixture action requiring human approval and deterministic policy validation
+## Project documentation
 
-v1 is intentionally qualified as a **single-process/single-worker** API. Both the native launcher and backend container enforce one Uvicorn worker because request serialization protects the linear audit-chain append model. Do not horizontally scale this version against one database; multi-worker support requires a database-backed atomic audit append/head mechanism and requalification.
+- [`docs/V1_ACCEPTANCE.md`](docs/V1_ACCEPTANCE.md) — exact v1 release qualification
+- [`docs/architecture.md`](docs/architecture.md) — system architecture
+- [`docs/threat-model.md`](docs/threat-model.md) — trust and security model
+- [`protocol/README.md`](protocol/README.md) — event/action protocol
+- [`CHANGELOG.md`](CHANGELOG.md) — v1.0.0 release details
+- [`docs/PUBLIC_LAUNCH_KIT.md`](docs/PUBLIC_LAUNCH_KIT.md) — release, portfolio, and launch copy
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development and contribution requirements
 
-Analyst identity is still local-development grade (`X-Actor-ID`) rather than OIDC/RBAC. HMAC should be carried over TLS outside loopback/local trusted development. The audit chain provides tamper evidence, not immutability.
+## Portfolio summary
 
-Licensed under Apache-2.0.
+Built and qualified a FastAPI/Next.js controlled-response platform with authenticated telemetry, deterministic incident correlation, human-approved policy-gated endpoint actions, replay protection, idempotent execution, migrations, live cross-repository integration testing, and tamper-evident auditing.
+
+Licensed under the **Apache License 2.0**.
