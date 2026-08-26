@@ -1,5 +1,29 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
 const ANALYST_SESSION_KEY = "qwr.analyst.bearer";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
+
+function validatedApiUrl(raw: string): string {
+  const normalized = raw.trim().replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error("NEXT_PUBLIC_API_URL must be an absolute HTTP(S) URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("NEXT_PUBLIC_API_URL must use HTTP or HTTPS");
+  }
+  if (parsed.username || parsed.password || (parsed.pathname !== "/" && parsed.pathname !== "") || parsed.search || parsed.hash) {
+    throw new Error("NEXT_PUBLIC_API_URL must not contain credentials, a path, query, or fragment");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const loopback = LOOPBACK_HOSTS.has(hostname) || hostname.endsWith(".localhost");
+  if (parsed.protocol === "http:" && !loopback) {
+    throw new Error("Remote QuietWard Response analyst API URLs must use HTTPS");
+  }
+  return normalized;
+}
+
+const API_URL = validatedApiUrl(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002");
 
 function errorMessageFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
