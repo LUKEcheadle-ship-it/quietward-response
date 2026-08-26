@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import pytest
+
 from app.database.models import (
     ActionRecord,
     AgentRecord,
@@ -11,6 +13,8 @@ from app.database.models import (
     HostRecord,
     IncidentRecord,
 )
+from app.schemas.action import ActionCreate
+from app.services.action_service import ActionError, create_action
 from app.services.policy_service import (
     AGENT_CAPABILITY_DISABLED_REASON,
     AGENT_CAPABILITY_MISSING_REASON,
@@ -78,59 +82,84 @@ def test_capability_policy_fails_closed_for_missing_stale_future_and_disabled_re
     assert agent_capability_reason(missing, "restart_quietward_demo_service", now=now) is None
 
 
-def test_action_policy_rejects_missing_target_host_record(client) -> None:
-    now = datetime.now(timezone.utc)
+def _missing_host_fixture(session, *, now: datetime) -> tuple[str, str, str]:
     host_id = "host-missing-policy-row"
     incident_id = str(uuid4())
     agent_id = str(uuid4())
+    session.add(
+        IncidentRecord(
+            incident_id=incident_id,
+            title="Missing host policy boundary",
+            status="new",
+            severity="high",
+            confidence=1.0,
+            affected_hosts=[host_id],
+            created_at=now,
+            updated_at=now,
+            first_event_at=now,
+            last_event_at=now,
+            event_count=1,
+            probable_cause="synthetic policy regression",
+            correlation_reasons=[],
+            recommended_actions=[
+                {
+                    "action_type": "diagnostic",
+                    "title": "Collect process diagnostic",
+                    "description": "Synthetic regression action",
+                    "enabled": True,
+                    "phase": "v1.2 — approval required",
+                    "registry_action_type": "collect_process_diagnostic",
+                    "requires_approval": True,
+                }
+            ],
+        )
+    )
+    session.add(
+        AgentRecord(
+            agent_id=agent_id,
+            host_id=host_id,
+            display_name="missing-host-agent",
+            key_id=str(uuid4()),
+            hmac_key_b64="dGVzdA==",
+            created_at=now,
+            last_seen=now,
+            enabled=True,
+            agent_version="1.2.0-alpha.1-test",
+            supported_actions=["collect_process_diagnostic"],
+            enabled_actions=["collect_process_diagnostic"],
+            capabilities_updated_at=now,
+        )
+    )
+    session.commit()
+    return host_id, incident_id, agent_id
+
+
+def test_action_creation_rejects_missing_target_host_record(client) -> None:
+    now = datetime.now(timezone.utc)
+    with client.app.state.database.session_factory() as session:
+        host_id, incident_id, agent_id = _missing_host_fixture(session, now=now)
+        with pytest.raises(ActionError, match="target host record does not exist"):
+            create_action(
+                session,
+                incident_id=incident_id,
+                payload=ActionCreate(
+                    target_agent_id=agent_id,
+                    target_host_id=host_id,
+                    action_type="collect_process_diagnostic",
+                    parameters={},
+                ),
+                actor_id="policy-tester",
+            )
+        assert session.query(ActionRecord).filter_by(incident_id=incident_id).count() == 0
+
+
+def test_action_policy_rejects_missing_target_host_record(client) -> None:
+    now = datetime.now(timezone.utc)
     action_id = str(uuid4())
     approval_id = str(uuid4())
 
     with client.app.state.database.session_factory() as session:
-        session.add(
-            IncidentRecord(
-                incident_id=incident_id,
-                title="Missing host policy boundary",
-                status="new",
-                severity="high",
-                confidence=1.0,
-                affected_hosts=[host_id],
-                created_at=now,
-                updated_at=now,
-                first_event_at=now,
-                last_event_at=now,
-                event_count=1,
-                probable_cause="synthetic policy regression",
-                correlation_reasons=[],
-                recommended_actions=[
-                    {
-                        "action_type": "diagnostic",
-                        "title": "Collect process diagnostic",
-                        "description": "Synthetic regression action",
-                        "enabled": True,
-                        "phase": "v1.2 — approval required",
-                        "registry_action_type": "collect_process_diagnostic",
-                        "requires_approval": True,
-                    }
-                ],
-            )
-        )
-        session.add(
-            AgentRecord(
-                agent_id=agent_id,
-                host_id=host_id,
-                display_name="missing-host-agent",
-                key_id=str(uuid4()),
-                hmac_key_b64="dGVzdA==",
-                created_at=now,
-                last_seen=now,
-                enabled=True,
-                agent_version="1.2.0-alpha.1-test",
-                supported_actions=["collect_process_diagnostic"],
-                enabled_actions=["collect_process_diagnostic"],
-                capabilities_updated_at=now,
-            )
-        )
+        host_id, incident_id, agent_id = _missing_host_fixture(session, now=now)
         action = ActionRecord(
             action_id=action_id,
             incident_id=incident_id,
