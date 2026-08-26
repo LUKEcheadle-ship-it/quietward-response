@@ -15,6 +15,7 @@ from response_agent_resources import HANDLE_TTL_SECONDS, ResourceError, Resource
 MAX_NETWORK_RESULTS = 256
 NETWORK_PRIVACY_KEY_BYTES = 32
 NETWORK_PRIVACY_KEY_FILENAME = "response-agent-network-privacy.bin"
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 _PROC_TABLES = (
     ("tcp", "ipv4", Path("/proc/net/tcp")),
     ("tcp", "ipv6", Path("/proc/net/tcp6")),
@@ -39,6 +40,29 @@ _TCP_STATES = {
 def _fingerprint(parts: tuple[Any, ...]) -> str:
     raw = "|".join(str(item) for item in parts).encode("utf-8", errors="replace")
     return hashlib.sha256(raw).hexdigest()
+
+
+def _link_like(details: os.stat_result) -> bool:
+    attributes = int(getattr(details, "st_file_attributes", 0))
+    return stat.S_ISLNK(details.st_mode) or bool(
+        attributes & _FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def _same_file(left: os.stat_result, right: os.stat_result) -> bool:
+    if left.st_ino and right.st_ino:
+        return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+    return (
+        left.st_dev,
+        left.st_size,
+        left.st_mtime_ns,
+        left.st_ctime_ns,
+    ) == (
+        right.st_dev,
+        right.st_size,
+        right.st_mtime_ns,
+        right.st_ctime_ns,
+    )
 
 
 def _decode_address(raw: str, family: str) -> str:
@@ -102,6 +126,61 @@ def _write_all(descriptor: int, data: bytes) -> None:
         offset += written
 
 
+def _private_state_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ResourceError("network privacy state directory is unavailable") from exc
+    if _link_like(info) or not stat.S_ISDIR(info.st_mode):
+        raise ResourceError("network privacy state directory must be a normal directory")
+    if os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077:
+        try:
+            path.chmod(0o700)
+            info = path.lstat()
+        except OSError as exc:
+            raise ResourceError("network privacy state directory permissions are unsafe") from exc
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            raise ResourceError("network privacy state directory permissions are unsafe")
+
+
+def _read_private_key(path: Path) -> bytes:
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise ResourceError("network privacy key is unavailable") from exc
+    if _link_like(before) or not stat.S_ISREG(before.st_mode):
+        raise ResourceError("network privacy key must be a regular private file")
+    if os.name != "nt" and stat.S_IMODE(before.st_mode) & 0o077:
+        raise ResourceError("network privacy key permissions are not private")
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ResourceError("network privacy key could not be opened safely") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if _link_like(opened) or not stat.S_ISREG(opened.st_mode) or not _same_file(before, opened):
+            raise ResourceError("network privacy key changed during validation")
+        data = os.read(descriptor, NETWORK_PRIVACY_KEY_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    try:
+        after = path.lstat()
+    except OSError as exc:
+        raise ResourceError("network privacy key changed during read") from exc
+    if _link_like(after) or not _same_file(before, after):
+        raise ResourceError("network privacy key changed during read")
+    if len(data) != NETWORK_PRIVACY_KEY_BYTES:
+        raise ResourceError("network privacy key has invalid length")
+    return data
+
+
 def _network_privacy_key(store: ResourceHandleStore) -> bytes:
     """Load/create an endpoint-local key used only to pseudonymize remote addresses.
 
@@ -113,17 +192,21 @@ def _network_privacy_key(store: ResourceHandleStore) -> bytes:
     if not isinstance(store_path, Path):
         raise ResourceError("resource handle store does not expose a local state path")
     state_dir = store_path.parent
-    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _private_state_directory(state_dir)
     key_path = state_dir / NETWORK_PRIVACY_KEY_FILENAME
 
-    if key_path.is_symlink():
-        raise ResourceError("network privacy key must not be a symbolic link")
+    created = False
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
-        descriptor = os.open(
-            key_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            0o600,
-        )
+        descriptor = os.open(key_path, flags, 0o600)
+        created = True
     except FileExistsError:
         descriptor = -1
     except OSError as exc:
@@ -137,22 +220,20 @@ def _network_privacy_key(store: ResourceHandleStore) -> bytes:
             raise ResourceError("network privacy key could not be written") from exc
         finally:
             os.close(descriptor)
+        try:
+            key_path.chmod(0o600)
+        except OSError:
+            pass
 
     try:
-        metadata = key_path.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise ResourceError("network privacy key is unavailable") from exc
-    if not stat.S_ISREG(metadata.st_mode) or key_path.is_symlink():
-        raise ResourceError("network privacy key must be a regular private file")
-    if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
-        raise ResourceError("network privacy key permissions are not private")
-    try:
-        key = key_path.read_bytes()
-    except OSError as exc:
-        raise ResourceError("network privacy key could not be read") from exc
-    if len(key) != NETWORK_PRIVACY_KEY_BYTES:
-        raise ResourceError("network privacy key has invalid length")
-    return key
+        return _read_private_key(key_path)
+    except Exception:
+        if created:
+            try:
+                key_path.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def _address_pseudonym(address: str, key: bytes) -> str:
