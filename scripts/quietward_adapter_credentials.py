@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import os
-import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +12,19 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+try:
+    from private_state_io import (
+        PrivateStateError,
+        atomic_private_json,
+        load_private_json,
+    )
+except ImportError:  # package-style test import
+    from scripts.private_state_io import (
+        PrivateStateError,
+        atomic_private_json,
+        load_private_json,
+    )
 
 
 EVENT_INGESTION_SUBKEY_DOMAIN = b"quietward-response-event-ingestion-v1\0"
@@ -56,23 +68,16 @@ def _private_json(path: Path) -> dict[str, Any]:
     resolved = path.expanduser()
     if not resolved.is_absolute():
         raise AdapterCredentialError("credential path must be absolute")
-    if resolved.is_symlink():
-        raise AdapterCredentialError("credential file must not be a symbolic link")
     try:
-        info = resolved.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise AdapterCredentialError(f"credential file is unavailable: {resolved}") from exc
-    if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= _MAX_CONFIG_BYTES:
-        raise AdapterCredentialError("credential file must be a bounded regular file")
-    if os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077:
-        raise AdapterCredentialError("credential file must not be group/world accessible")
-    try:
-        value = json.loads(resolved.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AdapterCredentialError("credential file is unreadable or invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise AdapterCredentialError("credential file must contain a JSON object")
-    return value
+        return load_private_json(
+            resolved,
+            dict,
+            max_bytes=_MAX_CONFIG_BYTES,
+        )
+    except PrivateStateError as exc:
+        raise AdapterCredentialError(
+            "credential file must be a private bounded regular JSON file"
+        ) from exc
 
 
 def _atomic_private_json(path: Path, value: dict[str, Any], *, force: bool = False) -> None:
@@ -83,43 +88,10 @@ def _atomic_private_json(path: Path, value: dict[str, Any], *, force: bool = Fal
         raise AdapterCredentialError("adapter config path must not be a symbolic link")
     if resolved.exists() and not force:
         raise AdapterCredentialError(f"adapter config already exists: {resolved}")
-    resolved.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = resolved.with_name(
-        f".{resolved.name}.tmp-{os.getpid()}-{time.time_ns()}-{os.urandom(6).hex()}"
-    )
-    data = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    flags |= getattr(os, "O_CLOEXEC", 0)
-    flags |= getattr(os, "O_BINARY", 0)
-    flags |= getattr(os, "O_NOFOLLOW", 0)
-    descriptor: int | None = None
     try:
-        descriptor = os.open(temporary, flags, 0o600)
-        offset = 0
-        while offset < len(data):
-            written = os.write(descriptor, data[offset:])
-            if written <= 0:
-                raise OSError("short adapter credential write")
-            offset += written
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = None
-        os.replace(temporary, resolved)
-    except Exception:
-        if descriptor is not None:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
-        try:
-            temporary.unlink()
-        except OSError:
-            pass
-        raise
-    try:
-        resolved.chmod(0o600)
-    except OSError:
-        pass
+        atomic_private_json(resolved, value)
+    except PrivateStateError as exc:
+        raise AdapterCredentialError("adapter config path is unsafe") from exc
 
 
 @dataclass(frozen=True, slots=True)
