@@ -153,3 +153,18 @@ def test_event_only_client_signs_and_sends_only_sanitized_payload(tmp_path: Path
     assert sent == sanitize_quietward_event_payload(_payload())
     assert "10.0.0.44" not in captured["body"].decode("utf-8")
     assert "C:/Users/alice" not in captured["body"].decode("utf-8")
+
+
+def test_installed_adapter_runtime_packages_privacy_boundary() -> None:
+    root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "scripts/install_quietward_adapter_user_service.sh",
+        "scripts/install_quietward_adapter_windows.ps1",
+    ):
+        text = (root / relative).read_text(encoding="utf-8")
+        assert "quietward_adapter_privacy.py" in text
+
+    credential_text = (root / "scripts/quietward_adapter_credentials.py").read_text(
+        encoding="utf-8"
+    )
+    assert "sanitize_quietward_event_payload(payload)" in credential_text
