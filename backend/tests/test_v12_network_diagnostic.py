@@ -94,6 +94,7 @@ def test_read_table_decodes_ipv4_without_returning_raw_address_from_public_diagn
     assert len(key_path.read_bytes()) == network.NETWORK_PRIVACY_KEY_BYTES
     if os.name != "nt":
         assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(key_path.parent.stat().st_mode) == 0o700
 
 
 def test_remote_address_pseudonym_is_stable_per_endpoint_but_differs_between_endpoints(tmp_path: Path, monkeypatch) -> None:
@@ -163,6 +164,31 @@ def test_insecure_existing_network_privacy_key_fails_closed(tmp_path: Path, monk
     key_path.chmod(0o644)
     with pytest.raises(network.ResourceError, match="permissions are not private"):
         network.collect_network_diagnostic(store)
+
+
+def test_symlinked_network_privacy_key_fails_closed_without_touching_target(tmp_path: Path, monkeypatch) -> None:
+    _install_tables(
+        tmp_path,
+        monkeypatch,
+        [_row(0, "0100007F:1F90", "04030201:01BB")],
+    )
+    store = _FakeStore(tmp_path / "agent-state")
+    store.path.parent.mkdir(parents=True)
+    if os.name != "nt":
+        store.path.parent.chmod(0o700)
+    victim = (tmp_path / "victim.bin").resolve()
+    victim.write_bytes(b"v" * network.NETWORK_PRIVACY_KEY_BYTES)
+    if os.name != "nt":
+        victim.chmod(0o600)
+    key_path = store.path.parent / network.NETWORK_PRIVACY_KEY_FILENAME
+    try:
+        key_path.symlink_to(victim)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation unavailable on this host")
+
+    with pytest.raises(network.ResourceError, match="regular private file"):
+        network.collect_network_diagnostic(store)
+    assert victim.read_bytes() == b"v" * network.NETWORK_PRIVACY_KEY_BYTES
 
 
 def test_network_module_has_no_shell_or_subprocess_primitive() -> None:
