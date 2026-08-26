@@ -6,7 +6,7 @@ It is a **separate product and repository from QuietWard**. Response code does n
 
 > **Current release candidate:** `v1.2.0-alpha.1` (`1.2.0a1`) on `feature/response-v12-hardening`.
 >
-> The candidate is still blocked on exact-SHA automated/platform/browser qualification. Feature scope is frozen; only qualification-driven corrections should be added.
+> The candidate is blocked only on exact-SHA Linux + Windows execution and the documented installed-service/browser/real-QuietWard smoke. Feature scope is frozen; only qualification-driven corrections should be added.
 
 ## What v1.2 adds
 
@@ -26,6 +26,7 @@ It is a **separate product and repository from QuietWard**. Response code does n
 - sensitive-field redaction before persistence;
 - signed externalizable audit checkpoints;
 - integrity-compromise mutation freeze;
+- hardened private endpoint state handling;
 - optional **Response-owned read-only QuietWard adapter**.
 
 There is still **no generic remote command surface**.
@@ -46,10 +47,11 @@ The adapter:
 - validates that the detector host matches the enrolled Response agent host;
 - deterministically maps QuietWard event IDs to retry-safe UUIDv5 Response IDs;
 - preserves stored assessment severity and bounded evidence;
-- submits `source=quietward` through the normal HMAC-authenticated Response agent credential;
-- stores only its own private delivery cursor under Response agent state.
+- submits `source=quietward` through a **derived event-ingestion-only HMAC subkey** rather than exposing the endpoint agent secret;
+- cannot use that event-only subkey to poll or execute Response actions;
+- stores only its own private delivery cursor under Response agent state using the hardened private-state reader/writer.
 
-This keeps the two repositories independent while providing a qualified integration boundary.
+This keeps the two repositories independent while providing a least-privilege integration boundary.
 
 ## Response coverage
 
@@ -85,7 +87,7 @@ The registry is explicit and finite:
 | `quarantine_artifact_by_handle` | reversible containment | Linux/Windows managed-file handle only |
 | `restore_quarantined_artifact_by_handle` | rollback | Linux/Windows rollback handle only |
 
-Every registered action requires analyst approval and deterministic server policy.
+Every registered action requires analyst approval and deterministic server policy. Action creation and dispatch both fail closed when the target host record is missing; policy also rechecks incident state, recommendation binding, target agent/host/OS, fresh signed endpoint capability, approval and expiry before dispatch.
 
 There is no shell, PowerShell, cmd, bash, generic script, raw PID, raw filesystem path or raw network-target execution API.
 
@@ -132,6 +134,7 @@ The agent:
 - revalidates identity immediately before termination;
 - rejects stale/reused PID identities;
 - uses pidfd-bound signaling on Linux when available;
+- revalidates Windows process creation identity before termination;
 - performs bounded exit verification;
 - fails closed when an interrupted outcome is indeterminate.
 
@@ -162,7 +165,7 @@ The remaining documented file limitation is the narrow same-user filesystem race
 
 It reads bounded `/proc/net/{tcp,tcp6,udp,udp6}` state directly without invoking a shell/subprocess and returns at most 256 rows containing protocol/family, local/remote scope, ports, state, an endpoint-local keyed remote-address pseudonym and a short-lived local socket handle.
 
-Raw local/remote IPs, socket UID and inode stay local to the agent. A private random 32-byte key in the Response-agent state directory drives HMAC-SHA256 pseudonyms, preventing the server from receiving a brute-forceable plain IP digest while retaining same-endpoint correlation.
+Raw local/remote IPs, socket UID and inode stay local to the agent. A private random 32-byte key in the Response-agent state directory drives HMAC-SHA256 pseudonyms, preventing the server from receiving a brute-forceable plain IP digest while retaining same-endpoint correlation. The key/state directory must remain private; link/reparse-like key paths are rejected and existing keys are read through a bounded no-follow identity-verified path.
 
 Firewall changes and host isolation are not available in v1.2.
 
@@ -196,9 +199,9 @@ Windows:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_response_agent_windows.ps1 -ConfigFile C:\absolute\path\agent.json
 ```
 
-The Windows path uses a limited current-user scheduled task. The Linux path uses a user systemd service with `NoNewPrivileges=true` and other service hardening.
+The Windows path uses a limited current-user scheduled task. The Linux path uses a user systemd service with `NoNewPrivileges=true` and other service hardening. Both installed runtimes package the canonical v1.2 state helper and every required runtime module.
 
-The runtime config loader rejects relative, symlinked, abnormal, oversized and group/world-readable POSIX credential files. OS-backed secret storage remains a later hardening target.
+The runtime config loader rejects relative, symlinked, abnormal, oversized and group/world-readable POSIX credential files; Windows installers reject reparse-point config/runtime inputs. Agent ledger, demo, handle-context and resource-handle state use randomized exclusive/no-follow atomic writes plus bounded verified no-follow reads. The private-state writer fsyncs file data and best-effort syncs the containing directory after atomic replacement. OS-backed secret storage remains a later hardening target.
 
 ## Install the optional QuietWard adapter
 
@@ -216,11 +219,11 @@ Windows default installed QuietWard DB path:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_quietward_adapter_windows.ps1 `
-  -ConfigFile C:\absolute\path\agent.json `
+  -AgentConfigFile C:\absolute\path\agent.json `
   -QuietWardDatabase "$env:LOCALAPPDATA\QuietWard\state\quietward.sqlite3"
 ```
 
-By default the adapter starts from the current end of the QuietWard event table and forwards future events. `--from-beginning` is available for deliberate backfill. Deterministic Response UUIDs make retry/DB-reset replay idempotent.
+By default the adapter starts from the current end of the QuietWard event table and forwards future events. `--from-beginning` is available for deliberate backfill. Deterministic Response UUIDs make retry/DB-reset replay idempotent. Linux and Windows installed adapter runtimes also package the hardened private-state helper.
 
 ## Signed endpoint capabilities
 
@@ -240,7 +243,7 @@ Use:
 python scripts/rotate_response_agent_key.py --config PATH_TO_AGENT_JSON
 ```
 
-Rotation is prepare → prove replacement → activate. A private `.next` sidecar is written before activation; activation immediately revokes the old credential for normal HMAC traffic; the promoted key then proves normal capability traffic before `.next` replaces the original config.
+Rotation is prepare → prove replacement → activate. A private `.next` sidecar is written before activation; activation immediately revokes the old credential for normal HMAC traffic; the promoted key then proves normal capability traffic before `.next` replaces the original config through the hardened atomic private-state writer.
 
 Recover an interrupted staged rotation with:
 
@@ -268,7 +271,7 @@ Generate a high-entropy token/hash entry:
 python scripts/generate_analyst_token.py --actor-id alice --role admin
 ```
 
-Configuration stores only the SHA-256 token hash. TLS remains required outside trusted loopback development.
+Configuration stores only the SHA-256 token hash. TLS/reverse-proxy transport protection is required for remote analyst traffic; plain remote HTTP bearer transport is not an approved deployment boundary.
 
 ## Audit/evidence hardening
 
@@ -281,7 +284,7 @@ The database audit trail is hash chained. v1.2 also supports externally retainab
 
 A retained signed checkpoint can detect ordinary chain tamper, consistent full-history recomputation after the checkpoint, deletion/truncation of already-checkpointed history and checkpoint signature tamper.
 
-Production/non-loopback deployments must replace the development checkpoint secret using `QWR_AUDIT_CHECKPOINT_SECRET`. A trusted retained checkpoint can also be required at startup via `QWR_TRUSTED_AUDIT_CHECKPOINT_PATH`.
+Production/non-loopback deployments must replace the development checkpoint secret using `QWR_AUDIT_CHECKPOINT_SECRET`. A trusted retained checkpoint can also be required at startup via `QWR_TRUSTED_AUDIT_CHECKPOINT_PATH`. Trusted checkpoint input is itself fail-closed: symlink/reparse-like, non-regular, oversized, group/world-writable POSIX, or identity-changing files are rejected before signature/prefix verification.
 
 This is stronger tamper evidence, not immutable/WORM external storage.
 
@@ -344,13 +347,17 @@ The backward-compatible `remediation_enabled=false` field means arbitrary/genera
 
 ## Qualification
 
-Exact clean candidate wrapper:
+The release requires **native Linux and native Windows execution on the same exact candidate SHA**.
+
+### Linux finalizer
+
+On native Linux with `/proc/net`:
 
 ```text
 python scripts/finalize_v12_alpha.py
 ```
 
-It requires:
+The finalizer intentionally refuses non-Linux hosts. It requires:
 
 1. full backend compile/pytest with warnings treated as errors;
 2. secret/artifact and durable sensitive-persistence audits;
@@ -359,18 +366,29 @@ It requires:
 5. fresh and Phase 1→v1.2 Alembic migration qualification;
 6. frontend `npm ci`, typecheck, production build and high-severity npm audit;
 7. quick-start cleanup smoke;
-8. capability-aware live process/file containment;
+8. capability-aware live Linux process/file containment;
 9. live Linux privacy-preserving network diagnostic;
-10. live read-only QuietWard SQLite → authenticated Response incident/plan acceptance;
+10. isolated schema-compatible read-only QuietWard SQLite → authenticated Response incident/plan acceptance;
 11. audit verification and exactly-once terminal replay checks.
 
-Then perform every browser-smoke item in `docs/V12_ALPHA_ACCEPTANCE.md` on the **same exact candidate SHA**.
+### Windows live gate
+
+On native Windows at the **same SHA**:
+
+```text
+python scripts/verify_v12_windows_live.py
+```
+
+It validates the canonical Windows capability set, server-side Windows OS policy, disposable process diagnosis/exact termination, disposable managed-file quarantine/restore, raw-target rejection, generic-command rejection, terminal replay and audit verification.
+
+Then perform every installed-service/browser item in `docs/V12_ALPHA_ACCEPTANCE.md` on the same exact SHA. This includes Linux user-systemd startup, Windows limited-current-user task startup, browser/RBAC/key-rotation/audit smoke, and a Response-owned adapter smoke against the actually installed released QuietWard `v0.5.0-alpha.1` database on the XPS while proving Response does not modify QuietWard state.
 
 See:
 
 - `docs/V12_REVIEW_GUIDE.md`
 - `docs/V12_RELEASE_CORRECTIONS.md`
 - `docs/V12_ALPHA_THREAT_MODEL.md`
+- `docs/V12_ALPHA_ACCEPTANCE.md`
 - `docs/V12_ADVERSARIAL_REGRESSION_MATRIX.md`
 - `docs/V12_RELEASE_CHECKLIST.md`
 - `docs/releases/v1.2.0-alpha.1.md`
@@ -393,7 +411,7 @@ See:
 ## Known alpha limitations
 
 - analyst auth is bearer RBAC, not enterprise OIDC/SSO;
-- HMAC transport requires TLS outside loopback/trusted development;
+- HMAC/bearer transport requires TLS outside loopback/trusted development;
 - endpoint secret remains permission-hardened local JSON rather than OS-backed credential storage;
 - active server-side symmetric agent verification keys remain credential-equivalent DB material;
 - audit checkpoints require genuinely independent retention to protect against DB rewrite/truncation;
