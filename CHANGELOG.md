@@ -2,6 +2,22 @@
 
 All notable changes to QuietWard Response are documented here.
 
+## 1.0.1 — 2026-08-26
+
+Public-beta frontend security maintenance. The qualified v1.0 controlled-response runtime behavior is unchanged.
+
+### Security
+
+- moved the frontend from Next.js 16.3.1 to 16.3.3 after upstream Critical advisories published on August 25, 2026
+- retained the qualified v1 dependency tree as a non-installable lock template and deterministically generates the patched local lock before `npm ci`
+- Docker, public bootstrap, and the v1 release gate all generate the patched lock before frontend installation
+- public bootstrap detects an existing stale Next.js installation and forces reinstall to 16.3.3
+- generated `frontend/package-lock.json` is local state and is not tracked
+
+### Scope
+
+No backend API, action registry, approval/policy logic, endpoint command surface, audit semantics, protocol, or executable response capability changed in 1.0.1.
+
 ## 1.0.0 — 2026-08-19
 
 First public release of the end-to-end controlled-response system.
