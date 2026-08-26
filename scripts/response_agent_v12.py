@@ -11,16 +11,69 @@ from typing import Any
 
 try:
     import response_agent as base
+    import response_agent_resources as resources_module
+    from private_state_io import (
+        PrivateStateError,
+        atomic_private_json,
+        load_private_json,
+    )
     from response_agent import ResponseAgentError
     from response_agent_file_v12 import collect_file_diagnostic as collect_file_diagnostic_v12
     from response_agent_network import collect_network_diagnostic
 except ImportError:  # package-style test import
     from scripts import response_agent as base
+    from scripts import response_agent_resources as resources_module
+    from scripts.private_state_io import (
+        PrivateStateError,
+        atomic_private_json,
+        load_private_json,
+    )
     from scripts.response_agent import ResponseAgentError
     from scripts.response_agent_file_v12 import collect_file_diagnostic as collect_file_diagnostic_v12
     from scripts.response_agent_network import collect_network_diagnostic
 
 _MAX_AGENT_CONFIG_BYTES = 64 * 1024
+_MAX_RUNTIME_STATE_BYTES = 64 * 1024 * 1024
+
+
+def _secure_agent_state_load(path: Path, expected_type: type) -> Any:
+    try:
+        return load_private_json(
+            path,
+            expected_type,
+            max_bytes=_MAX_RUNTIME_STATE_BYTES,
+        )
+    except PrivateStateError as exc:
+        raise ResponseAgentError(
+            f"agent state is unreadable or unsafe: {path.name}"
+        ) from exc
+
+
+def _secure_resource_mapping(path: Path) -> dict[str, dict[str, Any]]:
+    try:
+        value = load_private_json(
+            path,
+            dict,
+            max_bytes=_MAX_RUNTIME_STATE_BYTES,
+        )
+    except PrivateStateError as exc:
+        raise resources_module.ResourceError(
+            f"resource handle state is unreadable or unsafe: {path.name}"
+        ) from exc
+    if any(not isinstance(item, dict) for item in value.values()):
+        raise resources_module.ResourceError(
+            "resource handle state has invalid structure"
+        )
+    return value
+
+
+# The canonical v1.2 runtime upgrades the v1 agent's local state I/O without
+# duplicating the large execution engine. Module globals are resolved at call
+# time, so the existing ledger/demo/handle code now uses these hardened helpers.
+base._atomic_json = atomic_private_json
+base._load_json = _secure_agent_state_load
+resources_module._atomic_json = atomic_private_json
+resources_module._load_mapping = _secure_resource_mapping
 
 
 def _private_config_path(path: Path) -> Path:
