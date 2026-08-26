@@ -274,10 +274,15 @@ def main() -> int:
         _verify_phase1_upgrade(python, temp_path)
 
         npm = shutil.which("npm")
+        node = shutil.which("node")
         if npm is None:
             raise RuntimeError("npm is required for the v1 frontend release gate")
-        # Always reproduce the frontend dependency tree from package-lock.json rather
-        # than trusting whatever happens to be in an existing node_modules directory.
+        if node is None:
+            raise RuntimeError("Node.js is required for the v1 frontend release gate")
+        # Generate the reviewed security-maintenance lock first, then reproduce the
+        # frontend dependency tree from that generated lock rather than trusting an
+        # existing node_modules directory or the retained historical template.
+        _run([node, str(FRONTEND / "refresh-lock.mjs")], cwd=FRONTEND)
         _run(_npm_command(npm, "ci"), cwd=FRONTEND)
         _run(_npm_command(npm, "run", "typecheck"), cwd=FRONTEND)
         _run(_npm_command(npm, "run", "build"), cwd=FRONTEND)
