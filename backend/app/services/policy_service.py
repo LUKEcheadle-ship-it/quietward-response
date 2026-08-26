@@ -21,6 +21,7 @@ INCIDENT_STATUS_REASON = "incident status does not allow response actions"
 AGENT_CAPABILITY_MISSING_REASON = "target agent has not reported v1.2 capabilities"
 AGENT_CAPABILITY_STALE_REASON = "target agent capability report is stale"
 AGENT_CAPABILITY_DISABLED_REASON = "target agent has not enabled this action capability"
+TARGET_HOST_MISSING_REASON = "target host does not exist"
 INTEGRITY_TRUST_REASON = "incident contains compromised evidence/sensor integrity; medium/high-impact mutation is blocked"
 _ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
 _LEGACY_CAPABILITY_EXEMPT_ACTIONS = {"restart_quietward_demo_service"}
@@ -172,7 +173,9 @@ def evaluate_action_policy(
             reasons.append(INTEGRITY_TRUST_REASON)
 
     host = session.get(HostRecord, action.target_host_id)
-    if host is not None:
+    if host is None:
+        reasons.append(TARGET_HOST_MISSING_REASON)
+    else:
         family = _os_family(host.operating_system)
         if family not in definition.supported_os:
             reasons.append(f"action is not supported on target OS family: {family}")
