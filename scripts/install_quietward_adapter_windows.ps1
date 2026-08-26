@@ -44,6 +44,7 @@ if ($LASTEXITCODE -ne 0) {
 $runtimeFiles = @(
     "forward_quietward_events.py",
     "quietward_adapter_credentials.py",
+    "quietward_adapter_privacy.py",
     "reloading_adapter_client.py",
     "private_state_io.py"
 )
