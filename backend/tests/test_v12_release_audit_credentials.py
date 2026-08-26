@@ -18,5 +18,11 @@ def test_agent_credentials_and_rotation_sidecars_are_release_blocked() -> None:
         assert "credential" in reason.lower()
 
 
+def test_github_actions_workflows_are_release_blocked() -> None:
+    reason = _is_blocked_path(".github/workflows/ci.yml")
+    assert reason is not None
+    assert "github actions" in reason.lower()
+
+
 def test_noncredential_next_file_is_not_overblocked() -> None:
     assert _is_blocked_path("docs/roadmap.md.next") is None
