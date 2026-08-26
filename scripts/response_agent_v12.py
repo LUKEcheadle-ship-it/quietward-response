@@ -102,11 +102,15 @@ class AgentConfig(base.AgentConfig):
     def from_file(cls, path: Path) -> "AgentConfig":
         resolved = _private_config_path(path)
         try:
-            value = json.loads(resolved.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ResponseAgentError("Response agent config is unreadable or invalid JSON") from exc
-        if not isinstance(value, dict):
-            raise ResponseAgentError("Response agent config must be a JSON object")
+            value = load_private_json(
+                resolved,
+                dict,
+                max_bytes=_MAX_AGENT_CONFIG_BYTES,
+            )
+        except PrivateStateError as exc:
+            raise ResponseAgentError(
+                "Response agent config is unreadable or unsafe"
+            ) from exc
         return cls.from_mapping(value)
 
 
