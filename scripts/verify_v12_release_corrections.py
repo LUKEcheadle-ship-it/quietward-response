@@ -54,6 +54,7 @@ def main() -> int:
             "secrets.token_hex",
             "private state file must not be group/world accessible",
             "private state file changed during read",
+            "_fsync_directory(parent)",
         ),
         "private state I/O",
     )
@@ -112,7 +113,10 @@ def main() -> int:
         "quarantine_artifact_by_handle",
     ):
         if forbidden in adapter:
-            raise RuntimeError(f"QuietWard adapter gained forbidden detector coupling/write/action surface: {forbidden}")
+            raise RuntimeError(
+                "QuietWard adapter gained forbidden detector coupling/write/action surface: "
+                + forbidden
+            )
 
     adapter_auth = _text("scripts/quietward_adapter_credentials.py")
     _require(
@@ -204,6 +208,17 @@ def main() -> int:
         ),
         "fail-closed target host policy",
     )
+    action_service = _text("backend/app/services/action_service.py")
+    _require(
+        action_service,
+        (
+            "HostRecord",
+            "TARGET_HOST_MISSING_REASON",
+            "session.get(HostRecord, payload.target_host_id)",
+            "raise ActionError(TARGET_HOST_MISSING_REASON)",
+        ),
+        "fail-closed target host creation",
+    )
 
     main = _text("backend/app/main.py")
     _require(
@@ -240,6 +255,30 @@ def main() -> int:
         "Windows adapter installer",
     )
 
+    linux_finalizer = _text("scripts/finalize_v12_alpha.py")
+    _require(
+        linux_finalizer,
+        (
+            "automated finalizer requires a native Linux host",
+            'platform.system().lower() != "linux"',
+            "verify_v12_network_live.py",
+            "verify_v12_windows_live.py",
+        ),
+        "Linux finalizer platform contract",
+    )
+    windows_gate = _text("scripts/verify_v12_windows_live.py")
+    _require(
+        windows_gate,
+        (
+            "requires a native Windows host",
+            'metadata["operating_system"] = "Windows"',
+            "verify_v12_alpha_live_capabilities",
+            "disposable_process_containment=qualified",
+            "managed_file_quarantine_restore=qualified",
+        ),
+        "Windows live qualification",
+    )
+
     health = _text("backend/app/api/health.py")
     _require(
         health,
@@ -261,6 +300,8 @@ def main() -> int:
         "scripts/quietward_adapter_credentials.py",
         "scripts/reloading_adapter_client.py",
         "scripts/private_state_io.py",
+        "scripts/finalize_v12_alpha.py",
+        "scripts/verify_v12_windows_live.py",
         "scripts/verify_v12_quietward_adapter_live.py",
         "backend/tests/test_v12_quietward_adapter.py",
         "backend/tests/test_v12_adapter_credential_scope.py",
@@ -281,10 +322,13 @@ def main() -> int:
     print("adapter_rotation_refresh=automatic")
     print("runtime_config_fail_closed=yes")
     print("private_state_io=exclusive_nofollow")
+    print("private_state_directory_sync=present")
     print("network_privacy_key=nofollow_private")
     print("installed_runtime_dependencies=complete")
-    print("target_host_policy=fail_closed")
+    print("target_host_policy=fail_closed_create_and_dispatch")
     print("trusted_checkpoint_file_boundary=hardened")
+    print("linux_finalizer=native_linux_required")
+    print("windows_live_gate=native_windows_required")
     print("high_impact_recommendations=strengthened")
     print("correlation=specific_or_high_signal_multistage")
     print("file_diagnostic_total_budget=256MiB")
