@@ -6,13 +6,20 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database.models import ActionRecord, AgentRecord, ApprovalRecord, IncidentRecord
+from app.database.models import (
+    ActionRecord,
+    AgentRecord,
+    ApprovalRecord,
+    HostRecord,
+    IncidentRecord,
+)
 from app.schemas.action import ActionCreate, ActionResultCreate
 from app.services.action_registry import get_action_definition
 from app.services.audit_service import record_audit
 from app.services.policy_service import (
     INCIDENT_STATUS_REASON,
     RECOMMENDATION_BINDING_REASON,
+    TARGET_HOST_MISSING_REASON,
     evaluate_action_policy,
     incident_allows_response,
     incident_enables_action,
@@ -223,6 +230,8 @@ def create_action(
         raise ActionError("incident does not exist")
     if payload.target_host_id not in (incident.affected_hosts or []):
         raise ActionError("target host is not affected by incident")
+    if session.get(HostRecord, payload.target_host_id) is None:
+        raise ActionError(TARGET_HOST_MISSING_REASON)
     agent = session.get(AgentRecord, payload.target_agent_id)
     if agent is None or not agent.enabled:
         raise ActionError("target agent does not exist or is disabled")
