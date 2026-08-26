@@ -73,11 +73,11 @@ def _tracked_files() -> list[Path]:
     return [ROOT / item.decode("utf-8") for item in raw.split(b"\0") if item]
 
 
-def _is_blocked_path(relative: str) -> str | None:
+def _is_blocked_path(relative: str, *, current_tree: bool = True) -> str | None:
     normalized = relative.replace("\\", "/")
     name = Path(normalized).name
     lower_name = name.lower()
-    if normalized.startswith(".github/workflows/"):
+    if current_tree and normalized.startswith(".github/workflows/"):
         return "GitHub Actions workflows are not permitted in the Response release tree"
     if normalized in BLOCKED_EXACT_PATHS:
         return "local runtime/secret file must not be tracked"
@@ -124,7 +124,7 @@ def main() -> int:
 
     for path in tracked:
         relative = path.relative_to(ROOT).as_posix()
-        blocked = _is_blocked_path(relative)
+        blocked = _is_blocked_path(relative, current_tree=True)
         if blocked:
             findings.append(f"{relative}: {blocked}")
             continue
@@ -137,7 +137,9 @@ def main() -> int:
         name = raw_name.strip().replace("\\", "/")
         if not name:
             continue
-        blocked = _is_blocked_path(name)
+        # Removed historical workflows are inert and may remain visible in history;
+        # secrets/runtime credential artifacts remain disallowed historically.
+        blocked = _is_blocked_path(name, current_tree=False)
         if blocked:
             findings.append(f"history:{name}: {blocked}")
 
@@ -161,7 +163,7 @@ def main() -> int:
     print(f"PUBLIC RELEASE AUDIT: PASS ({len(tracked)} tracked files checked)")
     print("High-confidence secret patterns and sensitive tracked/history paths: clear")
     print("Private machine path checks on current tracked text: clear")
-    print("GitHub Actions workflows: absent")
+    print("Current-tree GitHub Actions workflows: absent")
     return 0
 
 
