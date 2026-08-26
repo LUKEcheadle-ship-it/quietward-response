@@ -2,6 +2,12 @@
 
 All notable changes to QuietWard Response are documented here.
 
+## Public launch refresh — 2026-08-26
+
+- Updated the frontend from Next.js `16.3.1` to patched `16.3.3` before public publication in response to the August 25, 2026 Next.js security advisories.
+- No Response API, protocol, action-registry, approval, policy, endpoint-execution, or audit capability was expanded by this dependency-only security refresh.
+- The original v1.0.0 qualification evidence remains documented below; the public launch tree preserves that controlled-response boundary while using the patched frontend dependency.
+
 ## 1.0.0 — 2026-08-19
 
 First public release of the end-to-end controlled-response system.
