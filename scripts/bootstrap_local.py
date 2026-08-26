@@ -21,6 +21,7 @@ ENV_FILE = ROOT / ".env"
 ENV_EXAMPLE = ROOT / ".env.example"
 VENV = ROOT / ".venv"
 DEFAULT_ENROLLMENT_TOKEN = "development-enrollment-token-change-me"
+TARGET_NEXT_VERSION = "16.3.3"
 
 
 def _venv_python() -> Path:
@@ -71,6 +72,31 @@ def _check_node(node: str) -> None:
         raise RuntimeError(f"could not determine Node.js version from {result.stdout!r}") from exc
     if major < 22:
         raise RuntimeError(f"Node.js 22 or newer is required; found {text}")
+
+
+def _installed_next_version() -> str | None:
+    package_file = FRONTEND / "node_modules" / "next" / "package.json"
+    if not package_file.is_file():
+        return None
+    try:
+        value = json.loads(package_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = value.get("version")
+    return str(version) if version else None
+
+
+def _ensure_frontend(npm: str, node: str) -> None:
+    # Recreate the install lock from the retained v1 dependency tree while applying
+    # the reviewed Next.js security maintenance version. The generated lock is local
+    # state, so users cannot accidentally install the older template directly.
+    subprocess.run([node, str(FRONTEND / "refresh-lock.mjs")], cwd=FRONTEND, check=True)
+    if _installed_next_version() != TARGET_NEXT_VERSION:
+        subprocess.run(_npm_command(npm, "ci"), cwd=FRONTEND, check=True)
+    if _installed_next_version() != TARGET_NEXT_VERSION:
+        raise RuntimeError(
+            f"Next.js {TARGET_NEXT_VERSION} was not installed correctly"
+        )
 
 
 def _env_lines(*, persist: bool) -> list[str]:
@@ -266,9 +292,7 @@ def main() -> int:
     lines = _prepare_env(persist=not args.smoke)
     python = _ensure_backend()
     host, port = _runtime_settings(python)
-
-    if not (FRONTEND / "node_modules").is_dir():
-        subprocess.run(_npm_command(npm, "ci"), cwd=FRONTEND, check=True)
+    _ensure_frontend(npm, node)
 
     next_cli = FRONTEND / "node_modules" / "next" / "dist" / "bin" / "next"
     if not next_cli.is_file():
