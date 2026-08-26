@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -174,6 +175,33 @@ def test_duplicate_response_is_idempotent_and_advances_cursor(tmp_path: Path) ->
     assert adapter.forward_once() == 1
     state = json.loads(adapter.state_path.read_text(encoding="utf-8"))
     assert state["last_rowid"] == 1
+
+
+def test_adapter_cursor_write_does_not_follow_predictable_temp_symlink(tmp_path: Path) -> None:
+    if os.name == "nt":
+        pytest.skip("symlink regression fixture is POSIX-only")
+
+    database = tmp_path / "quietward.sqlite3"
+    with _database(database) as connection:
+        _insert(connection, event_id="fse-cursor-safe")
+
+    agent = FakeAgent(tmp_path)
+    adapter = QuietWardEventAdapter(
+        agent=agent,
+        database_path=database,
+        from_beginning=True,
+    )
+    adapter.state_path.parent.mkdir(parents=True, exist_ok=True)
+    victim = tmp_path / "cursor-victim.txt"
+    victim.write_text("do-not-touch", encoding="utf-8")
+    legacy_temporary = adapter.state_path.with_name(adapter.state_path.name + ".tmp")
+    legacy_temporary.symlink_to(victim)
+
+    assert adapter.forward_once() == 1
+    assert victim.read_text(encoding="utf-8") == "do-not-touch"
+    assert legacy_temporary.is_symlink()
+    assert adapter.state_path.is_file()
+    assert not adapter.state_path.is_symlink()
 
 
 def test_host_mismatch_fails_closed_without_advancing_cursor(tmp_path: Path) -> None:
