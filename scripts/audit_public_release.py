@@ -39,10 +39,13 @@ HIGH_CONFIDENCE_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 PRIVATE_MACHINE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("private homelab path", re.compile(r"/home/" + r"homelab/", re.IGNORECASE)),
+    ("private homelab path", re.compile(r"/home/homelab/", re.IGNORECASE)),
     (
         "private Windows profile path",
-        re.compile(r"[A-Za-z]:\\Users\\" + r"lukec\\", re.IGNORECASE),
+        re.compile(
+            r"[A-Za-z]:\\Users\\(?!Public(?:\\|$)|Default(?:\\|$)|USERNAME(?:\\|$)|USER(?:\\|$))[^\\\r\n]+\\",
+            re.IGNORECASE,
+        ),
     ),
 )
 
@@ -74,6 +77,8 @@ def _is_blocked_path(relative: str) -> str | None:
     normalized = relative.replace("\\", "/")
     name = Path(normalized).name
     lower_name = name.lower()
+    if normalized.startswith(".github/workflows/"):
+        return "GitHub Actions workflows are not permitted in the Response release tree"
     if normalized in BLOCKED_EXACT_PATHS:
         return "local runtime/secret file must not be tracked"
     if lower_name in BLOCKED_SECRET_FILENAMES:
@@ -156,6 +161,7 @@ def main() -> int:
     print(f"PUBLIC RELEASE AUDIT: PASS ({len(tracked)} tracked files checked)")
     print("High-confidence secret patterns and sensitive tracked/history paths: clear")
     print("Private machine path checks on current tracked text: clear")
+    print("GitHub Actions workflows: absent")
     return 0
 
 
