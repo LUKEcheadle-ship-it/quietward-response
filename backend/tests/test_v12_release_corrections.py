@@ -90,13 +90,18 @@ def test_release_contains_continuous_agent_and_least_privilege_adapter_installer
     assert '"--once"' in poller
     assert "quietward-response-agent.service" in linux
     assert "response_agent_file_v12.py" in linux
+    assert "private_state_io.py" in linux
     assert "RunLevel Limited" in windows
+    assert "private_state_io.py" in windows
+    assert "reparse point/symlink" in windows
     assert "forward_quietward_events.py" in adapter_linux
     assert "provision_quietward_adapter.py" in adapter_linux
     assert "adapter.json" in adapter_linux
+    assert "private_state_io.py" in adapter_linux
     assert "forward_quietward_events.py" in adapter_windows
     assert "provision_quietward_adapter.py" in adapter_windows
     assert "adapter.json" in adapter_windows
+    assert "private_state_io.py" in adapter_windows
     assert "RunLevel Limited" in adapter_windows
     assert "ReloadingEventOnlyClient" in adapter_runtime
     assert "quietward_event_ingestion_only" in adapter_runtime
