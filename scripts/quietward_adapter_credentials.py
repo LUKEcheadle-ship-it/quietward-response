@@ -19,12 +19,14 @@ try:
         atomic_private_json,
         load_private_json,
     )
+    from quietward_adapter_privacy import sanitize_quietward_event_payload
 except ImportError:  # package-style test import
     from scripts.private_state_io import (
         PrivateStateError,
         atomic_private_json,
         load_private_json,
     )
+    from scripts.quietward_adapter_privacy import sanitize_quietward_event_payload
 
 
 EVENT_INGESTION_SUBKEY_DOMAIN = b"quietward-response-event-ingestion-v1\0"
@@ -188,7 +190,7 @@ def _canonical_request(method: str, target: str, timestamp: str, nonce: str, bod
 
 
 class EventOnlyClient:
-    """HMAC client whose key is accepted only for QuietWard event ingestion."""
+    """HMAC client whose key is accepted only for sanitized QuietWard event ingestion."""
 
     def __init__(self, config: AdapterCredential) -> None:
         self.config = config
@@ -213,7 +215,8 @@ class EventOnlyClient:
     def _request(self, method: str, target: str, payload: dict[str, Any]) -> Any:
         if method.upper() != "POST" or target != "/api/v1/events":
             raise AdapterCredentialError("event-only credential refuses non-event endpoint")
-        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        sanitized = sanitize_quietward_event_payload(payload)
+        body = json.dumps(sanitized, sort_keys=True, separators=(",", ":")).encode("utf-8")
         request = Request(
             self.config.base_url + target,
             data=body,
