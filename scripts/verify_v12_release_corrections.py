@@ -38,8 +38,24 @@ def main() -> int:
             "config must not be group/world accessible",
             "safe_process_termination_supported",
             "collect_file_diagnostic_v12",
+            "atomic_private_json",
+            "load_private_json",
+            "resources_module._load_mapping = _secure_resource_mapping",
         ),
         "canonical agent",
+    )
+
+    private_state = _text("scripts/private_state_io.py")
+    _require(
+        private_state,
+        (
+            "O_EXCL",
+            "O_NOFOLLOW",
+            "secrets.token_hex",
+            "private state file must not be group/world accessible",
+            "private state file changed during read",
+        ),
+        "private state I/O",
     )
 
     file_diag = _text("scripts/response_agent_file_v12.py")
@@ -66,6 +82,8 @@ def main() -> int:
             "quietward_event_ingestion_only",
             "ReloadingEventOnlyClient",
             "host does not match the enrolled Response agent host",
+            "O_EXCL",
+            "O_NOFOLLOW",
         ),
         "QuietWard adapter",
     )
@@ -91,6 +109,8 @@ def main() -> int:
             "event_hmac_key_b64",
             "EventOnlyClient",
             'target != "/api/v1/events"',
+            "O_EXCL",
+            "O_NOFOLLOW",
         ),
         "adapter least-privilege credential",
     )
@@ -160,6 +180,29 @@ def main() -> int:
         "platform/action registry",
     )
 
+    policy = _text("backend/app/services/policy_service.py")
+    _require(
+        policy,
+        (
+            "TARGET_HOST_MISSING_REASON",
+            "if host is None:",
+            "reasons.append(TARGET_HOST_MISSING_REASON)",
+        ),
+        "fail-closed target host policy",
+    )
+
+    main = _text("backend/app/main.py")
+    _require(
+        main,
+        (
+            "O_NOFOLLOW",
+            "must not be group/world writable",
+            "must not be a symbolic link or reparse point",
+            "changed during read; refusing startup",
+        ),
+        "trusted audit checkpoint file boundary",
+    )
+
     health = _text("backend/app/api/health.py")
     _require(
         health,
@@ -180,11 +223,14 @@ def main() -> int:
         "scripts/provision_quietward_adapter.py",
         "scripts/quietward_adapter_credentials.py",
         "scripts/reloading_adapter_client.py",
+        "scripts/private_state_io.py",
         "scripts/verify_v12_quietward_adapter_live.py",
         "backend/tests/test_v12_quietward_adapter.py",
         "backend/tests/test_v12_adapter_credential_scope.py",
         "backend/tests/test_v12_adapter_provisioning.py",
         "backend/tests/test_v12_decision_quality.py",
+        "backend/tests/test_v12_policy_hardening.py",
+        "backend/tests/test_v12_private_state_io.py",
         "backend/tests/test_v12_release_corrections.py",
     ):
         if not (ROOT / relative).is_file():
@@ -196,6 +242,9 @@ def main() -> int:
     print("adapter_action_authority=no")
     print("adapter_rotation_refresh=automatic")
     print("runtime_config_fail_closed=yes")
+    print("private_state_io=exclusive_nofollow")
+    print("target_host_policy=fail_closed")
+    print("trusted_checkpoint_file_boundary=hardened")
     print("high_impact_recommendations=strengthened")
     print("correlation=specific_or_high_signal_multistage")
     print("file_diagnostic_total_budget=256MiB")
