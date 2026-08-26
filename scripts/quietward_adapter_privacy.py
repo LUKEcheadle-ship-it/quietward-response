@@ -4,8 +4,28 @@ from typing import Any, Mapping
 
 
 # The bridge is intentionally a privacy-reducing boundary, not a generic export
-# of QuietWard's durable event JSON.  Only fields needed for Response correlation,
+# of QuietWard's durable event JSON. Only fields needed for Response correlation,
 # deterministic recommendations, and operator-facing severity context cross it.
+_SAFE_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "event_id",
+    "source",
+    "source_version",
+    "host_id",
+    "host_name",
+    "timestamp",
+    "event_type",
+    "category",
+    "severity",
+    "confidence",
+    "summary",
+    "evidence",
+    "process",
+    "file",
+    "network",
+    "persistence",
+    "metadata",
+}
 _SAFE_ATTRIBUTE_KEYS = {
     # Process pseudonymous/bounded context.
     "pid",
@@ -127,12 +147,12 @@ def sanitize_quietward_event_payload(payload: Mapping[str, Any]) -> dict[str, An
     """Return the least-privilege QuietWard event accepted by the event-only client.
 
     Raw detector subjects, arbitrary attributes, local/remote addresses, file paths,
-    persistence command/account values, and unrecognized metadata are dropped even
-    if a future detector release adds them.  The server receives only bounded typed
-    correlation evidence and pseudonymous/hash identities.
+    persistence command/account values, unrecognized top-level keys, and unreviewed
+    metadata are dropped even if a future detector release adds them. The server
+    receives only bounded typed correlation evidence and pseudonymous/hash identities.
     """
 
-    result = dict(payload)
+    result = _pick(payload, _SAFE_TOP_LEVEL_KEYS)
 
     evidence = _mapping(result.get("evidence"))
     safe_evidence: dict[str, Any] = {}
