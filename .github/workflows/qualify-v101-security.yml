@@ -1,3 +1,4 @@
+# Temporary qualification runner; remove before public launch.
 name: Temporary v1.0.1 security qualification
 
 on:
