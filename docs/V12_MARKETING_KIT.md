@@ -1,6 +1,6 @@
 # QuietWard Response v1.2.0-alpha.1 marketing kit
 
-Use this material only after the exact release candidate passes `scripts/finalize_v12_alpha.py` and the documented browser smoke. Preserve **experimental alpha** language.
+Use this material only after the exact release candidate passes the native Linux finalizer, the native Windows exact-SHA live gate, and the documented installed-service/browser/real-QuietWard smoke on the same SHA. Preserve **experimental alpha** language.
 
 ## Positioning
 
@@ -28,7 +28,7 @@ Most early response tools choose between being too passive or exposing a dangero
 - the official endpoint agent runs continuously while maintaining signed capability freshness;
 - no generic shell, PowerShell, cmd, bash or model-generated command path exists.
 
-QuietWard remains a separate public product. When the two are used together, a **Response-owned read-only adapter** reads QuietWard's local SQLite event store in read-only mode, translates events into the Response wire schema and sends them using the enrolled Response-agent credential. Response code is not placed inside QuietWard.
+QuietWard remains a separate public product. When the two are used together, a **Response-owned read-only adapter** reads QuietWard's local SQLite event store in read-only mode, translates events into the Response wire schema and sends them using a derived **event-ingestion-only HMAC subkey**. The adapter credential cannot poll or execute Response actions, and Response code is not placed inside QuietWard.
 
 ## v1.2 launch highlights
 
@@ -42,6 +42,7 @@ QuietWard remains a separate public product. When the two are used together, a *
 - 256 MiB total file-diagnostic hashing budget;
 - signed agent capability negotiation;
 - continuous Linux/Windows user-scoped endpoint operation;
+- hardened private endpoint state and credential-adjacent file handling;
 - optional read-only QuietWard→Response adapter with deterministic retry-safe event IDs;
 - two-phase key rotation with immediate old-key revocation;
 - viewer/responder/admin RBAC;
@@ -64,11 +65,11 @@ Do not position v1.2 as an enterprise SOAR platform, mature EDR replacement or a
 
 ## Launch post — short
 
-QuietWard Response v1.2.0-alpha.1 is the first release candidate of my controlled-response project with narrowly executable real containment.
+QuietWard Response v1.2.0-alpha.1 is the first release of my controlled-response project with narrowly executable real containment.
 
 It adds typed process termination and reversible file quarantine through short-lived endpoint-issued resource handles, plus a continuously running capability-aware agent, signed endpoint capabilities, RBAC, key rotation, sensitive-data redaction, signed audit checkpoints and a privacy-preserving Linux network diagnostic.
 
-A separate read-only adapter can forward local QuietWard findings/events into Response without putting response code inside QuietWard or giving the adapter host-mutation authority.
+A separate read-only adapter can forward local QuietWard findings/events into Response using an event-ingestion-only credential without putting response code inside QuietWard or giving the adapter host-mutation authority.
 
 The design intentionally has no generic remote shell. Execution still requires a registered action, analyst approval, deterministic policy and independent endpoint checks.
 
@@ -78,11 +79,11 @@ Experimental alpha—not autonomous remediation.
 
 I’ve been building QuietWard Response as a security-engineering project around one question: how do you make automated response useful without turning an endpoint agent into an unrestricted remote administration tool?
 
-The v1.2 alpha candidate introduces the first real containment actions: exact process termination and reversible managed-file quarantine, both targeted through short-lived opaque handles issued from the endpoint’s own local observation. The server cannot submit a raw PID or filesystem path.
+The v1.2 alpha introduces the first real containment actions: exact process termination and reversible managed-file quarantine, both targeted through short-lived opaque handles issued from the endpoint’s own local observation. The server cannot submit a raw PID or filesystem path.
 
 The control plane adds signed endpoint capability negotiation, analyst RBAC, two-phase key rotation, request/rate bounds, credential-like field redaction, tamper-evident audit checkpoints and an integrity-compromise trust freeze. The endpoint agent runs continuously with bounded retry/backoff. A Linux network diagnostic provides bounded connection context while keeping raw addresses local and returning only endpoint-keyed pseudonymous destination identity.
 
-QuietWard remains separate. An optional Response-owned adapter opens its SQLite evidence store read-only, translates events deterministically and forwards them through the normal authenticated Response protocol.
+QuietWard remains separate. An optional Response-owned adapter opens its SQLite evidence store read-only, translates events deterministically and forwards them through a least-privilege event-ingestion-only HMAC credential.
 
 The system deliberately does not expose shell/PowerShell/cmd/script execution and does not allow response-plan text to become executable code.
 
@@ -110,7 +111,9 @@ A clean marketing/reviewer demo should use only disposable fixtures:
 
 Never use a real user process/file for a public demo.
 
-## Claims safe after qualification
+## Claims safe only after same-SHA qualification
+
+After the exact v1.2 SHA passes the Linux finalizer, Windows live gate, installed-service/browser smoke and actual released-QuietWard adapter check, it is reasonable to claim:
 
 - standalone incident-investigation and controlled-response platform;
 - finite eight-action v1.2 registry;
@@ -119,9 +122,9 @@ Never use a real user process/file for a public demo.
 - exact process termination by opaque handle on qualified platforms;
 - managed-root reversible artifact quarantine/restore on qualified Linux/Windows paths;
 - Linux read-only privacy-preserving network diagnostic;
-- optional read-only QuietWard adapter maintained entirely in the Response repository;
+- optional read-only QuietWard adapter maintained entirely in the Response repository and restricted to event-ingestion authority;
 - no generic remote shell/command action;
-- bearer RBAC for non-loopback/non-development deployments;
+- bearer RBAC for non-loopback/non-development deployments behind TLS;
 - signed audit checkpoints that can anchor retained history.
 
 ## Claims to avoid
@@ -136,7 +139,8 @@ Do not claim:
 - “prevents breaches”;
 - automatic firewall/host-isolation/account/container/persistence remediation that is not present in v1.2;
 - that every QuietWard finding is automatically contained;
-- that the adapter modifies or embeds code into QuietWard.
+- that the adapter modifies or embeds code into QuietWard;
+- Windows qualification unless the Windows live and installed-task gates passed on the same SHA as Linux qualification.
 
 ## Release materials to surface
 
@@ -152,4 +156,4 @@ At publication, point reviewers/users to:
 - `docs/V12_RELEASE_CHECKLIST.md`
 - `SECURITY.md`
 
-The release announcement should state the exact qualified candidate SHA and explicitly identify the release as an experimental alpha.
+The release announcement should state the exact qualified candidate SHA, identify the release as an experimental alpha, and only mention Windows/Linux qualification actually executed on that SHA.
