@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import signal
 import sqlite3
-import stat
 import sys
 import threading
 import time
@@ -15,6 +13,11 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote
 from uuid import NAMESPACE_URL, uuid5
+
+try:
+    from private_state_io import PrivateStateError, load_private_json
+except ImportError:  # package-style test import
+    from scripts.private_state_io import PrivateStateError, load_private_json
 
 from quietward_adapter_credentials import (
     AdapterCredential,
@@ -63,25 +66,12 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _load_state(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    if path.is_symlink():
-        raise AdapterCredentialError("QuietWard adapter state must not be a symbolic link")
     try:
-        info = path.stat(follow_symlinks=False)
-    except OSError as exc:
-        raise AdapterCredentialError("QuietWard adapter state is unavailable") from exc
-    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_STATE_BYTES:
-        raise AdapterCredentialError("QuietWard adapter state is invalid")
-    if os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077:
-        raise AdapterCredentialError("QuietWard adapter state must not be group/world accessible")
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AdapterCredentialError("QuietWard adapter state is unreadable or invalid") from exc
-    if not isinstance(value, dict):
-        raise AdapterCredentialError("QuietWard adapter state must be a JSON object")
-    return value
+        return load_private_json(path, dict, max_bytes=MAX_STATE_BYTES)
+    except PrivateStateError as exc:
+        raise AdapterCredentialError(
+            "QuietWard adapter state is unreadable or unsafe"
+        ) from exc
 
 
 def _readonly_database(path: Path) -> sqlite3.Connection:
