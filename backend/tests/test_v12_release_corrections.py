@@ -85,6 +85,8 @@ def test_release_contains_continuous_agent_and_least_privilege_adapter_installer
     adapter_linux = (root / "scripts" / "install_quietward_adapter_user_service.sh").read_text(encoding="utf-8")
     adapter_windows = (root / "scripts" / "install_quietward_adapter_windows.ps1").read_text(encoding="utf-8")
     adapter_runtime = (root / "scripts" / "forward_quietward_events.py").read_text(encoding="utf-8")
+    windows_gate = (root / "scripts" / "verify_v12_windows_live.py").read_text(encoding="utf-8")
+    finalizer = (root / "scripts" / "finalize_v12_alpha.py").read_text(encoding="utf-8")
 
     assert "while not stop.is_set()" in poller
     assert '"--once"' in poller
@@ -105,6 +107,12 @@ def test_release_contains_continuous_agent_and_least_privilege_adapter_installer
     assert "RunLevel Limited" in adapter_windows
     assert "ReloadingEventOnlyClient" in adapter_runtime
     assert "quietward_event_ingestion_only" in adapter_runtime
+
+    assert "requires a native Windows host" in windows_gate
+    assert 'metadata["operating_system"] = "Windows"' in windows_gate
+    assert "verify_v12_alpha_live_capabilities" in windows_gate
+    assert "automated finalizer requires a native Linux host" in finalizer
+    assert "verify_v12_windows_live.py" in finalizer
 
 
 def test_health_reports_real_v12_scope(client) -> None:
