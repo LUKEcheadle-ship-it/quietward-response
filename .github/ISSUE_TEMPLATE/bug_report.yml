@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a reproducible QuietWard Response problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing QuietWard Response. Do not include credentials, HMAC secrets, private incident evidence, real customer data, or exploit details that should be reported privately through GitHub Security Advisories.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Use v1.0.0 or the exact commit SHA when possible.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Launch method
+      options:
+        - python scripts/bootstrap_local.py
+        - Bash bootstrap
+        - Docker Compose
+        - Manual backend/frontend launch
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest safe reproduction using synthetic data when possible.
+      placeholder: |
+        1. Start Response with ...
+        2. Submit ...
+        3. Open ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or errors
+      description: Remove secrets, host identifiers, private paths, and real incident evidence before posting.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, secrets, private host data, and real incident evidence from this report.
+          required: true
