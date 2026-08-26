@@ -140,6 +140,7 @@ backend/quietward-response.db
 node_modules/
 .next/
 frontend/out/
+frontend/package-lock.json
 !frontend/src/lib/
 !frontend/src/lib/*.ts
 *.tsbuildinfo
