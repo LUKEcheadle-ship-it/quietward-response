@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -24,19 +26,111 @@ from app.services.audit_service import (
     verify_audit_checkpoint,
 )
 
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+_MAX_TRUSTED_CHECKPOINT_BYTES = 16_384
+
+
+def _link_like(details: os.stat_result) -> bool:
+    attributes = int(getattr(details, "st_file_attributes", 0))
+    return stat.S_ISLNK(details.st_mode) or bool(
+        attributes & _FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def _same_file(left: os.stat_result, right: os.stat_result) -> bool:
+    if left.st_ino and right.st_ino:
+        return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+    return (
+        left.st_dev,
+        left.st_size,
+        left.st_mtime_ns,
+        left.st_ctime_ns,
+    ) == (
+        right.st_dev,
+        right.st_size,
+        right.st_mtime_ns,
+        right.st_ctime_ns,
+    )
+
 
 def _load_trusted_audit_checkpoint(path) -> dict[str, object]:
+    checkpoint_path = path.expanduser()
     try:
-        raw = path.read_text(encoding="utf-8")
+        before = checkpoint_path.lstat()
+    except OSError as exc:
+        raise RuntimeError(
+            "trusted audit checkpoint is missing, unreadable, or invalid JSON; refusing startup"
+        ) from exc
+    if _link_like(before):
+        raise RuntimeError(
+            "trusted audit checkpoint must not be a symbolic link or reparse point; refusing startup"
+        )
+    if not stat.S_ISREG(before.st_mode):
+        raise RuntimeError(
+            "trusted audit checkpoint must be a regular file; refusing startup"
+        )
+    if before.st_size > _MAX_TRUSTED_CHECKPOINT_BYTES:
+        raise RuntimeError(
+            "trusted audit checkpoint file is unexpectedly large; refusing startup"
+        )
+    if os.name != "nt" and stat.S_IMODE(before.st_mode) & 0o022:
+        raise RuntimeError(
+            "trusted audit checkpoint must not be group/world writable; refusing startup"
+        )
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(checkpoint_path, flags)
+    except OSError as exc:
+        raise RuntimeError(
+            "trusted audit checkpoint is missing, unreadable, or invalid JSON; refusing startup"
+        ) from exc
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        opened = os.fstat(descriptor)
+        if _link_like(opened) or not stat.S_ISREG(opened.st_mode) or not _same_file(before, opened):
+            raise RuntimeError(
+                "trusted audit checkpoint changed during validation; refusing startup"
+            )
+        while True:
+            chunk = os.read(descriptor, 4096)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > _MAX_TRUSTED_CHECKPOINT_BYTES:
+                raise RuntimeError(
+                    "trusted audit checkpoint file is unexpectedly large; refusing startup"
+                )
+            chunks.append(chunk)
+    finally:
+        os.close(descriptor)
+
+    try:
+        after = checkpoint_path.lstat()
+    except OSError as exc:
+        raise RuntimeError(
+            "trusted audit checkpoint changed during read; refusing startup"
+        ) from exc
+    if _link_like(after) or not _same_file(before, after):
+        raise RuntimeError(
+            "trusted audit checkpoint changed during read; refusing startup"
+        )
+
+    try:
+        raw = b"".join(chunks).decode("utf-8")
         value = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError(
             "trusted audit checkpoint is missing, unreadable, or invalid JSON; refusing startup"
         ) from exc
     if not isinstance(value, dict):
         raise RuntimeError("trusted audit checkpoint must be a JSON object; refusing startup")
-    if len(raw.encode("utf-8")) > 16_384:
-        raise RuntimeError("trusted audit checkpoint file is unexpectedly large; refusing startup")
     return value
 
 
