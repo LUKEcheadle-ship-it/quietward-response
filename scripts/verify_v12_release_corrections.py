@@ -70,6 +70,20 @@ def main() -> int:
         "file diagnostic budget",
     )
 
+    network = _text("scripts/response_agent_network.py")
+    _require(
+        network,
+        (
+            "MAX_NETWORK_RESULTS = 256",
+            "NETWORK_PRIVACY_KEY_BYTES = 32",
+            "_read_private_key",
+            "O_NOFOLLOW",
+            "network privacy key changed during read",
+            "network privacy state directory permissions are unsafe",
+        ),
+        "network privacy key boundary",
+    )
+
     adapter = _text("scripts/forward_quietward_events.py")
     _require(
         adapter,
@@ -203,6 +217,29 @@ def main() -> int:
         "trusted audit checkpoint file boundary",
     )
 
+    linux_agent_installer = _text("scripts/install_response_agent_user_service.sh")
+    windows_agent_installer = _text("scripts/install_response_agent_windows.ps1")
+    linux_adapter_installer = _text("scripts/install_quietward_adapter_user_service.sh")
+    windows_adapter_installer = _text("scripts/install_quietward_adapter_windows.ps1")
+    for label, text in (
+        ("Linux agent installer", linux_agent_installer),
+        ("Windows agent installer", windows_agent_installer),
+        ("Linux adapter installer", linux_adapter_installer),
+        ("Windows adapter installer", windows_adapter_installer),
+    ):
+        if "private_state_io.py" not in text:
+            raise RuntimeError(f"{label} does not package hardened private_state_io.py")
+    _require(
+        windows_agent_installer,
+        ("RunLevel Limited", "reparse point/symlink"),
+        "Windows agent installer",
+    )
+    _require(
+        windows_adapter_installer,
+        ("RunLevel Limited", "reparse point/symlink"),
+        "Windows adapter installer",
+    )
+
     health = _text("backend/app/api/health.py")
     _require(
         health,
@@ -232,6 +269,7 @@ def main() -> int:
         "backend/tests/test_v12_policy_hardening.py",
         "backend/tests/test_v12_private_state_io.py",
         "backend/tests/test_v12_release_corrections.py",
+        "backend/tests/test_v12_network_diagnostic.py",
     ):
         if not (ROOT / relative).is_file():
             raise RuntimeError(f"required release-correction file missing: {relative}")
@@ -243,6 +281,8 @@ def main() -> int:
     print("adapter_rotation_refresh=automatic")
     print("runtime_config_fail_closed=yes")
     print("private_state_io=exclusive_nofollow")
+    print("network_privacy_key=nofollow_private")
+    print("installed_runtime_dependencies=complete")
     print("target_host_policy=fail_closed")
     print("trusted_checkpoint_file_boundary=hardened")
     print("high_impact_recommendations=strengthened")
