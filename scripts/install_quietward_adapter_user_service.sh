@@ -50,6 +50,7 @@ runtime_files=(
   forward_quietward_events.py
   quietward_adapter_credentials.py
   reloading_adapter_client.py
+  private_state_io.py
 )
 for file in "${runtime_files[@]}"; do
   install -m 700 "${repo_root}/scripts/${file}" "${install_root}/${file}"
