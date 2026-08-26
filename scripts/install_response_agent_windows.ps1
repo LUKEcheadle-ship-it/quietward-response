@@ -22,6 +22,10 @@ $python = $pythonCommand.Source
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "python.exe could not be resolved to a normal file"
 }
+$pythonItem = Get-Item -LiteralPath $python -Force
+if ($pythonItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw "python.exe must not be a reparse point/symlink"
+}
 
 $runtime = Join-Path $env:LOCALAPPDATA "QuietWardResponse\agent-runtime"
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
@@ -33,12 +37,17 @@ $runtimeFiles = @(
     "response_agent_capabilities.py",
     "response_agent_file_v12.py",
     "response_agent_network.py",
-    "response_agent_resources.py"
+    "response_agent_resources.py",
+    "private_state_io.py"
 )
 foreach ($file in $runtimeFiles) {
     $source = Join-Path $PSScriptRoot $file
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "Missing Response agent runtime file: $source"
+    }
+    $sourceItem = Get-Item -LiteralPath $source -Force
+    if ($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "Response agent runtime file must not be a reparse point/symlink: $source"
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $runtime $file) -Force
 }
