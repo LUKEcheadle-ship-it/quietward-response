@@ -10,8 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
-from app.api import actions, agents, audit, events, health, hosts, incidents, overview
+from app.api import actions, agents, audit, capabilities, events, health, hosts, incidents, overview
 from app.config import Settings, get_settings
+from app.database import capabilities as _capability_models  # noqa: F401
 from app.database.session import Database
 from app.logging import configure_logging
 from app.request_serialization import SerializedRequestMiddleware
@@ -132,6 +133,7 @@ def create_app(
     application.include_router(hosts.router)
     application.include_router(overview.router)
     application.include_router(agents.router)
+    application.include_router(capabilities.router)
     application.include_router(actions.router)
     application.include_router(audit.router)
 
