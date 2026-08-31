@@ -174,8 +174,8 @@ export function ResponseActions({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="eyebrow">Response actions</p>
-          <h2 className="mt-2 text-lg font-semibold text-white">Controlled remediation</h2>
-          <p className="muted mt-2 max-w-2xl text-sm">Only typed actions in the server and endpoint allowlists can be dispatched. v1 requires explicit analyst approval; arbitrary command execution is not available.</p>
+          <h2 className="mt-2 text-lg font-semibold text-white">Controlled actions</h2>
+          <p className="muted mt-2 max-w-2xl text-sm">Only typed actions in the server and endpoint allowlists can be dispatched. v1.1 requires explicit analyst approval; arbitrary command execution is not available.</p>
         </div>
         <span className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-xs text-cyan">Observe → Recommend → Approve → Act</span>
       </div>
@@ -225,11 +225,11 @@ export function ResponseActions({
           <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">Target</p><p className="mt-1 text-slate-300">{action.target_host_id}</p><p className="mt-1 font-mono text-[10px] text-slate-600">{action.target_agent_id}</p></div><div><p className="text-slate-500">Requested</p><p className="mt-1 text-slate-300">{formatTime(action.requested_at)}</p></div><div><p className="text-slate-500">Policy</p><p className={`mt-1 ${shownStatus === "expired" || action.policy_allowed === false ? "text-rose-300" : action.policy_allowed === true ? "text-emerald-300" : "text-slate-400"}`}>{shownStatus === "expired" ? "Expired" : action.policy_allowed === null ? "Pending approval" : action.policy_allowed ? "Allowed" : "Blocked"}</p></div></div>
           {action.policy_reasons.length > 0 && <ul className="mt-3 space-y-1 text-xs text-rose-300">{action.policy_reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul>}
           {canDecide && <div className="mt-4 flex gap-2"><button disabled={busy !== null} onClick={() => void decide(action, true)} className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 disabled:opacity-40">Approve</button><button disabled={busy !== null} onClick={() => void decide(action, false)} className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 disabled:opacity-40">Reject</button></div>}
-          {action.result && <details className="mt-4"><summary className="cursor-pointer text-xs font-medium text-slate-300">Execution result</summary><pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-400">{JSON.stringify({ result: action.result, evidence: action.evidence, error: action.error }, null, 2)}</pre></details>}
+          {action.result && <details className="mt-4"><summary className="cursor-pointer text-xs font-medium text-slate-300">Action result</summary><pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/30 p-3 text-xs text-slate-400">{JSON.stringify({ result: action.result, evidence: action.evidence, error: action.error }, null, 2)}</pre></details>}
         </div>
       );})}</div>}
 
-      {controlledRecommendations.length === 0 && actions.length === 0 && <p className="muted mt-5 text-sm">No allowlisted remediation is available for this incident. General remediation remains disabled.</p>}
+      {controlledRecommendations.length === 0 && actions.length === 0 && <p className="muted mt-5 text-sm">No allowlisted controlled action is available for this incident. General remediation remains disabled.</p>}
     </section>
   );
 }
