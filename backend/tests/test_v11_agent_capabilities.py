@@ -85,6 +85,13 @@ def test_legacy_agent_is_demo_only_until_signed_capabilities_are_reported(
     enrollment = _enroll(client)
     incident_id = _network_incident(client, event_factory, enrollment["host_id"])
 
+    listed_legacy = client.get("/api/v1/agents")
+    assert listed_legacy.status_code == 200
+    legacy_agent = next(
+        item for item in listed_legacy.json() if item["agent_id"] == enrollment["agent_id"]
+    )
+    assert legacy_agent["enabled_actions"] == ["restart_quietward_demo_service"]
+
     blocked = _request_and_approve(
         client,
         incident_id,
@@ -118,6 +125,13 @@ def test_legacy_agent_is_demo_only_until_signed_capabilities_are_reported(
     reported = _signed_post(client, enrollment, target, capabilities)
     assert reported.status_code == 200, reported.text
     assert set(reported.json()["enabled_actions"]) == set(capabilities["enabled_actions"])
+
+    listed_capable = client.get("/api/v1/agents")
+    assert listed_capable.status_code == 200
+    capable_agent = next(
+        item for item in listed_capable.json() if item["agent_id"] == enrollment["agent_id"]
+    )
+    assert set(capable_agent["enabled_actions"]) == set(capabilities["enabled_actions"])
 
     allowed = _request_and_approve(
         client,
