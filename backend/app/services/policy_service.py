@@ -12,10 +12,12 @@ from app.database.models import (
     IncidentRecord,
 )
 from app.services.action_registry import get_action_definition
+from app.services.agent_capabilities import agent_enables_action
 
 
 RECOMMENDATION_BINDING_REASON = "action is not an enabled recommendation for incident"
 INCIDENT_STATUS_REASON = "incident status does not allow response actions"
+AGENT_CAPABILITY_REASON = "target agent has not enabled this signed capability"
 _ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
 
 
@@ -79,6 +81,8 @@ def evaluate_action_policy(
         reasons.append("target agent is disabled")
     elif agent.host_id != action.target_host_id:
         reasons.append("target agent is not enrolled for target host")
+    elif not agent_enables_action(session, agent, action.action_type):
+        reasons.append(AGENT_CAPABILITY_REASON)
 
     incident = session.get(IncidentRecord, action.incident_id)
     if incident is None:
