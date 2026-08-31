@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
+from app.database import capabilities as _capability_models  # noqa: F401
 from app.database.models import Base
 
 config = context.config
@@ -34,7 +35,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+        prefix="sqlalchemy.url"[:15],
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
