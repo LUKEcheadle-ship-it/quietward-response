@@ -11,12 +11,13 @@ from app.database.session import get_db
 from app.schemas.agent import AgentEnrollRequest, AgentEnrollResponse, AgentPatch, AgentRead
 from app.services.action_service import cancel_undispatched_actions_for_agent
 from app.services.agent_auth import enroll_agent
+from app.services.agent_capabilities import agent_enabled_actions
 from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 
-def _agent_to_dict(agent: AgentRecord) -> dict[str, object]:
+def _agent_to_dict(db: Session, agent: AgentRecord) -> dict[str, object]:
     return {
         "agent_id": agent.agent_id,
         "host_id": agent.host_id,
@@ -26,6 +27,7 @@ def _agent_to_dict(agent: AgentRecord) -> dict[str, object]:
         "last_seen": agent.last_seen,
         "enabled": agent.enabled,
         "agent_version": agent.agent_version,
+        "enabled_actions": sorted(agent_enabled_actions(db, agent)),
     }
 
 
@@ -81,7 +83,7 @@ def enroll(
 @router.get("", response_model=list[AgentRead])
 def list_agents(db: Session = Depends(get_db)) -> list[dict[str, object]]:
     agents = list(db.scalars(select(AgentRecord).order_by(AgentRecord.created_at.desc())))
-    return [_agent_to_dict(item) for item in agents]
+    return [_agent_to_dict(db, item) for item in agents]
 
 
 @router.get("/{agent_id}", response_model=AgentRead)
@@ -89,7 +91,7 @@ def get_agent(agent_id: str, db: Session = Depends(get_db)) -> dict[str, object]
     agent = db.get(AgentRecord, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    return _agent_to_dict(agent)
+    return _agent_to_dict(db, agent)
 
 
 @router.patch("/{agent_id}", response_model=AgentRead)
@@ -120,4 +122,4 @@ def patch_agent(
             cancel_undispatched_actions_for_agent(db, agent.agent_id)
     db.commit()
     db.refresh(agent)
-    return _agent_to_dict(agent)
+    return _agent_to_dict(db, agent)
