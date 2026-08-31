@@ -100,12 +100,19 @@ export function ResponseActions({
     () => incident.recommended_actions.filter((item) => item.registry_action_type && item.enabled),
     [incident.recommended_actions],
   );
-  const eligibleAgents = agents.filter((agent) => agent.enabled && incident.affected_hosts.includes(agent.host_id));
+  const affectedAgents = agents.filter((agent) => agent.enabled && incident.affected_hosts.includes(agent.host_id));
   const incidentAllowsResponse = ACTIONABLE_INCIDENT_STATUSES.has(incident.status);
+
+  function eligibleAgentsFor(recommendation: RecommendedAction): Agent[] {
+    const actionType = recommendation.registry_action_type;
+    if (!actionType) return [];
+    return affectedAgents.filter((agent) => agent.enabled_actions.includes(actionType));
+  }
 
   function selectedAgentFor(recommendation: RecommendedAction): Agent | undefined {
     const actionType = recommendation.registry_action_type;
     if (!actionType) return undefined;
+    const eligibleAgents = eligibleAgentsFor(recommendation);
     const selectedId = selectedAgentIds[actionType];
     return eligibleAgents.find((agent) => agent.agent_id === selectedId) ?? eligibleAgents[0];
   }
@@ -185,6 +192,7 @@ export function ResponseActions({
       {controlledRecommendations.length > 0 && (
         <div className="mt-5 space-y-3">
           {controlledRecommendations.map((recommendation) => {
+            const eligibleAgents = eligibleAgentsFor(recommendation);
             const agent = selectedAgentFor(recommendation);
             const activeAction = activeActionFor(recommendation, agent);
             const actionType = recommendation.registry_action_type!;
@@ -202,7 +210,7 @@ export function ResponseActions({
                   </select>
                 </label>
               ) : (
-                <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent enrolled for an affected host"}</div>
+                <div className="mt-3 text-xs text-slate-500">Target: {agent ? `${agent.display_name} · ${agent.host_id}` : "No enabled agent has declared this capability for an affected host"}</div>
               )}
               {!incidentAllowsResponse ? (
                 <span className="mt-3 inline-block rounded border border-slate-500/20 bg-slate-500/10 px-3 py-1.5 text-xs text-slate-400">Incident is closed — response actions disabled</span>
