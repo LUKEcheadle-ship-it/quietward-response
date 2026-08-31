@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import stat
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -12,6 +16,13 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
+AGENT_VERSION = "1.1.0-alpha.1"
+AGENT_ACTIONS = [
+    "collect_host_diagnostic",
+    "collect_network_diagnostic",
+    "collect_process_diagnostic",
+    "restart_quietward_demo_service",
+]
 
 
 def _env_file_value(name: str) -> str | None:
@@ -89,6 +100,75 @@ def _private_json(path: Path, value: dict[str, object], *, force: bool) -> None:
         pass
 
 
+def _derive_hmac_key(secret: str) -> bytes:
+    return hashlib.sha256(("quietward-response-v1:" + secret).encode("utf-8")).digest()
+
+
+def _signed_headers(
+    *,
+    agent_id: str,
+    key_id: str,
+    secret: str,
+    method: str,
+    target: str,
+    body: bytes,
+) -> dict[str, str]:
+    timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)
+    body_hash = hashlib.sha256(body).hexdigest()
+    canonical = "\n".join([method.upper(), target, timestamp, nonce, body_hash]).encode("utf-8")
+    signature = hmac.new(_derive_hmac_key(secret), canonical, hashlib.sha256).hexdigest()
+    return {
+        "Content-Type": "application/json",
+        "X-QWR-Agent-ID": agent_id,
+        "X-QWR-Key-ID": key_id,
+        "X-QWR-Timestamp": timestamp,
+        "X-QWR-Nonce": nonce,
+        "X-QWR-Signature": signature,
+    }
+
+
+def _report_capabilities(api_url: str, enrolled: dict[str, object]) -> None:
+    agent_id = str(enrolled["agent_id"])
+    key_id = str(enrolled["key_id"])
+    secret = str(enrolled["secret"])
+    target = f"/api/v1/agents/{agent_id}/capabilities"
+    body = json.dumps(
+        {
+            "schema_version": "1.0",
+            "agent_version": AGENT_VERSION,
+            "supported_actions": AGENT_ACTIONS,
+            "enabled_actions": AGENT_ACTIONS,
+            "arbitrary_command_execution": False,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = Request(
+        api_url + target,
+        data=body,
+        method="POST",
+        headers=_signed_headers(
+            agent_id=agent_id,
+            key_id=key_id,
+            secret=secret,
+            method="POST",
+            target=target,
+            body=body,
+        ),
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            result = json.loads(response.read())
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:1000]
+        raise RuntimeError(f"capability registration failed with HTTP {exc.code}: {detail}") from exc
+    except (URLError, OSError) as exc:
+        raise RuntimeError(f"capability registration failed: {exc}") from exc
+    if not isinstance(result, dict) or result.get("agent_id") != agent_id:
+        raise RuntimeError("capability registration returned an invalid response")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Enroll the separate QuietWard Response diagnostic agent")
     parser.add_argument("--host-id", required=True)
@@ -115,7 +195,7 @@ def main() -> int:
         {
             "host_id": args.host_id,
             "display_name": args.display_name or f"Response diagnostic agent on {args.host_id}",
-            "agent_version": "1.1.0-alpha.1",
+            "agent_version": AGENT_VERSION,
         },
         separators=(",", ":"),
     ).encode("utf-8")
@@ -153,8 +233,14 @@ def main() -> int:
         print(f"Enrollment succeeded but private config creation failed: {exc}")
         return 1
 
+    try:
+        _report_capabilities(api_url, enrolled)
+    except (KeyError, RuntimeError) as exc:
+        print(f"Agent config was stored privately, but signed capability registration failed: {exc}")
+        return 1
+
     print(f"Response diagnostic agent enrolled. Private config: {config_path}")
-    print("The one-time enrollment secret was written only to that private config and was not printed.")
+    print("Signed diagnostic capabilities registered. The one-time enrollment secret was not printed.")
     return 0
 
 
