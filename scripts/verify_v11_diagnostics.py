@@ -6,13 +6,18 @@ import os
 import shutil
 import socket
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts import verify_v1
 
 
-ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 EXPECTED_ACTIONS = {
