@@ -30,6 +30,7 @@ class AgentRead(BaseModel):
     last_seen: datetime | None
     enabled: bool
     agent_version: str | None
+    enabled_actions: list[str] = Field(default_factory=list)
 
 
 class AgentPatch(BaseModel):
