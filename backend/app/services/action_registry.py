@@ -15,7 +15,9 @@ class ActionDefinition:
     implementation_version: str
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
-        # v1 deliberately exposes no arbitrary target/service/path parameter.
+        # The current controlled surface deliberately exposes no arbitrary target,
+        # service, path, PID, address, or command parameter. Diagnostic executors
+        # determine their bounded local scope themselves.
         if parameters:
             return ["this action accepts no parameters"]
         return []
@@ -31,8 +33,44 @@ RESTART_QUIETWARD_DEMO_SERVICE = ActionDefinition(
     implementation_version="1",
 )
 
+COLLECT_HOST_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_host_diagnostic",
+    description="Collect a bounded read-only host and Response-agent health snapshot without running shell commands.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="2",
+)
+
+COLLECT_PROCESS_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_process_diagnostic",
+    description="Collect a bounded read-only process inventory without command lines or arbitrary process targeting.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows"),
+    reversible=True,
+    implementation_version="2",
+)
+
+COLLECT_NETWORK_DIAGNOSTIC = ActionDefinition(
+    action_type="collect_network_diagnostic",
+    description="Collect a bounded read-only Linux network snapshot with remote addresses pseudonymized before leaving the endpoint.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux",),
+    reversible=True,
+    implementation_version="2",
+)
+
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
-    RESTART_QUIETWARD_DEMO_SERVICE.action_type: RESTART_QUIETWARD_DEMO_SERVICE,
+    item.action_type: item
+    for item in (
+        RESTART_QUIETWARD_DEMO_SERVICE,
+        COLLECT_HOST_DIAGNOSTIC,
+        COLLECT_PROCESS_DIAGNOSTIC,
+        COLLECT_NETWORK_DIAGNOSTIC,
+    )
 }
 
 
