@@ -21,6 +21,76 @@ class HandoffError(RuntimeError):
 
 
 _SUBJECT_TOKEN = re.compile(r"^[0-9a-f]{32}$")
+_SAFE_CODE = re.compile(r"^[a-z0-9_.:+-]{1,64}$")
+_SAFE_VERSION = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
+_ALLOWED_CATEGORIES = {
+    "malware",
+    "integrity",
+    "privilege",
+    "persistence",
+    "identity",
+    "network",
+    "container",
+    "vulnerability",
+    "execution",
+    "file_integrity",
+    "operational",
+    "security",
+}
+_ALLOWED_SUBJECT_TYPES = {
+    "file",
+    "process",
+    "network",
+    "persistence",
+    "identity",
+    "container",
+    "host_or_other",
+}
+_ALLOWED_HINTS = {
+    "host_health",
+    "process_inventory",
+    "network_snapshot",
+    "artifact_metadata_review",
+}
+_ALLOWED_OS = {None, "Windows", "Linux", "Darwin", "Unknown"}
+_ALLOWED_EVENT_KEYS = {
+    "schema_version",
+    "event_id",
+    "source",
+    "source_version",
+    "host_id",
+    "host_name",
+    "timestamp",
+    "event_type",
+    "category",
+    "severity",
+    "confidence",
+    "summary",
+    "evidence",
+    "process",
+    "file",
+    "network",
+    "persistence",
+    "metadata",
+}
+_ALLOWED_EVIDENCE_KEYS = {
+    "event_count",
+    "event_kinds",
+    "correlation_signal_codes",
+    "subject_hmac_sha256",
+    "subject_type",
+}
+_ALLOWED_METADATA_KEYS = {
+    "quietward_response_context_version",
+    "quietward_finding_id",
+    "quietward_score",
+    "quietward_mode",
+    "requires_human_approval",
+    "observation_only_source",
+    "executable_authority",
+    "investigation_hints",
+    "operating_system",
+}
 
 
 def _derive_hmac_key(secret: str) -> bytes:
@@ -62,6 +132,8 @@ def _load_handoff(path: Path) -> dict[str, Any]:
         "raw_finding_subjects_included": False,
         "network_request_performed": False,
     }
+    if set(safety) != set(required_safety):
+        raise HandoffError("handoff safety declaration contains unexpected fields")
     if any(safety.get(key) != expected for key, expected in required_safety.items()):
         raise HandoffError("handoff does not satisfy the observation-only safety contract")
     events = value.get("events")
@@ -70,32 +142,94 @@ def _load_handoff(path: Path) -> dict[str, Any]:
     return value
 
 
+def _safe_string_list(value: Any, *, label: str, maximum: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > maximum:
+        raise HandoffError(f"handoff {label} is invalid")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not _SAFE_CODE.fullmatch(item):
+            raise HandoffError(f"handoff {label} contains an invalid code")
+        result.append(item)
+    if len(result) != len(set(result)):
+        raise HandoffError(f"handoff {label} contains duplicate codes")
+    return result
+
+
 def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
     if not isinstance(event, dict):
         raise HandoffError("handoff event must be an object")
+    if set(event) != _ALLOWED_EVENT_KEYS:
+        raise HandoffError("handoff event contains unexpected top-level fields")
     if event.get("schema_version") != "1.0" or event.get("source") != "quietward":
         raise HandoffError("handoff event source/schema is invalid")
     if event.get("host_id") != config.host_id:
         raise HandoffError("handoff event host does not match the enrolled Response agent")
+    if event.get("host_name") is not None:
+        raise HandoffError("handoff event must not include a host name")
+    source_version = event.get("source_version")
+    if source_version is not None and (
+        not isinstance(source_version, str) or not _SAFE_VERSION.fullmatch(source_version)
+    ):
+        raise HandoffError("handoff source version is invalid")
+
+    category = event.get("category")
+    severity = event.get("severity")
+    if category not in _ALLOWED_CATEGORIES:
+        raise HandoffError("handoff event category is invalid")
+    if severity not in {"info", "informational", "low", "medium", "high", "critical"}:
+        raise HandoffError("handoff event severity is invalid")
+    if event.get("event_type") != f"quietward_{category}_finding":
+        raise HandoffError("handoff event type does not match its category")
+
     metadata = event.get("metadata")
     evidence = event.get("evidence")
     if not isinstance(metadata, dict) or not isinstance(evidence, dict):
         raise HandoffError("handoff event metadata/evidence is invalid")
+    if set(metadata) != _ALLOWED_METADATA_KEYS:
+        raise HandoffError("handoff metadata contains unexpected fields")
+    if set(evidence) != _ALLOWED_EVIDENCE_KEYS:
+        raise HandoffError("handoff evidence contains unexpected fields")
     if metadata.get("observation_only_source") is not True:
         raise HandoffError("handoff event is not marked observation-only")
     if metadata.get("executable_authority") is not False:
         raise HandoffError("handoff event claims executable authority")
     if metadata.get("quietward_response_context_version") != "1.0":
         raise HandoffError("handoff event context version is invalid")
+    if metadata.get("operating_system") not in _ALLOWED_OS:
+        raise HandoffError("handoff event operating-system family is invalid")
+    if not isinstance(metadata.get("requires_human_approval"), bool):
+        raise HandoffError("handoff human-approval marker is invalid")
+    hints = _safe_string_list(
+        metadata.get("investigation_hints"),
+        label="investigation hints",
+        maximum=8,
+    )
+    if not set(hints).issubset(_ALLOWED_HINTS):
+        raise HandoffError("handoff contains an unknown investigation hint")
+
     subject_token = evidence.get("subject_hmac_sha256")
     if not isinstance(subject_token, str) or not _SUBJECT_TOKEN.fullmatch(subject_token):
         raise HandoffError("handoff event subject identity is not privacy-keyed")
+    if evidence.get("subject_type") not in _ALLOWED_SUBJECT_TYPES:
+        raise HandoffError("handoff event subject type is invalid")
+    event_count = evidence.get("event_count")
+    if not isinstance(event_count, int) or isinstance(event_count, bool) or not 1 <= event_count <= 10000:
+        raise HandoffError("handoff event count is invalid")
+    _safe_string_list(evidence.get("event_kinds"), label="event kinds", maximum=24)
+    _safe_string_list(
+        evidence.get("correlation_signal_codes"),
+        label="correlation signal codes",
+        maximum=24,
+    )
+
     for sensitive_surface in ("process", "file", "network", "persistence"):
         if event.get(sensitive_surface) is not None:
             raise HandoffError(f"handoff event unexpectedly includes raw {sensitive_surface} context")
-    summary = str(event.get("summary") or "")
-    if not summary or len(summary) > 2048:
-        raise HandoffError("handoff event summary is invalid")
+    expected_summary = (
+        f"QuietWard correlated {event_count} evidence item(s) into a {severity} {category} finding."
+    )
+    if event.get("summary") != expected_summary:
+        raise HandoffError("handoff event summary is not the sanitized canonical form")
     return event
 
 
