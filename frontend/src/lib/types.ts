@@ -97,6 +97,7 @@ export interface Agent {
   last_seen: string | null;
   enabled: boolean;
   agent_version: string | null;
+  enabled_actions: string[];
 }
 
 export type ResponseActionStatus =
