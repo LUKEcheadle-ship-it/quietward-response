@@ -11,32 +11,63 @@ def _action(
     registry_action_type: str | None = None,
 ) -> dict[str, object]:
     diagnostic = action_type == "diagnostic"
-    controlled_v1 = registry_action_type is not None
+    controlled = registry_action_type is not None
     return {
         "action_type": action_type,
         "title": title,
         "description": description,
-        "enabled": diagnostic or controlled_v1,
+        "enabled": diagnostic or controlled,
         "phase": (
-            "v1"
+            "v1.1 — approval required"
+            if controlled
+            else "v1.1"
             if diagnostic
-            else "v1 — approval required"
-            if controlled_v1
-            else "v1 — not enabled"
+            else "v1.1 — not enabled"
         ),
         "registry_action_type": registry_action_type,
-        "requires_approval": controlled_v1,
+        "requires_approval": controlled,
     }
 
 
+def _host_diagnostic() -> dict[str, object]:
+    return _action(
+        "diagnostic",
+        "Collect bounded host diagnostic",
+        "Collect OS, uptime, CPU-count, load, and Response-agent state-volume capacity without executing shell commands.",
+        registry_action_type="collect_host_diagnostic",
+    )
+
+
+def _process_diagnostic() -> dict[str, object]:
+    return _action(
+        "diagnostic",
+        "Collect bounded process diagnostic",
+        "Collect a limited process inventory using native OS interfaces. Command lines and arbitrary process targeting are excluded.",
+        registry_action_type="collect_process_diagnostic",
+    )
+
+
+def _network_diagnostic() -> dict[str, object]:
+    return _action(
+        "diagnostic",
+        "Collect privacy-preserving network diagnostic",
+        "On Linux, collect a bounded socket snapshot while pseudonymizing remote addresses on the endpoint before the result is returned.",
+        registry_action_type="collect_network_diagnostic",
+    )
+
+
 def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
-    categories = {event.category for event in events}
-    types = {event.event_type for event in events}
+    categories = {str(event.category or "").lower() for event in events}
+    types = {str(event.event_type or "").lower() for event in events}
     recommendations: list[dict[str, object]] = []
     demo_event = any(
         value in {"quietward_demo_service_unhealthy", "demo_service_unhealthy"}
         for value in types
     )
+
+    # Host diagnostics are intentionally useful across incident families and remain
+    # parameterless, bounded, read-only, and analyst-approved.
+    recommendations.append(_host_diagnostic())
 
     if demo_event:
         recommendations.extend(
@@ -54,6 +85,36 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 ),
             ]
         )
+
+    process_relevant = bool(
+        categories & {"execution", "malware", "persistence", "privilege", "process", "security"}
+        or any(
+            marker in event_type
+            for event_type in types
+            for marker in (
+                "process",
+                "malware",
+                "ransomware",
+                "credential",
+                "persistence",
+                "privilege",
+                "injection",
+                "shell",
+            )
+        )
+    )
+    network_relevant = bool(
+        "network" in categories
+        or any(
+            marker in event_type
+            for event_type in types
+            for marker in ("network", "connection", "listener", "beacon", "c2")
+        )
+    )
+    if process_relevant:
+        recommendations.append(_process_diagnostic())
+    if network_relevant:
+        recommendations.extend([_process_diagnostic(), _network_diagnostic()])
 
     if "persistence" in categories or any("scheduled_task" in value for value in types):
         recommendations.extend(
@@ -86,17 +147,17 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Disable persistence mechanism",
-                    "General persistence changes are intentionally unavailable in v1.",
+                    "General persistence changes remain intentionally unavailable in this diagnostic release.",
                 ),
                 _action(
                     "remediation",
                     "Quarantine executable",
-                    "File quarantine is intentionally unavailable in v1.",
+                    "File quarantine remains intentionally unavailable in this diagnostic release.",
                 ),
             ]
         )
 
-    if "network" in categories or any("listener" in value for value in types):
+    if network_relevant:
         recommendations.extend(
             [
                 _action(
@@ -117,14 +178,14 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Restrict or stop the listener",
-                    "Network and general service changes are not enabled in v1.",
+                    "Network and general service changes remain intentionally unavailable in this diagnostic release.",
                 ),
             ]
         )
 
     # The dedicated demo health event is tagged operational for transport and UI
-    # grouping, but it is not a resource-exhaustion incident. Keep its v1 response
-    # card focused instead of adding unrelated disk/capacity guidance.
+    # grouping, but it is not a resource-exhaustion incident. Keep its response card
+    # focused instead of adding unrelated disk/capacity guidance.
     if not demo_event and (
         "operational" in categories
         or any("disk" in value or "service_unavailable" in value for value in types)
@@ -149,12 +210,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Reclaim disk space",
-                    "Deletion and cleanup actions are not enabled in v1.",
+                    "Deletion and cleanup actions remain intentionally unavailable in this diagnostic release.",
                 ),
             ]
         )
 
-    if not recommendations:
+    if len(recommendations) == 1:
         recommendations.extend(
             [
                 _action(
@@ -170,7 +231,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Apply corrective action",
-                    "No general remediation action is enabled in v1.",
+                    "No general remediation action is enabled in this diagnostic release.",
                 ),
             ]
         )
@@ -194,7 +255,7 @@ def probable_cause_for(events: list[EventRecord]) -> str:
     ):
         return (
             "The dedicated QuietWard Response demo service reported an unhealthy state. "
-            "The only enabled remediation is an approval-gated restart of that demo fixture."
+            "The only enabled mutating remediation remains an approval-gated restart of that demo fixture."
         )
     if "persistence" in categories:
         return (
