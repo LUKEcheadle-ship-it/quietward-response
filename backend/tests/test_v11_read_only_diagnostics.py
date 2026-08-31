@@ -169,6 +169,27 @@ def test_handoff_importer_rejects_raw_context_or_executable_authority(tmp_path: 
         _validate_event(executable, config)
 
 
+def test_handoff_importer_rejects_nested_data_smuggling_and_summary_tampering(
+    tmp_path: Path,
+) -> None:
+    config = _agent_config(tmp_path)
+
+    hidden_subject = copy.deepcopy(_handoff_event())
+    hidden_subject["metadata"]["raw_subject"] = "/private/secret/path"
+    with pytest.raises(HandoffError, match="metadata contains unexpected fields"):
+        _validate_event(hidden_subject, config)
+
+    hidden_address = copy.deepcopy(_handoff_event())
+    hidden_address["evidence"]["remote_address"] = "203.0.113.5"
+    with pytest.raises(HandoffError, match="evidence contains unexpected fields"):
+        _validate_event(hidden_address, config)
+
+    tampered_summary = copy.deepcopy(_handoff_event())
+    tampered_summary["summary"] = "Raw sensitive detail was inserted here."
+    with pytest.raises(HandoffError, match="sanitized canonical form"):
+        _validate_event(tampered_summary, config)
+
+
 def test_agent_source_has_no_generic_command_execution_or_destructive_surface() -> None:
     agent_source = (SCRIPTS / "response_agent.py").read_text(encoding="utf-8").lower()
     diagnostics_source = (SCRIPTS / "response_agent_diagnostics.py").read_text(encoding="utf-8").lower()
