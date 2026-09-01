@@ -126,7 +126,7 @@ Response now distinguishes:
 
 The incident page shows:
 
-- QuietWard finding count;
+- QuietWard finding count using keyed finding identities;
 - highest detector score;
 - privacy-keyed subject count;
 - signal families;
