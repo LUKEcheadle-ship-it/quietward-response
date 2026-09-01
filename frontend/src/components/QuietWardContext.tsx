@@ -26,8 +26,11 @@ export function QuietWardContext({ incident }: { incident: IncidentDetail }) {
   const findingIds = Array.from(
     new Set(
       events
-        .map((event) => event.metadata.quietward_finding_id)
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
+        .map((event) => event.metadata.quietward_finding_hmac_sha256)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && /^[0-9a-f]{32}$/.test(value),
+        ),
     ),
   );
   const hints = Array.from(
@@ -70,7 +73,7 @@ export function QuietWardContext({ incident }: { incident: IncidentDetail }) {
           <p className="eyebrow">QuietWard context</p>
           <h2 className="mt-2 text-lg font-semibold text-white">Observation-only detector handoff</h2>
           <p className="muted mt-2 text-sm">
-            This incident includes privacy-preserving context produced by QuietWard. Response receives correlation metadata, not QuietWard execution authority or raw finding subjects.
+            This incident includes privacy-preserving context produced by QuietWard. Response receives correlation metadata, not QuietWard execution authority, raw finding identifiers, or raw finding subjects.
           </p>
         </div>
         <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] uppercase tracking-wider text-emerald-300">
