@@ -21,6 +21,7 @@ class HandoffError(RuntimeError):
 
 
 _SUBJECT_TOKEN = re.compile(r"^[0-9a-f]{32}$")
+_CHAIN_HASH = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_CODE = re.compile(r"^[a-z0-9_.:+-]{1,64}$")
 _SAFE_VERSION = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
 _ALLOWED_CATEGORIES = {
@@ -90,6 +91,8 @@ _ALLOWED_METADATA_KEYS = {
     "executable_authority",
     "investigation_hints",
     "operating_system",
+    "quietward_source_cycle_id",
+    "quietward_source_chain_hash",
 }
 
 
@@ -155,6 +158,21 @@ def _safe_string_list(value: Any, *, label: str, maximum: int) -> list[str]:
     return result
 
 
+def _validate_provenance(metadata: dict[str, Any]) -> None:
+    cycle_id = metadata.get("quietward_source_cycle_id")
+    chain_hash = metadata.get("quietward_source_chain_hash")
+    if cycle_id is None and chain_hash is None:
+        return
+    if (
+        not isinstance(cycle_id, int)
+        or isinstance(cycle_id, bool)
+        or cycle_id <= 0
+    ):
+        raise HandoffError("handoff QuietWard source cycle is invalid")
+    if not isinstance(chain_hash, str) or not _CHAIN_HASH.fullmatch(chain_hash):
+        raise HandoffError("handoff QuietWard evidence-chain hash is invalid")
+
+
 def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
     if not isinstance(event, dict):
         raise HandoffError("handoff event must be an object")
@@ -199,6 +217,7 @@ def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
         raise HandoffError("handoff event operating-system family is invalid")
     if not isinstance(metadata.get("requires_human_approval"), bool):
         raise HandoffError("handoff human-approval marker is invalid")
+    _validate_provenance(metadata)
     hints = _safe_string_list(
         metadata.get("investigation_hints"),
         label="investigation hints",
