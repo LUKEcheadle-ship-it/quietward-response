@@ -8,7 +8,7 @@ def test_rule_based_recommendations_separate_diagnostics_and_remediation(client,
     remediation = [item for item in incident["recommended_actions"] if item["action_type"] == "remediation"]
     assert diagnostics and all(item["enabled"] for item in diagnostics)
     assert remediation and all(not item["enabled"] for item in remediation)
-    assert all(item["phase"] == "v1 — not enabled" for item in remediation)
+    assert all(item["phase"] == "v1.1 — not enabled" for item in remediation)
 
 
 def test_audit_trail_records_pipeline_and_analyst_changes(client, event_factory) -> None:
