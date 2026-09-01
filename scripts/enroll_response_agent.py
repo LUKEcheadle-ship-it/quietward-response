@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
-AGENT_VERSION = "1.1.0-alpha.1"
+AGENT_VERSION = "1.1.0a1"
 AGENT_ACTIONS = [
     "collect_host_diagnostic",
     "collect_network_diagnostic",
