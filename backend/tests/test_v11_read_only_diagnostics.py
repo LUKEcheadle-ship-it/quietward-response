@@ -70,6 +70,8 @@ def _handoff_event(host_id: str = "host-1") -> dict:
             "executable_authority": False,
             "investigation_hints": ["host_health", "process_inventory", "network_snapshot"],
             "operating_system": "Linux",
+            "quietward_source_cycle_id": None,
+            "quietward_source_chain_hash": None,
         },
     }
 
@@ -156,6 +158,13 @@ def test_quietward_handoff_payload_matches_response_event_schema(tmp_path: Path)
     assert _validate_event(payload, _agent_config(tmp_path)) == payload
 
 
+def test_handoff_importer_accepts_valid_evidence_chain_provenance(tmp_path: Path) -> None:
+    payload = _handoff_event()
+    payload["metadata"]["quietward_source_cycle_id"] = 17
+    payload["metadata"]["quietward_source_chain_hash"] = "b" * 64
+    assert _validate_event(payload, _agent_config(tmp_path)) == payload
+
+
 def test_handoff_importer_rejects_raw_context_or_executable_authority(tmp_path: Path) -> None:
     config = _agent_config(tmp_path)
     raw_network = copy.deepcopy(_handoff_event())
@@ -188,6 +197,20 @@ def test_handoff_importer_rejects_nested_data_smuggling_and_summary_tampering(
     tampered_summary["summary"] = "Raw sensitive detail was inserted here."
     with pytest.raises(HandoffError, match="sanitized canonical form"):
         _validate_event(tampered_summary, config)
+
+
+def test_handoff_importer_rejects_partial_or_invalid_provenance(tmp_path: Path) -> None:
+    config = _agent_config(tmp_path)
+    partial = copy.deepcopy(_handoff_event())
+    partial["metadata"]["quietward_source_cycle_id"] = 4
+    with pytest.raises(HandoffError, match="evidence-chain hash"):
+        _validate_event(partial, config)
+
+    invalid = copy.deepcopy(_handoff_event())
+    invalid["metadata"]["quietward_source_cycle_id"] = 0
+    invalid["metadata"]["quietward_source_chain_hash"] = "c" * 64
+    with pytest.raises(HandoffError, match="source cycle"):
+        _validate_event(invalid, config)
 
 
 def test_agent_source_has_no_generic_command_execution_or_destructive_surface() -> None:
