@@ -179,7 +179,13 @@ def main() -> int:
     verify_v1._run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _verify_action_surface(python)
 
-    with tempfile.TemporaryDirectory(prefix="qwr-v11-") as temporary:
+    # Windows can transiently keep a completed SQLite migration file open after
+    # subprocess exit. All schema/build/smoke assertions run before cleanup; do not
+    # turn a successful release gate into a false failure on temp-directory removal.
+    with tempfile.TemporaryDirectory(
+        prefix="qwr-v11-",
+        ignore_cleanup_errors=(os.name == "nt"),
+    ) as temporary:
         temp_path = Path(temporary)
         _verify_migrations(python, temp_path)
 
