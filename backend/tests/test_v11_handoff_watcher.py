@@ -78,6 +78,8 @@ def _document() -> dict:
                         "network_snapshot",
                     ],
                     "operating_system": "Linux",
+                    "quietward_source_cycle_id": 7,
+                    "quietward_source_chain_hash": "a" * 64,
                 },
             }
         ],
@@ -122,6 +124,7 @@ def test_watcher_ingests_then_archives_without_touching_quietward_database(tmp_p
     assert len(ledger) == 1
     entry = next(iter(ledger.values()))
     assert entry["source_cycle_id"] == 7
+    assert entry["source_chain_hash"] == "a" * 64
     assert entry["events_sent"] == 1
 
 
