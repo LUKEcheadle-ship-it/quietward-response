@@ -62,7 +62,7 @@ def _handoff_event(host_id: str = "host-1") -> dict:
         "persistence": None,
         "metadata": {
             "quietward_response_context_version": "1.0",
-            "quietward_finding_id": "qwf-example",
+            "quietward_finding_hmac_sha256": "f" * 32,
             "quietward_score": 91.0,
             "quietward_mode": "observe",
             "requires_human_approval": True,
@@ -197,6 +197,14 @@ def test_handoff_importer_rejects_nested_data_smuggling_and_summary_tampering(
     tampered_summary["summary"] = "Raw sensitive detail was inserted here."
     with pytest.raises(HandoffError, match="sanitized canonical form"):
         _validate_event(tampered_summary, config)
+
+
+def test_handoff_importer_requires_privacy_keyed_finding_identity(tmp_path: Path) -> None:
+    config = _agent_config(tmp_path)
+    raw_id = copy.deepcopy(_handoff_event())
+    raw_id["metadata"]["quietward_finding_hmac_sha256"] = "qwf-internal-id"
+    with pytest.raises(HandoffError, match="finding identity is not privacy-keyed"):
+        _validate_event(raw_id, config)
 
 
 def test_handoff_importer_rejects_partial_or_invalid_provenance(tmp_path: Path) -> None:
