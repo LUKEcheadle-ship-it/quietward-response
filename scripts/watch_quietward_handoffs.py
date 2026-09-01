@@ -137,6 +137,13 @@ def _document(data: bytes, config: AgentConfig) -> dict[str, Any]:
             _validate_event(event, config)
         except HandoffError as exc:
             raise HandoffWatcherError(str(exc)) from exc
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            raise HandoffWatcherError("outbox handoff event metadata is invalid")
+        if metadata.get("quietward_source_cycle_id") != cycle_id:
+            raise HandoffWatcherError("event provenance cycle does not match the outbox document")
+        if metadata.get("quietward_source_chain_hash") != chain_hash:
+            raise HandoffWatcherError("event provenance hash does not match the outbox document")
     return value
 
 
