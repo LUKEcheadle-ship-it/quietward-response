@@ -12,8 +12,8 @@ def test_health_and_empty_overview(client) -> None:
         "database": "ok",
         "remediation_enabled": False,
         "controlled_response_enabled": True,
-        "controlled_action_count": 1,
-        "response_scope": "demo_fixture_only",
+        "controlled_action_count": 4,
+        "response_scope": "read_only_diagnostics_plus_demo_fixture",
         "single_worker_required": True,
     }
     overview = client.get("/api/v1/overview").json()
@@ -35,8 +35,12 @@ def test_openapi_exposes_only_typed_controlled_action_surface(client) -> None:
     registry = client.get("/api/v1/actions/registry")
     assert registry.status_code == 200
     assert [item["action_type"] for item in registry.json()] == [
-        "restart_quietward_demo_service"
+        "restart_quietward_demo_service",
+        "collect_host_diagnostic",
+        "collect_process_diagnostic",
+        "collect_network_diagnostic",
     ]
+    assert all(item["approval_required"] is True for item in registry.json())
 
 
 def test_all_demo_scenarios_exercise_complete_pipeline(client) -> None:
