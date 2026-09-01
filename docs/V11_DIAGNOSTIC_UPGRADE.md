@@ -70,11 +70,12 @@ It does not modify the QuietWard database. For every handoff file it:
 
 1. opens the file with bounded, symlink-resistant checks;
 2. validates the exact document, event, metadata, evidence, host, and safety schemas;
-3. verifies the document-level QuietWard cycle/hash matches every embedded event;
-4. submits the sanitized event using the Response-owned HMAC credential;
-5. treats deterministic duplicate event IDs as successful reconciliation;
-6. records a Response-owned consumption ledger;
-7. archives the transport file with bounded retention.
+3. requires installation-keyed HMAC identities for both the finding and finding subject;
+4. verifies the document-level QuietWard cycle/hash matches every embedded event;
+5. submits the sanitized event using the Response-owned HMAC credential;
+6. treats deterministic duplicate event IDs as successful reconciliation;
+7. records a Response-owned consumption ledger;
+8. archives the transport file with bounded retention.
 
 A previously processed filename that reappears with different content fails closed.
 
@@ -85,6 +86,14 @@ python scripts/ingest_quietward_handoff.py HANDOFF.json \
   --config /ABSOLUTE/PATH/agent-config.json
 ```
 
+## Privacy-keyed detector identity
+
+Response never needs the raw internal QuietWard finding ID.
+
+QuietWard exports an installation-keyed HMAC finding token and uses that token when deriving the deterministic Response event UUID. This keeps duplicate handling stable on one installation while avoiding publication of an unkeyed detector identifier.
+
+The raw finding subject is independently represented by another installation-keyed HMAC token. Raw command lines, executable paths, file targets, and remote network addresses are excluded by the handoff contract.
+
 ## Evidence-chain provenance
 
 Automated QuietWard events stored by Response include:
@@ -94,7 +103,7 @@ metadata.quietward_source_cycle_id
 metadata.quietward_source_chain_hash
 ```
 
-The incident console displays this provenance as a trace back to QuietWard's tamper-evident evidence chain, while still hiding raw finding subjects.
+The incident console displays this provenance as a trace back to QuietWard's tamper-evident evidence chain, while still hiding raw finding subjects and internal finding IDs.
 
 The dedicated **QuietWard context** panel also shows only sanitized detector information:
 
@@ -128,7 +137,7 @@ python scripts/response_agent.py \
   --config /ABSOLUTE/PATH/agent-config.json
 ```
 
-The agent keeps a local execution ledger. Crash recovery now handles both important acknowledgement windows:
+The agent keeps a local execution ledger. Crash recovery handles both important acknowledgement windows:
 
 - if local execution started but the server missed `executing`, the agent re-establishes `executing` before continuing;
 - if local execution already reached a terminal result but the server missed `executing`, the agent posts `executing` and then replays the stored terminal result **without re-executing the endpoint action**.
@@ -192,7 +201,7 @@ That gate is intentionally separate from the frozen v1.0 verifier. It checks:
 
 - Python compilation;
 - public-release secret/path audit;
-- all backend tests;
+- all backend tests, including crash-lifecycle recovery;
 - the exact bounded action surface;
 - fresh migrations and upgrade from v1.0 schema;
 - frontend clean install, typecheck, production build, and high-severity npm audit;
@@ -206,8 +215,8 @@ The joint acceptance starts a real Response API and proves:
 ```text
 QuietWard observation
 -> deterministic analysis with actions_executed=0
--> privacy-preserving handoff
--> cycle/hash provenance preservation
+-> privacy-preserving keyed handoff
+-> evidence-chain provenance preservation
 -> Response incident
 -> analyst approval
 -> policy approval
