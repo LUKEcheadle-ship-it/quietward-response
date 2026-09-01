@@ -65,8 +65,9 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
         for value in types
     )
 
-    # Keep the synthetic demo incident focused on its dedicated fixture. Real
-    # incident families get the bounded, parameterless host diagnostic.
+    # Host diagnostics are intentionally useful across real incident families and
+    # remain parameterless, bounded, read-only, and analyst-approved. Keep the
+    # synthetic demo incident focused on its dedicated fixture.
     if not demo_event:
         recommendations.append(_host_diagnostic())
 
@@ -131,6 +132,21 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                     "Compare cryptographic hashes with approved software inventory and trusted intelligence.",
                 ),
                 _action(
+                    "diagnostic",
+                    "Inspect persistence entry",
+                    "Review the task, service, or startup entry and the account that created it.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Trace process ancestry",
+                    "Inspect the parent process and related launches around the first observation.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Review related network activity",
+                    "Correlate destinations and connection timing with the executable lifecycle.",
+                ),
+                _action(
                     "remediation",
                     "Disable persistence mechanism",
                     "General persistence changes remain intentionally unavailable in this diagnostic release.",
@@ -148,13 +164,18 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
-                    "Inspect listener owner",
-                    "Confirm which process owns the listener and whether the bind address and port are expected.",
+                    "Identify the owning process",
+                    "Map the socket to its process, service, image path, and execution account.",
                 ),
                 _action(
                     "diagnostic",
-                    "Review recent connections",
-                    "Review recent connection metadata associated with the listener and owning process.",
+                    "Inspect service configuration",
+                    "Review service arguments, dependencies, startup mode, and recent configuration changes.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Confirm bind scope",
+                    "Determine whether the listener is loopback, interface-specific, or wildcard-bound.",
                 ),
                 _action(
                     "remediation",
@@ -175,8 +196,18 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
-                    "Inspect capacity and service health",
-                    "Confirm disk pressure, service state, and whether the condition is transient or sustained.",
+                    "Identify largest consumers",
+                    "Measure filesystem usage and locate the largest recent contributors.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Inspect recent growth",
+                    "Compare file, database, and log growth over the incident window.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Assess service health",
+                    "Review health checks and dependency failures caused by resource exhaustion.",
                 ),
                 _action(
                     "remediation",
@@ -191,8 +222,13 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             [
                 _action(
                     "diagnostic",
-                    "Review supporting evidence",
-                    "Inspect the incident timeline and supporting endpoint evidence before choosing a response.",
+                    "Validate the original evidence",
+                    "Confirm the reporting source, timestamps, and affected host context.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Review adjacent activity",
+                    "Inspect related events before and after this observation.",
                 ),
                 _action(
                     "remediation",
@@ -202,20 +238,19 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
             ]
         )
 
+    seen: set[tuple[str, str]] = set()
     unique: list[dict[str, object]] = []
-    seen: set[tuple[object, object]] = set()
-    for item in recommendations:
-        key = (item["title"], item["registry_action_type"])
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
+    for action in recommendations:
+        key = (str(action["action_type"]), str(action["title"]))
+        if key not in seen:
+            unique.append(action)
+            seen.add(key)
     return unique
 
 
 def probable_cause_for(events: list[EventRecord]) -> str:
-    categories = {str(event.category or "").lower() for event in events}
-    types = {str(event.event_type or "").lower() for event in events}
+    categories = {event.category for event in events}
+    types = {event.event_type for event in events}
     if any(
         value in {"quietward_demo_service_unhealthy", "demo_service_unhealthy"}
         for value in types
@@ -225,11 +260,21 @@ def probable_cause_for(events: list[EventRecord]) -> str:
             "The only enabled mutating remediation remains an approval-gated restart of that demo fixture."
         )
     if "persistence" in categories:
-        return "One or more persistence-related changes were observed and correlated on the affected host."
+        return (
+            "A newly observed executable appears related to a persistence mechanism and "
+            "subsequent execution or network activity. Analyst validation is required."
+        )
     if "network" in categories:
-        return "Network behavior on the affected host warrants investigation and correlation with the owning process."
+        return (
+            "A service appears to be listening beyond its expected exposure boundary. "
+            "Ownership and configuration should be validated."
+        )
     if "operational" in categories:
-        return "The affected host reported an operational condition that may require investigation before corrective action."
-    if "execution" in categories or "process" in categories:
-        return "Process or execution behavior on the affected host warrants investigation before any response action."
-    return "The available endpoint evidence was correlated into this incident, but the probable cause requires analyst review."
+        return (
+            "Resource growth appears temporally related to service degradation. Capacity, "
+            "logs, and dependencies should be reviewed."
+        )
+    return (
+        "The available evidence is correlated by host, time, and shared indicators; "
+        "a human assessment is still required."
+    )
