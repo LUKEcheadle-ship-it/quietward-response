@@ -66,7 +66,7 @@ def _document() -> dict:
                 "persistence": None,
                 "metadata": {
                     "quietward_response_context_version": "1.0",
-                    "quietward_finding_id": "qwf-watch",
+                    "quietward_finding_hmac_sha256": "f" * 32,
                     "quietward_score": 90.0,
                     "quietward_mode": "observe_only",
                     "requires_human_approval": True,
