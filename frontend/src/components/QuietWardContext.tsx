@@ -46,6 +46,22 @@ export function QuietWardContext({ incident }: { incident: IncidentDetail }) {
         .filter((value): value is string => typeof value === "string" && /^[0-9a-f]{32}$/.test(value)),
     ),
   );
+  const provenance = events
+    .map((event) => ({
+      cycle:
+        typeof event.metadata.quietward_source_cycle_id === "number"
+          ? event.metadata.quietward_source_cycle_id
+          : null,
+      hash:
+        typeof event.metadata.quietward_source_chain_hash === "string" &&
+        /^[0-9a-f]{64}$/.test(event.metadata.quietward_source_chain_hash)
+          ? event.metadata.quietward_source_chain_hash
+          : null,
+    }))
+    .filter((item) => item.cycle !== null && item.hash !== null);
+  const uniqueProvenance = Array.from(
+    new Map(provenance.map((item) => [`${item.cycle}:${item.hash}`, item])).values(),
+  );
 
   return (
     <section className="panel">
@@ -78,6 +94,23 @@ export function QuietWardContext({ incident }: { incident: IncidentDetail }) {
           <p className="mt-1 text-lg font-semibold text-white">{subjectIds.length}</p>
         </div>
       </div>
+
+      {uniqueProvenance.length > 0 && (
+        <div className="mt-4 rounded-lg border border-cyan/15 bg-cyan/5 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-wider text-slate-500">Evidence-chain provenance</p>
+            <span className="text-[10px] uppercase tracking-wider text-cyan">Traceable to QuietWard</span>
+          </div>
+          <div className="mt-2 space-y-2">
+            {uniqueProvenance.map((item) => (
+              <div key={`${item.cycle}:${item.hash}`} className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] text-slate-400">
+                <span>cycle {item.cycle}</span>
+                <span title={item.hash ?? undefined}>chain {item.hash?.slice(0, 16)}…</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {signalKinds.length > 0 && (
         <div className="mt-4">
