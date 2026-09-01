@@ -373,6 +373,21 @@ class ResponseAgent:
             },
         )
 
+    def _acknowledge_executing(
+        self,
+        *,
+        action_id: str,
+        action_type: str,
+        started_at: str,
+    ) -> None:
+        self._post_result(
+            action_id=action_id,
+            action_type=action_type,
+            status="executing",
+            started_at=started_at,
+            result={},
+        )
+
     def poll_once(self) -> int:
         target = f"/api/v1/agents/{self.config.agent_id}/actions/pending"
         actions = self._request("GET", target)
@@ -386,14 +401,28 @@ class ResponseAgent:
                 raise ResponseAgentError("pending action response contains a non-object item")
             action_id = self._validate_action(raw, ledger)
             action_type = str(raw["action_type"])
+            server_status = str(raw["status"])
             prior = ledger.get(action_id)
 
             if prior and prior.get("status") in {"succeeded", "failed"}:
+                started_at = str(prior.get("started_at") or "")
+                if not started_at:
+                    raise ResponseAgentError("terminal local action history is missing started_at")
+                # A crash can occur after the local ledger reaches terminal state but
+                # before the server ever receives the executing acknowledgement.
+                # Re-establish that lifecycle edge first, then replay the stored
+                # terminal result without running the endpoint action again.
+                if server_status == "dispatching":
+                    self._acknowledge_executing(
+                        action_id=action_id,
+                        action_type=action_type,
+                        started_at=started_at,
+                    )
                 self._post_result(
                     action_id=action_id,
                     action_type=action_type,
                     status=str(prior["status"]),
-                    started_at=str(prior["started_at"]),
+                    started_at=started_at,
                     result=dict(prior.get("result") or {}),
                     error=prior.get("error"),
                 )
@@ -409,13 +438,24 @@ class ResponseAgent:
                     "error": None,
                 }
                 self._save_ledger(ledger)
-                self._post_result(
+                self._acknowledge_executing(
                     action_id=action_id,
                     action_type=action_type,
-                    status="executing",
                     started_at=started_at,
-                    result={},
                 )
+            else:
+                if prior.get("status") != "executing":
+                    raise ResponseAgentError("local action ledger contains an invalid active status")
+                # If the prior executing acknowledgement was lost before the crash,
+                # the server will still say dispatching. Re-acknowledge before any
+                # local work so a later terminal result cannot be rejected as an
+                # invalid lifecycle transition.
+                if server_status == "dispatching":
+                    self._acknowledge_executing(
+                        action_id=action_id,
+                        action_type=action_type,
+                        started_at=started_at,
+                    )
 
             try:
                 result = self._execute(raw)
