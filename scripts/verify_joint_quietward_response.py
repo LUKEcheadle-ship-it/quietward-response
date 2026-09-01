@@ -185,6 +185,7 @@ def main() -> int:
     token = secrets.token_urlsafe(32)
     host_id = "quietward-response-joint-acceptance"
     raw_subject = "remote-session:203.0.113.55:443"
+    source_chain_hash = "a" * 64
 
     with tempfile.TemporaryDirectory(prefix="qwr-joint-") as temporary:
         temp = Path(temporary)
@@ -286,6 +287,8 @@ def main() -> int:
                 privacy_identity=PrivacyIdentity(b"joint-acceptance-privacy-key-material"),
                 source_version=quietward_version,
                 operating_system="Linux",
+                source_cycle_id=1,
+                source_chain_hash=source_chain_hash,
             )
             document = _handoff_document(
                 payloads,
@@ -313,6 +316,18 @@ def main() -> int:
                 raise RuntimeError(f"expected exactly one Response incident, got: {incidents!r}")
             incident_id = incidents[0]["incident_id"]
             detail = _json_request(api_url + f"/api/v1/incidents/{incident_id}")
+            quietward_events = [
+                item for item in detail.get("events", []) if str(item.get("source") or "").lower() == "quietward"
+            ]
+            if len(quietward_events) != len(payloads):
+                raise RuntimeError("Response incident did not preserve the QuietWard handoff events")
+            for stored in quietward_events:
+                metadata = stored.get("metadata") or {}
+                if metadata.get("quietward_source_cycle_id") != 1:
+                    raise RuntimeError("Response lost the QuietWard evidence-chain cycle provenance")
+                if metadata.get("quietward_source_chain_hash") != source_chain_hash:
+                    raise RuntimeError("Response lost the QuietWard evidence-chain hash provenance")
+
             controlled = [
                 item
                 for item in detail.get("recommended_actions", [])
@@ -371,6 +386,8 @@ def main() -> int:
             print(f"incident_id={incident_id}")
             print(f"diagnostic_action_id={created['action_id']}")
             print(f"handoff_events={len(payloads)}")
+            print(f"quietward_source_cycle_id=1")
+            print(f"quietward_source_chain_hash={source_chain_hash}")
             print(f"audit_entries={audit['entries_checked']}")
             print("quietward_actions_executed=0")
             print("diagnostic_system_state_changed=false")
