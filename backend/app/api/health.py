@@ -22,6 +22,6 @@ def health(db: Session = Depends(get_db)) -> dict[str, object]:
         "remediation_enabled": False,
         "controlled_response_enabled": bool(ACTION_REGISTRY),
         "controlled_action_count": len(ACTION_REGISTRY),
-        "response_scope": "demo_fixture_only",
+        "response_scope": "read_only_diagnostics_plus_demo_fixture",
         "single_worker_required": True,
     }
