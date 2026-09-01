@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/States";
+import { QuietWardContext } from "@/components/QuietWardContext";
 import { ResponseActions } from "@/components/ResponseActions";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { apiFetch, formatTime } from "@/lib/api";
@@ -125,6 +126,8 @@ export default function IncidentDetailPage() {
               ))}
             </ul>
           </section>
+
+          <QuietWardContext incident={incident} />
 
           <section className="panel">
             <p className="eyebrow">Recommended actions</p>
