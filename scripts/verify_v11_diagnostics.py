@@ -145,6 +145,23 @@ def _verify_quietward(quietward_repo: Path, python: str) -> None:
     verify_v1._run([python, "-m", "compileall", "-q", "src", "tests", "scripts"], cwd=quietward_repo, env=env)
     verify_v1._run([python, "scripts/public_release_audit.py"], cwd=quietward_repo, env=env)
     verify_v1._run([python, "-m", "unittest", "discover", "-s", "tests", "-q"], cwd=quietward_repo, env=env)
+    verify_v1._run(
+        [python, "scripts/verify_v06_response_handoff.py"],
+        cwd=quietward_repo,
+        env=env,
+    )
+
+
+def _verify_joint(quietward_repo: Path, python: str) -> None:
+    verify_v1._run(
+        [
+            python,
+            str(ROOT / "scripts" / "verify_joint_quietward_response.py"),
+            "--quietward-repo",
+            str(quietward_repo),
+        ],
+        cwd=ROOT,
+    )
 
 
 def main() -> int:
@@ -177,11 +194,16 @@ def main() -> int:
         _verify_quick_start(python, temp_path)
 
     if args.quietward_repo is not None:
-        _verify_quietward(args.quietward_repo.resolve(), python)
+        resolved_quietward = args.quietward_repo.resolve()
+        _verify_quietward(resolved_quietward, python)
+        _verify_joint(resolved_quietward, python)
 
     print("\nV1.1 DIAGNOSTIC UPGRADE GATE: PASS")
     if args.quietward_repo is None:
-        print("Companion QuietWard suite: NOT RUN")
+        print("Companion QuietWard suite + joint acceptance: NOT RUN")
+    else:
+        print("Companion QuietWard suite: PASS")
+        print("Joint QuietWard/Response acceptance: PASS")
     if args.skip_npm_audit:
         print("npm audit: SKIPPED; this is not a final release qualification")
     return 0
