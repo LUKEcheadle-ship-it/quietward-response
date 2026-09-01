@@ -21,6 +21,7 @@ class HandoffError(RuntimeError):
 
 
 _SUBJECT_TOKEN = re.compile(r"^[0-9a-f]{32}$")
+_FINDING_TOKEN = re.compile(r"^[0-9a-f]{32}$")
 _CHAIN_HASH = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_CODE = re.compile(r"^[a-z0-9_.:+-]{1,64}$")
 _SAFE_VERSION = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
@@ -83,7 +84,7 @@ _ALLOWED_EVIDENCE_KEYS = {
 }
 _ALLOWED_METADATA_KEYS = {
     "quietward_response_context_version",
-    "quietward_finding_id",
+    "quietward_finding_hmac_sha256",
     "quietward_score",
     "quietward_mode",
     "requires_human_approval",
@@ -213,6 +214,9 @@ def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
         raise HandoffError("handoff event claims executable authority")
     if metadata.get("quietward_response_context_version") != "1.0":
         raise HandoffError("handoff event context version is invalid")
+    finding_token = metadata.get("quietward_finding_hmac_sha256")
+    if not isinstance(finding_token, str) or not _FINDING_TOKEN.fullmatch(finding_token):
+        raise HandoffError("handoff QuietWard finding identity is not privacy-keyed")
     if metadata.get("operating_system") not in _ALLOWED_OS:
         raise HandoffError("handoff event operating-system family is invalid")
     if not isinstance(metadata.get("requires_human_approval"), bool):
