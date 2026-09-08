@@ -1,34 +1,51 @@
-# Contributing
+# Contributing to QuietWard Response
 
-QuietWard Response and QuietWard are separate projects. Changes here must not vendor the QuietWard repository or weaken the serialized protocol boundary between them.
+QuietWard Response welcomes contributions that improve investigation, onboarding, portability, and controlled-response reliability without turning the product into a generic remote administration tool.
+
+QuietWard Response and QuietWard are separate projects. Changes here must not vendor QuietWard or weaken the serialized handoff/protocol boundary between them.
+
+## Good places to start
+
+Useful contribution areas that do not require touching executable endpoint capabilities include:
+
+- frontend usability and accessibility;
+- documentation, screenshots, and first-run guidance;
+- safe synthetic demo scenarios;
+- API documentation;
+- migration and regression tests;
+- Windows/Linux portability;
+- sanitized export formats;
+- bootstrap/installer ergonomics;
+- bridge health and provenance presentation.
+
+See `docs/COMMUNITY_ROADMAP.md` for the current product direction.
+
+## Try the product first
+
+The quickest development-oriented product walkthrough uses only the existing synthetic seed path:
+
+```bash
+python scripts/quick_demo.py
+```
 
 ## Development workflow
 
 1. Branch from the appropriate base; do not commit directly to the default branch.
 2. Keep API, service, persistence, integration, policy, execution-protocol, and UI responsibilities separated.
 3. Add deterministic tests for every behavior or security-boundary change.
-4. Preserve the v1 response boundary: no arbitrary command execution or generic host-control action.
+4. Preserve the controlled-response boundary: no arbitrary command execution or generic host-control action.
 5. Any executable action must be typed, explicitly registered, narrowly parameterized, approval-gated, policy-checked, independently validated by the endpoint, idempotent under retries, and auditable.
 6. Use synthetic events and dedicated fixtures in tests/examples. Never commit real incident evidence, credentials, private host identifiers, or customer data.
 
-## v1 release verification
+## Current paired qualification
 
-The required release wrapper, with the companion QuietWard integration checkout available, is:
-
-```bash
-python scripts/finalize_v1.py --quietward-repo ../quietward
-```
-
-That wrapper verifies the exact expected GitHub repositories/feature branches and remote parity, then runs publication audits, the full backend suite, migration/upgrade/drift checks, frontend clean install/typecheck/build/high-severity audit, public quick-start smoke, the complete QuietWard suite, and the real two-repository HMAC event/approval/action/result loop.
-
-The underlying deterministic/live gates remain available separately for debugging:
+For the current QuietWard/Response integration line, the paired diagnostic gate is:
 
 ```bash
-python scripts/verify_v1.py --quietward-repo ../quietward
-python scripts/verify_v1_live.py --quietward-repo ../quietward
+python scripts/verify_v11_diagnostics.py --quietward-repo ../quietward
 ```
 
-For frontend-only work, the minimum checks remain:
+For frontend-only work, the minimum checks are:
 
 ```bash
 cd frontend
@@ -38,4 +55,8 @@ npm run build
 npm audit --audit-level=high
 ```
 
-Do not mark a response capability complete solely because a unit test passes. Changes affecting authentication, approvals, policy, action delivery, or endpoint execution should include failure/replay/crash-path coverage appropriate to the risk.
+Do not mark a response capability complete solely because a unit test passes. Changes affecting authentication, approvals, policy, action delivery, endpoint execution, replay handling, or crash recovery should include failure-path coverage appropriate to the risk.
+
+## Security issues
+
+Follow `SECURITY.md`. Report vulnerabilities privately. Do not put exploit details, credentials, private endpoint data, or real incident evidence in public issues or pull requests.
