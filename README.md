@@ -13,6 +13,17 @@ It turns authenticated security observations into explainable incidents, timelin
 
 > **The design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
 
+## Engineering highlights
+
+- **Full-stack security product:** FastAPI backend, Next.js frontend, PostgreSQL-supported local stack, and a browser-based analyst console.
+- **Human-in-the-loop response:** recommendations, explicit analyst approval, deterministic policy enforcement, and endpoint-side validation are separate stages.
+- **Authenticated event pipeline:** HMAC-SHA256 authentication, timestamp windows, persisted nonces, and replay resistance.
+- **Constrained endpoint control:** typed, capability-declared actions replace arbitrary shell or remote-command execution.
+- **Auditability:** signed endpoint results and a hash-chained audit ledger preserve evidence for later verification.
+- **Failure-safe execution:** idempotent action handling and reconciliation are designed to avoid duplicate execution during retries or recovery.
+- **Cross-project integration:** a sanitized, verified bridge accepts QuietWard findings while keeping detection and response authority separate.
+- **Release discipline:** the paired candidate passed backend tests on Linux and Windows, frontend type/build checks, migration verification, dependency audit, and cross-repository acceptance before promotion to `main`.
+
 ## Try the full product with one command
 
 Start the normal local stack with safe synthetic incidents already loaded:
