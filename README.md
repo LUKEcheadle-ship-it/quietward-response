@@ -1,6 +1,6 @@
 # QuietWard Response
 
-**Turn endpoint detections into controlled, auditable action — without shipping a remote shell.**
+**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)
@@ -9,47 +9,44 @@
 
 QuietWard Response is an event-driven incident investigation and controlled-response platform for local and trusted-network security environments.
 
-It takes authenticated security observations, turns them into explainable incidents, reconstructs timelines, recommends next steps, requires explicit analyst approval, applies deterministic policy, and coordinates tightly typed endpoint actions with signed results and tamper-evident auditing.
+It turns authenticated security observations into explainable incidents, timelines, recommendations, explicit analyst decisions, tightly typed endpoint diagnostics, signed results, and tamper-evident audit history.
 
 > **The design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
 
-## The problem it explores
+## Try the full product with one command
 
-A defensive system eventually needs to answer more than “something looks suspicious.” It needs to answer:
+Start the normal local stack with safe synthetic incidents already loaded:
 
-1. What happened?
-2. Which events belong to the same incident?
-3. What should be investigated next?
-4. Is an endpoint action justified?
-5. Who approved it?
-6. Did the endpoint execute exactly what was authorized?
-7. Can the result be verified afterward?
-
-QuietWard Response is built around that lifecycle.
-
-```text
-observation
-   ↓
-authenticated ingestion
-   ↓
-deterministic correlation
-   ↓
-incident + timeline
-   ↓
-recommendation
-   ↓
-analyst approval
-   ↓
-deterministic policy
-   ↓
-typed endpoint action
-   ↓
-signed result
-   ↓
-tamper-evident audit
+```bash
+python scripts/quick_demo.py
 ```
 
-## What makes it different
+Windows:
+
+```powershell
+py -3.12 scripts\quick_demo.py
+```
+
+Then open the analyst console at `http://localhost:3001`.
+
+The helper uses the existing synthetic seed path. It does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
+
+## What you can see immediately
+
+A first-time user can explore:
+
+- authenticated event ingestion
+- deterministic incident correlation
+- incident timelines and supporting evidence
+- recommendation reasoning
+- explicit analyst approval
+- deterministic policy enforcement
+- capability-aware endpoint targeting
+- signed diagnostic results
+- QuietWard provenance
+- tamper-evident audit verification
+
+## Why it is different
 
 | Capability | Approach |
 | --- | --- |
@@ -63,7 +60,7 @@ tamper-evident audit
 
 ## QuietWard + Response
 
-The current `1.1.0a1` preview adds a paired workflow with **[QuietWard](https://github.com/LUKEcheadle-ship-it/quietward)**, while keeping detection authority and response authority separated.
+The current `1.1.0a1` preview pairs with **[QuietWard](https://github.com/LUKEcheadle-ship-it/quietward)** while keeping detection authority and response authority separated.
 
 ```mermaid
 flowchart LR
@@ -76,11 +73,9 @@ flowchart LR
     S --> U[Tamper-evident audit]
 ```
 
-QuietWard remains observation-only and holds no Response network credential. Response owns the authenticated ingestion, approval, policy, action lifecycle, endpoint capability validation, and audit trail.
+QuietWard remains observation-only and holds no Response network credential. Response owns authenticated ingestion, approval, policy, action lifecycle, endpoint capability validation, and auditing.
 
 ## Current controlled action surface
-
-The preview intentionally keeps the executable surface small.
 
 ### Read-only diagnostics
 
@@ -88,13 +83,13 @@ The preview intentionally keeps the executable surface small.
 - `collect_process_diagnostic`
 - `collect_network_diagnostic` on supported Linux endpoints
 
-These are parameterless, capability-declared, approval-gated actions designed for bounded investigation rather than arbitrary host access.
+These are parameterless, capability-declared, approval-gated investigation actions rather than arbitrary host access.
 
 ### Existing demonstration mutation
 
 `restart_quietward_demo_service`
 
-Despite the name, this does **not** restart an operating-system service. It changes only a dedicated JSON demo fixture used to prove the controlled mutation lifecycle.
+Despite the name, it does **not** restart an operating-system service. It changes only a dedicated JSON demo fixture used to prove the controlled mutation lifecycle.
 
 There is still no general service control, process termination, quarantine, firewall modification, host isolation, or arbitrary command execution.
 
@@ -119,8 +114,6 @@ Final gate evidence included:
 - confirmation that the diagnostic changed **no system state**
 - confirmation that raw QuietWard finding subjects **did not cross the boundary**
 
-The exact tested SHAs are documented in the merged joint-update PRs and qualification evidence.
-
 ## Architecture
 
 ```mermaid
@@ -143,7 +136,7 @@ flowchart TD
 
 The endpoint agent polls outward for authorized work rather than exposing an inbound general-purpose command listener.
 
-## Quick start
+## Normal local start
 
 Requirements:
 
@@ -158,12 +151,6 @@ cd quietward-response
 python scripts/bootstrap_local.py
 ```
 
-Windows:
-
-```text
-py -3.12 scripts\bootstrap_local.py
-```
-
 Default local surfaces:
 
 - Analyst console: `http://localhost:3001`
@@ -171,12 +158,6 @@ Default local surfaces:
 - API docs: `http://localhost:8002/docs`
 - Health: `http://localhost:8002/health`
 - Audit verification: `http://localhost:8002/api/v1/audit/verify`
-
-Populate safe synthetic investigation data after startup:
-
-```bash
-python scripts/seed_demo.py --api-url http://localhost:8002
-```
 
 ### Docker Compose
 
@@ -190,8 +171,6 @@ Docker Compose uses PostgreSQL and maps the API/frontend to loopback by default.
 
 ## Verify the joint system
 
-Run the complete v1.1 paired gate with a sibling QuietWard checkout:
-
 ```bash
 python scripts/verify_v11_diagnostics.py --quietward-repo ../quietward
 ```
@@ -200,7 +179,7 @@ That gate covers Response tests, public-release audit, migrations, frontend inst
 
 ## Security boundary
 
-QuietWard Response is a local/trusted-network security project and architecture demonstration. It is **not** being presented as an Internet-facing production EDR/XDR/SOAR replacement.
+QuietWard Response is a local/trusted-network security project and architecture demonstration. It is **not** presented as an Internet-facing production EDR/XDR/SOAR replacement.
 
 The current preview deliberately has:
 
@@ -217,21 +196,17 @@ The current preview deliberately has:
 
 Analyst identity remains local-development grade. HMAC transport should use TLS outside loopback/trusted local development. The audit chain provides tamper evidence, not immutable storage.
 
-See [`SECURITY.md`](SECURITY.md) and [`docs/threat-model.md`](docs/threat-model.md).
+## Explore or contribute
 
-## Explore the project
-
+- [`docs/TRY_IT.md`](docs/TRY_IT.md) — guided product walkthrough
+- [`docs/COMMUNITY_ROADMAP.md`](docs/COMMUNITY_ROADMAP.md) — public product direction
 - [`docs/JOINT_QUIETWARD_RESPONSE_UPDATE.md`](docs/JOINT_QUIETWARD_RESPONSE_UPDATE.md) — paired-system design
-- [`docs/V11_DIAGNOSTIC_UPGRADE.md`](docs/V11_DIAGNOSTIC_UPGRADE.md) — v1.1 diagnostic upgrade
+- [`docs/V11_DIAGNOSTIC_UPGRADE.md`](docs/V11_DIAGNOSTIC_UPGRADE.md) — current diagnostics
 - [`docs/architecture.md`](docs/architecture.md) — architecture
 - [`docs/threat-model.md`](docs/threat-model.md) — trust model
-- [`protocol/README.md`](protocol/README.md) — event/action protocol
-- [`CHANGELOG.md`](CHANGELOG.md) — release history
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution requirements
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guide
 
-## Portfolio snapshot
-
-Built and qualified a FastAPI/Next.js security-response platform with authenticated telemetry, deterministic incident correlation, human-approved policy-gated endpoint diagnostics, capability declarations, replay protection, idempotent execution, signed results, live cross-repository integration, migrations, and tamper-evident auditing.
+Good-first-issue and help-wanted tasks are deliberately scoped around UI, docs, tests, examples, portability, and bridge health so contributors can help without casually expanding endpoint authority.
 
 ## License
 
