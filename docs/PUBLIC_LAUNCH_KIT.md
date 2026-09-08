@@ -1,103 +1,138 @@
-# QuietWard Response public launch kit
+# QuietWard + QuietWard Response public launch kit
 
-This document is the canonical public-launch copy for the qualified QuietWard Response v1.0.0 line.
+This is the current public-facing copy for the paired QuietWard security project.
 
-## Launch position
+## Positioning
 
-**QuietWard Response is an Apache-2.0 licensed, event-driven incident investigation and controlled-response platform for local and trusted-network security environments.**
+**QuietWard watches and explains. QuietWard Response investigates, approves, and verifies controlled response.**
 
-It validates security telemetry, correlates related observations into explainable incidents, reconstructs timelines, recommends investigation steps, coordinates explicitly approved typed response actions, and records a tamper-evident audit trail.
+Together they explore a security architecture where endpoint visibility can lead to carefully governed action **without turning the detector into an autonomous remediation agent or the response layer into a generic remote shell**.
 
-The v1.0.0 executable boundary is intentionally narrow. It demonstrates the complete secure response lifecycle without exposing arbitrary remote administration: the only executable action changes a dedicated QuietWard demo fixture after human approval, deterministic policy evaluation, endpoint-side allowlist validation, and signed result reconciliation.
+### QuietWard
 
-## Public beta status
+QuietWard is a local-first, observation-only endpoint security monitor that correlates host activity into explainable findings and preserves local tamper-evident evidence.
 
-- Product release: `v1.0.0`
-- License: Apache-2.0
-- Qualified release branch: `release/v1.0.0`
-- Backend/API version: `1.0.0`
-- Public quick start: `python scripts/bootstrap_local.py`
-- Supported public-beta shape: local/trusted-network, single API process/worker
-- Intended users: security students, homelab builders, defensive-security researchers, and developers evaluating controlled-response architecture
+### QuietWard Response
+
+QuietWard Response turns authenticated security observations into incidents, timelines, recommendations, explicit analyst decisions, deterministic policy checks, tightly typed endpoint diagnostics, signed results, and tamper-evident audit history.
+
+## Best first experience
+
+Prospective users can try both projects without beginning with an empty product or real incident data.
+
+QuietWard synthetic detector demo:
+
+```bash
+python scripts/quick_demo.py
+```
+
+QuietWard Response one-command product demo:
+
+```bash
+python scripts/quick_demo.py
+```
+
+The QuietWard demo performs no host scan, network request, system change, or action execution. The Response demo uses the existing safe synthetic seed path and does not enable arbitrary command or destructive endpoint authority.
+
+## What makes the system interesting
+
+- local-first endpoint monitoring
+- explainable deterministic findings and incident correlation
+- explicit observation-only boundary in QuietWard
+- sanitized provenance-preserving QuietWard -> Response handoff
+- authenticated Response telemetry and replay resistance
+- explicit analyst approval before controlled actions
+- deterministic server-side policy
+- endpoint-side capability and allowlist validation
+- read-only host/process/network diagnostics
+- crash-safe idempotent result reconciliation
+- signed results and tamper-evident audit history
+- no generic shell / PowerShell / cmd / bash execution
 
 ## Qualification evidence
 
-The qualified v1.0.0 release completed:
+The current paired QuietWard `0.6.0a1` + Response `1.1.0a1` line passed the complete joint qualification gate on both Linux and Windows before promotion to `main`.
 
-- 73 QuietWard Response backend tests
-- migration, upgrade, and ORM-drift checks
-- frontend TypeScript and production build checks
-- high-severity npm audit
-- public quick-start startup and clean shutdown verification
-- 182 companion QuietWard tests
-- real two-repository signed event -> incident -> approval -> action -> result HTTP acceptance
-- browser route and incident-lifecycle smoke verification
-- tamper-evident audit verification after the response lifecycle
+Evidence included:
 
-See `docs/V1_ACCEPTANCE.md` for the exact release contract.
+- 441 QuietWard tests with platform-appropriate skips
+- 12 focused QuietWard handoff/privacy/integrity tests
+- 97 Response backend tests on Linux
+- 96 Response backend tests plus one platform-appropriate skip on Windows
+- migrations and Alembic drift verification
+- Next.js typecheck and production build
+- npm audit with 0 vulnerabilities during qualification
+- public quick-start smoke
+- live QuietWard -> Response acceptance
+- signed diagnostic result verification
+- audit-chain verification
+- confirmation that QuietWard executed zero actions
+- confirmation that the diagnostic changed no system state
+- confirmation that raw QuietWard finding subjects did not cross the boundary
 
-## Short project description
+## Updated LinkedIn / social advertisement
 
-QuietWard Response is a security incident investigation and controlled-response platform that turns authenticated endpoint telemetry into explainable incidents, human-reviewed response decisions, tightly typed endpoint actions, and a verifiable audit trail. It was designed to demonstrate a safer alternative to generic remote-command remediation by requiring explicit action registration, analyst approval, deterministic policy checks, endpoint-side validation, replay resistance, and signed results.
+I’ve been building **QuietWard** and **QuietWard Response** as two separate pieces of one open-source security system.
 
-## GitHub release description
+The idea is simple:
 
-### QuietWard Response v1.0.0
+**QuietWard watches and explains.  
+QuietWard Response investigates, approves, and verifies controlled response.**
 
-The first qualified public release of QuietWard Response delivers the complete event-to-response lifecycle:
+QuietWard is a local-first, observation-only endpoint monitor. It looks at host behavior, correlates related signals into explainable findings, tracks incidents over time, and preserves tamper-evident evidence — without automatically quarantining files, killing processes, changing firewall rules, or exposing a remote-command surface.
 
-`authenticated event -> deterministic correlation -> incident -> investigation -> recommendation -> human approval -> deterministic policy -> endpoint allowlist -> controlled action -> signed result -> tamper-evident audit`
+Response handles the other side of the problem: authenticated event ingestion, incident timelines, recommendations, analyst approval, deterministic policy, capability-aware endpoint diagnostics, signed results, replay protection, and tamper-evident auditing.
 
-Highlights include FastAPI/SQLAlchemy/Alembic backend services, a Next.js analyst console, replay-resistant HMAC endpoint integration, deterministic incident correlation, response approval/policy enforcement, agent-initiated polling, idempotent action/result handling, a public cross-platform bootstrap path, Docker Compose support, and deterministic release qualification.
+The two projects can run independently, or QuietWard can send a sanitized one-way handoff into Response while remaining observation-only.
 
-The v1 executable surface is deliberately limited to a dedicated demo fixture. There is no arbitrary shell, PowerShell, process termination, service control, file deletion/quarantine, firewall modification, host isolation, or autonomous remediation in v1.0.0.
+I also changed the first-run experience so people can actually evaluate the projects quickly instead of staring at an empty system:
 
-This release is intended for local/trusted-network public-beta evaluation, homelab use, defensive-security research, and architecture demonstration rather than Internet-facing production deployment.
+- QuietWard now has a safe synthetic detector demo.
+- Response now has a one-command seeded analyst-console demo.
+- Both repos now have public roadmaps and newcomer-friendly contribution issues.
 
-## Resume / portfolio bullet
+The current paired line has been qualified across Linux and Windows with the full cross-repository lifecycle tested end to end.
 
-**QuietWard Response — Creator / Developer:** Built and qualified an Apache-2.0 incident-response platform using FastAPI, SQLAlchemy/Alembic, Next.js, Docker, HMAC-authenticated endpoint telemetry, deterministic incident correlation, human-approved policy-gated response actions, replay protection, idempotent execution, and tamper-evident auditing; validated the v1.0.0 release with 73 backend tests, 182 companion endpoint tests, live cross-repository HTTP acceptance, migrations, frontend production builds, and browser lifecycle smoke tests.
+QuietWard: https://github.com/LUKEcheadle-ship-it/quietward  
+QuietWard Response: https://github.com/LUKEcheadle-ship-it/quietward-response
 
-## Short resume version
+#Cybersecurity #OpenSource #SecurityEngineering #Python #FastAPI #NextJS #Homelab
 
-Built QuietWard Response, a FastAPI/Next.js controlled-response platform with authenticated telemetry, deterministic incident correlation, human-approved endpoint actions, replay protection, and tamper-evident auditing; qualified v1.0.0 through backend/frontend, migration, integration, and live browser testing.
+## Short advertisement
 
-## LinkedIn / social launch copy
+**Open-source endpoint security without automatic remediation by default.**
 
-I built QuietWard Response to explore a simple question: how can incident-response software move from detection to action without turning into a generic remote-command system?
+QuietWard provides local-first, explainable endpoint monitoring. QuietWard Response adds authenticated incident investigation, human-approved diagnostics, signed results, and tamper-evident auditing — while deliberately avoiding a generic remote-command surface.
 
-The result is an Apache-2.0 incident investigation and controlled-response platform with authenticated telemetry, deterministic correlation, incident timelines, human approval, policy-gated typed actions, endpoint-side validation, replay protection, signed results, and tamper-evident auditing.
+Both projects now include safe synthetic demos so you can see the system before connecting it to real host activity.
 
-The v1.0.0 release has completed its backend, frontend, migration, integration, public-bootstrap, and browser qualification. Its executable scope is intentionally limited to a dedicated demo fixture so the architecture can be evaluated without pretending the project is a production EDR/SOAR or unrestricted remediation agent.
+## Portfolio summary
 
-Repository: https://github.com/LUKEcheadle-ship-it/quietward-response
+**QuietWard / QuietWard Response — Creator / Developer:** Built and qualified a two-part open-source endpoint-security system separating observation-only detection from controlled incident response; implemented deterministic multi-signal correlation, privacy-preserving handoff, authenticated telemetry, explicit analyst approval, policy-gated diagnostics, replay resistance, idempotent execution, signed results, migrations, cross-platform qualification, and tamper-evident evidence/audit chains.
 
-## Claims that are safe to advertise
+## Safe claims
 
-- event-driven incident investigation and controlled-response platform
-- deterministic and explainable incident correlation
-- authenticated endpoint telemetry and replay resistance
-- explicit human approval and deterministic response policy
-- endpoint-side typed action validation
-- idempotent action/result lifecycle
-- tamper-evident audit trail
-- cross-platform local bootstrap
-- Docker/PostgreSQL-ready development path
-- qualified v1.0.0 release with documented test and live-integration evidence
+- open-source local-first endpoint security project
+- observation-only QuietWard detector
+- explainable deterministic correlation
+- tamper-evident local evidence
+- sanitized QuietWard -> Response integration
+- authenticated incident investigation
+- human-approved policy-gated diagnostics
+- signed results and replay resistance
+- no generic remote shell
+- documented Linux/Windows paired qualification
 
-## Claims not to make for v1.0.0
+## Claims to avoid
 
-Do not describe v1.0.0 as:
+Do not advertise the current project as:
 
-- a production EDR/XDR/SOAR replacement
-- an Internet-facing production service
+- a replacement for enterprise EDR/XDR/MDR/SOAR
+- guaranteed breach prevention or malware detection
 - autonomous remediation
-- arbitrary host control
+- unrestricted host control
+- an Internet-facing production service
 - immutable audit storage
-- multi-tenant or horizontally scalable
-- enterprise RBAC/OIDC
-- a system that prevents or guarantees detection of breaches
-
-## Publication actions
-
-The software and public-facing material are ready for publication when the repository is made public and the qualified `v1.0.0` source is published as a GitHub release/tag. Those publication operations must not alter the qualified runtime code on `release/v1.0.0`.
+- enterprise OIDC/RBAC
+- multi-tenant/horizontally scaled infrastructure
+- universally qualified across every operating system
