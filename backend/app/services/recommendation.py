@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.database.models import EventRecord
+from app.services.guided_response import quietward_guidance
 
 
 def _action(
@@ -56,14 +57,38 @@ def _network_diagnostic() -> dict[str, object]:
     )
 
 
+def _guided_profile_action(guidance: dict[str, object]) -> dict[str, object]:
+    playbook = str(guidance["recommended_playbook"]).replace("_", " ")
+    priority = str(guidance["priority"])
+    strength = str(guidance["evidence_strength"])
+    return _action(
+        "diagnostic",
+        "Follow QuietWard guided triage",
+        (
+            f"QuietWard supplied an observation-only {priority} response profile with "
+            f"{strength} evidence and recommends the {playbook} playbook. Use the bounded "
+            "diagnostics below to validate the finding before considering remediation."
+        ),
+    )
+
+
 def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     categories = {str(event.category or "").lower() for event in events}
     types = {str(event.event_type or "").lower() for event in events}
     recommendations: list[dict[str, object]] = []
+    guidance = quietward_guidance(events)
+    guidance_hints = (
+        {str(value) for value in guidance["investigation_hints"]}
+        if guidance is not None
+        else set()
+    )
     demo_event = any(
         value in {"quietward_demo_service_unhealthy", "demo_service_unhealthy"}
         for value in types
     )
+
+    if guidance is not None and not demo_event:
+        recommendations.append(_guided_profile_action(guidance))
 
     # Host diagnostics are intentionally useful across real incident families and
     # remain parameterless, bounded, read-only, and analyst-approved. Keep the
@@ -89,7 +114,8 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
         )
 
     process_relevant = bool(
-        categories & {"execution", "malware", "persistence", "privilege", "process", "security"}
+        "process_inventory" in guidance_hints
+        or categories & {"execution", "malware", "persistence", "privilege", "process", "security"}
         or any(
             marker in event_type
             for event_type in types
@@ -106,7 +132,8 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
         )
     )
     network_relevant = bool(
-        "network" in categories
+        "network_snapshot" in guidance_hints
+        or "network" in categories
         or any(
             marker in event_type
             for event_type in types
@@ -117,6 +144,40 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
         recommendations.append(_process_diagnostic())
     if network_relevant:
         recommendations.extend([_process_diagnostic(), _network_diagnostic()])
+
+    if "artifact_metadata_review" in guidance_hints:
+        recommendations.extend(
+            [
+                _action(
+                    "diagnostic",
+                    "Inspect artifact metadata",
+                    "Validate signer, ownership, timestamps, expected deployment source, and other non-destructive artifact metadata.",
+                ),
+                _action(
+                    "diagnostic",
+                    "Verify artifact identity",
+                    "Calculate cryptographic hashes and compare them with approved inventory or trusted threat intelligence before remediation.",
+                ),
+            ]
+        )
+
+    if "identity_activity_review" in guidance_hints:
+        recommendations.append(
+            _action(
+                "diagnostic",
+                "Review identity activity",
+                "Inspect authentication, account-change, and privilege activity around the finding window before taking account-level action.",
+            )
+        )
+
+    if "evidence_chain_review" in guidance_hints:
+        recommendations.append(
+            _action(
+                "diagnostic",
+                "Verify QuietWard evidence provenance",
+                "Confirm the supplied QuietWard evidence-chain provenance before trusting downstream response decisions.",
+            )
+        )
 
     if "persistence" in categories or any("scheduled_task" in value for value in types):
         recommendations.extend(
@@ -251,30 +312,42 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
 def probable_cause_for(events: list[EventRecord]) -> str:
     categories = {event.category for event in events}
     types = {event.event_type for event in events}
+    guidance = quietward_guidance(events)
     if any(
         value in {"quietward_demo_service_unhealthy", "demo_service_unhealthy"}
         for value in types
     ):
-        return (
+        base = (
             "The dedicated QuietWard Response demo service reported an unhealthy state. "
             "The only enabled mutating remediation remains an approval-gated restart of that demo fixture."
         )
-    if "persistence" in categories:
-        return (
+    elif "persistence" in categories:
+        base = (
             "A newly observed executable appears related to a persistence mechanism and "
             "subsequent execution or network activity. Analyst validation is required."
         )
-    if "network" in categories:
-        return (
+    elif "network" in categories:
+        base = (
             "A service appears to be listening beyond its expected exposure boundary. "
             "Ownership and configuration should be validated."
         )
-    if "operational" in categories:
-        return (
+    elif "operational" in categories:
+        base = (
             "Resource growth appears temporally related to service degradation. Capacity, "
             "logs, and dependencies should be reviewed."
         )
+    else:
+        base = (
+            "The available evidence is correlated by host, time, and shared indicators; "
+            "a human assessment is still required."
+        )
+
+    if guidance is None:
+        return base
+    playbook = str(guidance["recommended_playbook"]).replace("_", " ")
     return (
-        "The available evidence is correlated by host, time, and shared indicators; "
-        "a human assessment is still required."
+        base
+        + " QuietWard supplied observation-only triage guidance: "
+        + f"{guidance['priority']} priority, {guidance['evidence_strength']} evidence, "
+        + f"recommended {playbook}. This guidance does not grant executable authority."
     )
