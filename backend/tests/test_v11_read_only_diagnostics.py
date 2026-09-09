@@ -214,12 +214,26 @@ def test_incident_triage_bundle_is_bounded_read_only_and_mints_only_opaque_handl
                 assert PROCESS_HANDLE.fullmatch(row["evidence_handle"])
 
 
-def test_quietward_handoff_payload_matches_response_event_schema(tmp_path: Path) -> None:
+def test_quietward_handoff_payload_matches_response_event_schema_and_legacy_optional_handle(tmp_path: Path) -> None:
     payload = _handoff_event()
     validated = EventCreate.model_validate(payload)
     assert validated.source == "quietward"
     assert validated.metadata["operating_system"] == "Linux"
+    assert "resolution_target_handle" not in payload["evidence"]
     assert _validate_event(payload, _agent_config(tmp_path)) == payload
+
+
+def test_handoff_importer_accepts_valid_optional_resolution_target_handle(tmp_path: Path) -> None:
+    payload = _handoff_event()
+    payload["evidence"]["resolution_target_handle"] = "qwrt-" + "c" * 32
+    assert _validate_event(payload, _agent_config(tmp_path)) == payload
+
+
+def test_handoff_importer_rejects_malformed_optional_resolution_target_handle(tmp_path: Path) -> None:
+    payload = _handoff_event()
+    payload["evidence"]["resolution_target_handle"] = "C:\\sensitive\\payload.exe"
+    with pytest.raises(HandoffError, match="resolution target handle"):
+        _validate_event(payload, _agent_config(tmp_path))
 
 
 def test_handoff_importer_accepts_guided_context_v11(tmp_path: Path) -> None:
@@ -268,7 +282,7 @@ def test_handoff_importer_rejects_nested_data_smuggling_and_summary_tampering(
 
     hidden_address = copy.deepcopy(_handoff_event())
     hidden_address["evidence"]["remote_address"] = "203.0.113.5"
-    with pytest.raises(HandoffError, match="evidence contains unexpected fields"):
+    with pytest.raises(HandoffError, match="evidence contains unexpected"):
         _validate_event(hidden_address, config)
 
     tampered_summary = copy.deepcopy(_handoff_event())
