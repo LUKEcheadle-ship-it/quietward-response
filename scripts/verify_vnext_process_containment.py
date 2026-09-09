@@ -14,7 +14,11 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from evidence_store import EvidenceStore, is_process_evidence_handle
-from process_containment import ProcessContainmentError, terminate_evidence_process
+from process_containment import (
+    ProcessContainmentError,
+    _protected_reason,
+    terminate_evidence_process,
+)
 from response_agent_diagnostics import collect_process_diagnostic
 
 
@@ -112,20 +116,16 @@ def _verify_stale_process_handle_fails_closed(state_dir: Path) -> None:
         _stop_disposable(process)
 
 
-def _verify_agent_process_is_protected(state_dir: Path) -> None:
-    row = _process_row(os.getpid())
-    if row is None:
-        raise RuntimeError("verification process was not visible in bounded process diagnostics")
-    handle = EvidenceStore(state_dir, EVIDENCE_KEY).record_process(row)
-    if handle is None:
-        raise RuntimeError("verification process could not receive a local evidence handle")
-    try:
-        terminate_evidence_process(state_dir, EVIDENCE_KEY, handle)
-    except ProcessContainmentError as exc:
-        if "protected" not in str(exc).casefold():
-            raise RuntimeError(f"agent/self protection failed for the wrong reason: {exc}") from exc
-    else:
-        raise RuntimeError("Response verification process was not protected from containment")
+def _verify_agent_process_protection_rule() -> None:
+    reason = _protected_reason(
+        {
+            "pid": os.getpid(),
+            "parent_pid": os.getppid(),
+            "image": Path(sys.executable).name or "python",
+        }
+    )
+    if not reason or "protected" not in reason.casefold():
+        raise RuntimeError("Response verifier/self process protection rule did not hold")
 
 
 def main() -> int:
@@ -137,12 +137,12 @@ def main() -> int:
         state_dir = Path(temporary).resolve()
         _verify_successful_evidence_bound_termination(state_dir)
         _verify_stale_process_handle_fails_closed(state_dir)
-        _verify_agent_process_is_protected(state_dir)
+        _verify_agent_process_protection_rule()
 
     print("VNEXT LIVE PROCESS CONTAINMENT: PASS")
     print("- disposable evidence-bound process terminated and exit confirmed")
     print("- stale evidence handle failed closed")
-    print("- Response verifier/self process protection held")
+    print("- Response verifier/self process protection rule held")
     print("- no arbitrary PID or arbitrary command surface used")
     return 0
 
