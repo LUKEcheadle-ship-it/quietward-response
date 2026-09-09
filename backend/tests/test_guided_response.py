@@ -59,7 +59,8 @@ def test_guided_network_profile_drives_bounded_response_recommendations() -> Non
         if action.get("registry_action_type")
     }
 
-    assert "Follow QuietWard guided triage" in titles
+    assert "Collect guided incident triage bundle" in titles
+    assert "collect_incident_triage_bundle" in registry_actions
     assert "collect_host_diagnostic" in registry_actions
     assert "collect_process_diagnostic" in registry_actions
     assert "collect_network_diagnostic" in registry_actions
