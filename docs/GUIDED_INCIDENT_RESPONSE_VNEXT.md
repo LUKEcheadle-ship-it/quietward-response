@@ -33,11 +33,7 @@ The opaque handle is not a path, PID, account, address, or command. Raw private 
 
 Status: implemented; qualification pending.
 
-`collect_incident_triage_bundle` is an analyst-approved, parameterless Response action that composes:
-
-- bounded host health
-- bounded process inventory
-- privacy-preserving network snapshot where supported
+`collect_incident_triage_bundle` is an analyst-approved, parameterless Response action that composes bounded host health, process inventory, and a privacy-preserving network snapshot where supported.
 
 The bundle is read-only with respect to protected host state. Process entries may receive endpoint-local opaque evidence handles that can later authorize narrowly typed containment after separate analyst approval.
 
@@ -45,9 +41,9 @@ The bundle is read-only with respect to protected host state. Process entries ma
 
 Status: in progress and release-blocking.
 
-### Process containment
+### Process containment — implemented, qualification pending
 
-Implemented in the feature branch; qualification pending:
+The branch now contains the first real remediation family:
 
 - `terminate_evidence_process`
 - no arbitrary PID field
@@ -59,6 +55,8 @@ Implemented in the feature branch; qualification pending:
 - stale, changed, cross-incident, unknown or expired evidence fails closed
 - explicit analyst approval remains mandatory
 - no shell or arbitrary command execution
+
+The server action schema, endpoint capability declaration, policy layer, protocol tests, UI, endpoint evidence store, and containment executor have all been wired for this path. This does **not** make the category release-ready until local and joint qualification passes.
 
 ### Remaining release-blocking resolution families
 
@@ -93,19 +91,13 @@ Current categories:
 - operational
 - security
 
-The final release gate fails while even one category remains unresolved.
+The final release gate fails while even one category remains unresolved or unqualified.
 
 ## Phase 4 — Higher-value detection playbooks
 
-After resolution coverage is complete, expand playbooks for:
+After resolution coverage is complete, expand playbooks for ransomware, credential access/infostealers, persistence establishment, living-off-the-land activity, and correlated process/file/network attack chains.
 
-1. ransomware behavior
-2. credential access / infostealers
-3. persistence establishment
-4. suspicious living-off-the-land activity
-5. correlated process + file + network attack chains
-
-New detectors must not expand faster than Response's ability to safely resolve or explicitly escalate them; otherwise they create the same detection/remediation gap this vNext release is intended to close.
+New detectors must not expand faster than Response's ability to safely resolve or explicitly escalate them; otherwise they recreate the detection/remediation gap this vNext release is intended to close.
 
 ## Joint release gates
 
