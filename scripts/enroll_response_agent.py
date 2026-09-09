@@ -21,6 +21,8 @@ AGENT_ACTIONS = [
     "collect_host_diagnostic",
     "collect_network_diagnostic",
     "collect_process_diagnostic",
+    "collect_incident_triage_bundle",
+    "terminate_evidence_process",
     "restart_quietward_demo_service",
 ]
 
@@ -170,7 +172,7 @@ def _report_capabilities(api_url: str, enrolled: dict[str, object]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Enroll the separate QuietWard Response diagnostic agent")
+    parser = argparse.ArgumentParser(description="Enroll the separate QuietWard Response endpoint agent")
     parser.add_argument("--host-id", required=True)
     parser.add_argument("--api-url")
     parser.add_argument("--display-name")
@@ -194,7 +196,7 @@ def main() -> int:
     payload = json.dumps(
         {
             "host_id": args.host_id,
-            "display_name": args.display_name or f"Response diagnostic agent on {args.host_id}",
+            "display_name": args.display_name or f"Response endpoint agent on {args.host_id}",
             "agent_version": AGENT_VERSION,
         },
         separators=(",", ":"),
@@ -239,8 +241,8 @@ def main() -> int:
         print(f"Agent config was stored privately, but signed capability registration failed: {exc}")
         return 1
 
-    print(f"Response diagnostic agent enrolled. Private config: {config_path}")
-    print("Signed diagnostic capabilities registered. The one-time enrollment secret was not printed.")
+    print(f"Response endpoint agent enrolled. Private config: {config_path}")
+    print("Signed capabilities registered. The one-time enrollment secret was not printed.")
     return 0
 
 

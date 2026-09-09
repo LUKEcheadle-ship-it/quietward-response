@@ -7,6 +7,8 @@
 ![Frontend](https://img.shields.io/badge/Frontend-Next.js-black)
 ![Preview](https://img.shields.io/badge/Preview-1.1.0a1-orange)
 
+> **vNext development notice:** the Guided Incident Response branch is not release-ready. The combined QuietWard + Response update is explicitly blocked until every QuietWard finding category has a tested Response resolution path and the final resolution-coverage gate passes. Evidence-bound process containment is implemented on the branch but still requires local/joint qualification; several other resolution families remain incomplete.
+
 QuietWard Response is an event-driven incident investigation and controlled-response platform for local and trusted-network security environments.
 
 It turns authenticated security observations into explainable incidents, timelines, recommendations, explicit analyst decisions, tightly typed endpoint diagnostics, signed results, and tamper-evident audit history.
@@ -102,7 +104,7 @@ These are parameterless, capability-declared, approval-gated investigation actio
 
 Despite the name, it does **not** restart an operating-system service. It changes only a dedicated JSON demo fixture used to prove the controlled mutation lifecycle.
 
-There is still no general service control, process termination, quarantine, firewall modification, host isolation, or arbitrary command execution.
+There is still no general service control, process termination, quarantine, firewall modification, host isolation, or arbitrary command execution in the current public preview. The draft vNext branch is developing evidence-bound process containment under stricter approval, provenance, and execution-time revalidation rules; that work is not yet release-qualified.
 
 ## Qualification evidence
 
@@ -188,11 +190,13 @@ python scripts/verify_v11_diagnostics.py --quietward-repo ../quietward
 
 That gate covers Response tests, public-release audit, migrations, frontend install/typecheck/build/audit, quick-start smoke, the complete QuietWard suite, the focused v0.6 handoff gate, and live cross-repository acceptance.
 
+The draft vNext combined release has an additional hard gate: `python scripts/verify_vnext_resolution_coverage.py`. It must report zero unresolved categories before the combined update can be released.
+
 ## Security boundary
 
 QuietWard Response is a local/trusted-network security project and architecture demonstration. It is **not** presented as an Internet-facing production EDR/XDR/SOAR replacement.
 
-The current preview deliberately has:
+The current public preview deliberately has:
 
 - no generic shell / PowerShell / cmd / bash execution
 - no arbitrary process termination
@@ -213,6 +217,7 @@ Analyst identity remains local-development grade. HMAC transport should use TLS 
 - [`docs/COMMUNITY_ROADMAP.md`](docs/COMMUNITY_ROADMAP.md) — public product direction
 - [`docs/JOINT_QUIETWARD_RESPONSE_UPDATE.md`](docs/JOINT_QUIETWARD_RESPONSE_UPDATE.md) — paired-system design
 - [`docs/V11_DIAGNOSTIC_UPGRADE.md`](docs/V11_DIAGNOSTIC_UPGRADE.md) — current diagnostics
+- [`docs/GUIDED_INCIDENT_RESPONSE_VNEXT.md`](docs/GUIDED_INCIDENT_RESPONSE_VNEXT.md) — draft vNext resolution architecture and release blockers
 - [`docs/architecture.md`](docs/architecture.md) — architecture
 - [`docs/threat-model.md`](docs/threat-model.md) — trust model
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guide

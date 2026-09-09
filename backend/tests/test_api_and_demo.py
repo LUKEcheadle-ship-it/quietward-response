@@ -12,7 +12,7 @@ def test_health_and_empty_overview(client) -> None:
         "database": "ok",
         "remediation_enabled": False,
         "controlled_response_enabled": True,
-        "controlled_action_count": 4,
+        "controlled_action_count": 6,
         "response_scope": "read_only_diagnostics_plus_demo_fixture",
         "single_worker_required": True,
     }
@@ -39,6 +39,8 @@ def test_openapi_exposes_only_typed_controlled_action_surface(client) -> None:
         "collect_host_diagnostic",
         "collect_process_diagnostic",
         "collect_network_diagnostic",
+        "collect_incident_triage_bundle",
+        "terminate_evidence_process",
     ]
     assert all(item["approval_required"] is True for item in registry.json())
 

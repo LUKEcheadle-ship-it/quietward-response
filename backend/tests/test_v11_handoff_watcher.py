@@ -59,6 +59,7 @@ def _document() -> dict:
                     "correlation_signal_codes": ["process_network_corroboration"],
                     "subject_hmac_sha256": "b" * 32,
                     "subject_type": "network",
+                    "resolution_target_handle": "qwrt-" + "c" * 32,
                 },
                 "process": None,
                 "file": None,

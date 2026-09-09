@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database.models import (
@@ -18,6 +20,7 @@ from app.services.agent_capabilities import agent_enables_action
 RECOMMENDATION_BINDING_REASON = "action is not an enabled recommendation for incident"
 INCIDENT_STATUS_REASON = "incident status does not allow response actions"
 AGENT_CAPABILITY_REASON = "target agent has not enabled this signed capability"
+EVIDENCE_BINDING_REASON = "evidence handle is not bound to a successful triage result for this incident/host/agent"
 _ACTIONABLE_INCIDENT_STATUSES = {"new", "investigating", "contained"}
 
 
@@ -43,18 +46,56 @@ def incident_allows_response(incident: IncidentRecord) -> bool:
 
 
 def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
-    """Return whether this open incident currently exposes the action."""
     if not incident_allows_response(incident):
         return False
     for recommendation in incident.recommended_actions or []:
         if not isinstance(recommendation, dict):
             continue
-        if (
-            recommendation.get("enabled") is True
-            and recommendation.get("registry_action_type") == action_type
-        ):
+        if recommendation.get("enabled") is True and recommendation.get("registry_action_type") == action_type:
             return True
     return False
+
+
+def _process_handles_from_triage_result(result: Any) -> set[str]:
+    if not isinstance(result, dict):
+        return set()
+    components = result.get("components")
+    if not isinstance(components, dict):
+        return set()
+    process = components.get("process")
+    if not isinstance(process, dict):
+        return set()
+    rows = process.get("processes")
+    if not isinstance(rows, list):
+        return set()
+    handles: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        handle = row.get("evidence_handle")
+        if isinstance(handle, str):
+            handles.add(handle)
+    return handles
+
+
+def _evidence_handle_is_bound_to_incident(session: Session, action: ActionRecord) -> bool:
+    if action.action_type != "terminate_evidence_process":
+        return True
+    handle = (action.parameters or {}).get("evidence_handle")
+    if not isinstance(handle, str):
+        return False
+    triage_actions = list(
+        session.scalars(
+            select(ActionRecord).where(
+                ActionRecord.incident_id == action.incident_id,
+                ActionRecord.target_host_id == action.target_host_id,
+                ActionRecord.target_agent_id == action.target_agent_id,
+                ActionRecord.action_type == "collect_incident_triage_bundle",
+                ActionRecord.status == "succeeded",
+            )
+        )
+    )
+    return any(handle in _process_handles_from_triage_result(item.result) for item in triage_actions)
 
 
 def evaluate_action_policy(
@@ -71,8 +112,7 @@ def evaluate_action_policy(
         reasons.append("action type is not registered")
         return False, reasons
 
-    parameter_errors = definition.validate_parameters(action.parameters or {})
-    reasons.extend(parameter_errors)
+    reasons.extend(definition.validate_parameters(action.parameters or {}))
 
     agent = session.get(AgentRecord, action.target_agent_id)
     if agent is None:
@@ -95,6 +135,9 @@ def evaluate_action_policy(
         elif not incident_enables_action(incident, action.action_type):
             reasons.append(RECOMMENDATION_BINDING_REASON)
 
+    if action.action_type == "terminate_evidence_process" and not _evidence_handle_is_bound_to_incident(session, action):
+        reasons.append(EVIDENCE_BINDING_REASON)
+
     host = session.get(HostRecord, action.target_host_id)
     if host is not None:
         family = _os_family(host.operating_system)
@@ -112,18 +155,14 @@ def evaluate_action_policy(
             if approval is None or approval.action_id != action.action_id:
                 reasons.append("approval record is invalid")
             else:
-                # Bind the approval to the exact action/incident/request lifecycle,
-                # not just to a status string. These fields are redundant by design
-                # so policy can detect accidental/corrupt cross-linking before dispatch.
                 if approval.incident_id != action.incident_id:
                     reasons.append("approval incident does not match action incident")
                 if approval.requested_by != action.requested_by:
                     reasons.append("approval requester does not match action requester")
                 if approval.status != "approved":
                     reasons.append("approval is not approved")
-                else:
-                    if not approval.approved_by or approval.approved_at is None:
-                        reasons.append("approval decision metadata is incomplete")
+                elif not approval.approved_by or approval.approved_at is None:
+                    reasons.append("approval decision metadata is incomplete")
                 if _utc(approval.expires_at) <= _utc(now):
                     reasons.append("approval has expired")
 
