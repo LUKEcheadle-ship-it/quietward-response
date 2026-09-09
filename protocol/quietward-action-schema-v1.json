@@ -28,10 +28,26 @@
             "collect_host_diagnostic",
             "collect_process_diagnostic",
             "collect_network_diagnostic",
-            "collect_incident_triage_bundle"
+            "collect_incident_triage_bundle",
+            "terminate_evidence_process"
           ]
         },
-        "parameters": {"type": "object", "maxProperties": 0},
+        "parameters": {
+          "oneOf": [
+            {"type": "object", "maxProperties": 0},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["evidence_handle"],
+              "properties": {
+                "evidence_handle": {
+                  "type": "string",
+                  "pattern": "^qwrp-[0-9a-f]{32}$"
+                }
+              }
+            }
+          ]
+        },
         "requested_at": {"type": "string", "format": "date-time"},
         "requested_by": {"type": "string", "minLength": 1, "maxLength": 128},
         "approval_id": {"type": "string", "format": "uuid"},
@@ -45,7 +61,28 @@
         "result": {"type": ["object", "null"]},
         "error": {"type": ["string", "null"]},
         "evidence": {"type": ["object", "null"]}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"action_type": {"const": "terminate_evidence_process"}}},
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["evidence_handle"],
+                "properties": {
+                  "evidence_handle": {
+                    "type": "string",
+                    "pattern": "^qwrp-[0-9a-f]{32}$"
+                  }
+                }
+              }
+            }
+          },
+          "else": {"properties": {"parameters": {"type": "object", "maxProperties": 0}}}
+        }
+      ]
     },
     "ActionResult": {
       "type": "object",
