@@ -63,6 +63,16 @@ COLLECT_NETWORK_DIAGNOSTIC = ActionDefinition(
     implementation_version="2",
 )
 
+COLLECT_INCIDENT_TRIAGE_BUNDLE = ActionDefinition(
+    action_type="collect_incident_triage_bundle",
+    description="Collect one bounded read-only incident triage bundle from host, process, and platform-supported privacy-preserving network diagnostics.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="1",
+)
+
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
     item.action_type: item
     for item in (
@@ -70,6 +80,7 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         COLLECT_HOST_DIAGNOSTIC,
         COLLECT_PROCESS_DIAGNOSTIC,
         COLLECT_NETWORK_DIAGNOSTIC,
+        COLLECT_INCIDENT_TRIAGE_BUNDLE,
     )
 }
 
