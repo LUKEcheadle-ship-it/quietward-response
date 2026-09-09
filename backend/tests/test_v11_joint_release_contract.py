@@ -16,6 +16,7 @@ EXPECTED_ACTIONS = {
     "collect_host_diagnostic",
     "collect_process_diagnostic",
     "collect_network_diagnostic",
+    "collect_incident_triage_bundle",
 }
 
 
@@ -38,7 +39,8 @@ def test_response_action_surface_remains_bounded_and_non_destructive() -> None:
     assert set(ACTION_REGISTRY) == EXPECTED_ACTIONS
     executor = (ROOT / "scripts" / "response_agent.py").read_text(encoding="utf-8").lower()
     diagnostics = (ROOT / "scripts" / "response_agent_diagnostics.py").read_text(encoding="utf-8").lower()
-    combined = executor + "\n" + diagnostics
+    bundle = (ROOT / "scripts" / "incident_triage_bundle.py").read_text(encoding="utf-8").lower()
+    combined = executor + "\n" + diagnostics + "\n" + bundle
     for forbidden in (
         "import subprocess",
         "from subprocess",
