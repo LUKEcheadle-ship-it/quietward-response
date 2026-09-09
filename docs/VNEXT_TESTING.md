@@ -14,7 +14,7 @@ Use the paired feature branches in separate local checkouts:
 - QuietWard: `feature/guided-incident-response-vnext`
 - QuietWard Response: `feature/guided-incident-response-vnext`
 
-Do not run final qualification against `main` or a mixed branch pair.
+The one-command harness refuses mixed branches or tracked working-tree changes so the recorded HEAD SHAs match the code actually being tested.
 
 ## One-command current-slice qualification
 
@@ -32,6 +32,7 @@ py -3.12 scripts\verify_vnext_current_slice.py --quietward-repo ..\quietward
 
 The wrapper runs:
 
+- exact paired feature-branch and clean tracked-tree checks
 - Response Python compile checks
 - public-release audit
 - complete Response backend pytest suite with warnings treated as errors
@@ -52,6 +53,8 @@ A successful current-slice run ends with:
 ```text
 VNEXT CURRENT IMPLEMENTED SLICE: PASS
 ```
+
+and prints the exact QuietWard and Response HEAD SHAs that were qualified.
 
 The final resolution-coverage report may still say `BLOCKED`; that is expected until every remediation family is complete.
 
