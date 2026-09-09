@@ -22,10 +22,10 @@ class ResolutionCoverage:
 RESOLUTION_COVERAGE: dict[str, ResolutionCoverage] = {
     "malware": ResolutionCoverage(
         "malware",
-        "planned_containment",
-        "quarantine observed artifact and/or terminate evidence-bound process",
+        "containment_in_qualification",
+        "terminate an evidence-bound malicious process and quarantine evidence-bound artifacts when present",
         False,
-        "Requires evidence-bound file/process handles and execution-time revalidation.",
+        "Evidence-bound process termination is implemented but not yet locally/jointly qualified; file quarantine remains incomplete.",
     ),
     "integrity": ResolutionCoverage(
         "integrity",
@@ -36,17 +36,17 @@ RESOLUTION_COVERAGE: dict[str, ResolutionCoverage] = {
     ),
     "privilege": ResolutionCoverage(
         "privilege",
-        "planned_containment",
-        "terminate evidence-bound escalation process and revoke unsafe persistence when present",
+        "containment_in_qualification",
+        "terminate an evidence-bound escalation process and revoke unsafe persistence when present",
         False,
-        "Needs process identity revalidation and protected-process deny rules.",
+        "Evidence-bound process termination is implemented but qualification and persistence remediation remain incomplete.",
     ),
     "persistence": ResolutionCoverage(
         "persistence",
-        "planned_remediation",
+        "partial_containment",
         "disable the evidence-bound persistence mechanism and quarantine its backing artifact",
         False,
-        "Needs typed persistence identities rather than arbitrary registry/task/service names.",
+        "Process containment exists; typed persistence identities and backing-artifact quarantine are still required.",
     ),
     "identity": ResolutionCoverage(
         "identity",
@@ -57,10 +57,10 @@ RESOLUTION_COVERAGE: dict[str, ResolutionCoverage] = {
     ),
     "network": ResolutionCoverage(
         "network",
-        "planned_containment",
-        "block or isolate evidence-bound malicious network activity",
+        "partial_containment",
+        "terminate the evidence-bound owning process and/or block evidence-bound malicious network activity",
         False,
-        "Needs locally resolved network/process evidence handles and safe rollback.",
+        "Owning-process containment is being enabled; direct network containment and safe rollback remain incomplete.",
     ),
     "container": ResolutionCoverage(
         "container",
@@ -78,10 +78,10 @@ RESOLUTION_COVERAGE: dict[str, ResolutionCoverage] = {
     ),
     "execution": ResolutionCoverage(
         "execution",
-        "planned_containment",
+        "containment_in_qualification",
         "terminate an evidence-bound malicious process and preserve its incident evidence",
         False,
-        "Needs durable process evidence handles and execution-time identity checks.",
+        "Implementation exists; local and joint qualification must pass before this category becomes release-ready.",
     ),
     "file_integrity": ResolutionCoverage(
         "file_integrity",
