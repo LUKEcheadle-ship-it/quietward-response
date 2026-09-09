@@ -94,14 +94,14 @@ _ALLOWED_EVENT_KEYS = {
     "persistence",
     "metadata",
 }
-_ALLOWED_EVIDENCE_KEYS = {
+_BASE_EVIDENCE_KEYS = {
     "event_count",
     "event_kinds",
     "correlation_signal_codes",
     "subject_hmac_sha256",
     "subject_type",
-    "resolution_target_handle",
 }
+_ALLOWED_EVIDENCE_KEYS = _BASE_EVIDENCE_KEYS | {"resolution_target_handle"}
 _BASE_METADATA_KEYS = {
     "quietward_response_context_version",
     "quietward_finding_hmac_sha256",
@@ -248,8 +248,10 @@ def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
         _validate_guided_context(metadata)
     else:
         raise HandoffError("handoff event context version is invalid")
-    if set(evidence) != _ALLOWED_EVIDENCE_KEYS:
-        raise HandoffError("handoff evidence contains unexpected fields")
+
+    evidence_keys = set(evidence)
+    if not _BASE_EVIDENCE_KEYS.issubset(evidence_keys) or not evidence_keys.issubset(_ALLOWED_EVIDENCE_KEYS):
+        raise HandoffError("handoff evidence contains unexpected or missing fields")
     if metadata.get("observation_only_source") is not True:
         raise HandoffError("handoff event is not marked observation-only")
     if metadata.get("executable_authority") is not False:
@@ -274,7 +276,9 @@ def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
     if not isinstance(subject_token, str) or not _SUBJECT_TOKEN.fullmatch(subject_token):
         raise HandoffError("handoff event subject identity is not privacy-keyed")
     resolution_target = evidence.get("resolution_target_handle")
-    if not isinstance(resolution_target, str) or not _RESOLUTION_TARGET.fullmatch(resolution_target):
+    if resolution_target is not None and (
+        not isinstance(resolution_target, str) or not _RESOLUTION_TARGET.fullmatch(resolution_target)
+    ):
         raise HandoffError("handoff resolution target handle is invalid")
     if evidence.get("subject_type") not in _ALLOWED_SUBJECT_TYPES:
         raise HandoffError("handoff event subject type is invalid")
