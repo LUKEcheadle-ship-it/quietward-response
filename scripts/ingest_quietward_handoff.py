@@ -22,6 +22,7 @@ class HandoffError(RuntimeError):
 
 _SUBJECT_TOKEN = re.compile(r"^[0-9a-f]{32}$")
 _FINDING_TOKEN = re.compile(r"^[0-9a-f]{32}$")
+_RESOLUTION_TARGET = re.compile(r"^qwrt-[0-9a-f]{32}$")
 _CHAIN_HASH = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_CODE = re.compile(r"^[a-z0-9_.:+-]{1,64}$")
 _SAFE_VERSION = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
@@ -99,6 +100,7 @@ _ALLOWED_EVIDENCE_KEYS = {
     "correlation_signal_codes",
     "subject_hmac_sha256",
     "subject_type",
+    "resolution_target_handle",
 }
 _BASE_METADATA_KEYS = {
     "quietward_response_context_version",
@@ -271,6 +273,9 @@ def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
     subject_token = evidence.get("subject_hmac_sha256")
     if not isinstance(subject_token, str) or not _SUBJECT_TOKEN.fullmatch(subject_token):
         raise HandoffError("handoff event subject identity is not privacy-keyed")
+    resolution_target = evidence.get("resolution_target_handle")
+    if not isinstance(resolution_target, str) or not _RESOLUTION_TARGET.fullmatch(resolution_target):
+        raise HandoffError("handoff resolution target handle is invalid")
     if evidence.get("subject_type") not in _ALLOWED_SUBJECT_TYPES:
         raise HandoffError("handoff event subject type is invalid")
     event_count = evidence.get("event_count")
