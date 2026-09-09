@@ -8,12 +8,7 @@ The combined QuietWard + QuietWard Response vNext update **must not be released 
 
 `scripts/verify_vnext_resolution_coverage.py` is the release-blocking gate. It must return PASS before this combined update can move out of draft/release-candidate status.
 
-A valid resolution path is either:
-
-1. a typed, evidence-bound, policy-checked Response action with analyst approval where host mutation is safe and generalizable; or
-2. a tested guided escalation/recovery workflow with explicit evidence and closure criteria where automatic mutation would be unsafe or environment-specific.
-
-A generic "investigate manually" placeholder does not count as release-ready resolution coverage.
+A valid resolution path is either a typed, evidence-bound, policy-checked Response action with analyst approval where host mutation is safe and generalizable, or a tested guided escalation/recovery workflow with explicit evidence and closure criteria where automatic mutation would be unsafe or environment-specific. A generic "investigate manually" placeholder does not count.
 
 ## Implemented so far
 
