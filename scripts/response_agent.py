@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from incident_triage_bundle import collect_incident_triage_bundle
 from response_agent_diagnostics import (
     DiagnosticError,
     collect_host_diagnostic,
@@ -34,6 +35,7 @@ _ALLOWED_ACTIONS = {
     "collect_host_diagnostic",
     "collect_process_diagnostic",
     "collect_network_diagnostic",
+    "collect_incident_triage_bundle",
 }
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
@@ -183,6 +185,7 @@ class ResponseAgent:
                 "collect_host_diagnostic",
                 "collect_process_diagnostic",
                 "collect_network_diagnostic",
+                "collect_incident_triage_bundle",
             ],
             "mutating_actions": ["restart_quietward_demo_service"],
             "arbitrary_command_execution": False,
@@ -337,6 +340,11 @@ class ResponseAgent:
                 return collect_process_diagnostic()
             if action_type == "collect_network_diagnostic":
                 return collect_network_diagnostic(self._network_privacy_key)
+            if action_type == "collect_incident_triage_bundle":
+                return collect_incident_triage_bundle(
+                    self.config.state_dir,
+                    self._network_privacy_key,
+                )
         except DiagnosticError as exc:
             raise ResponseAgentError(str(exc)) from exc
         raise ResponseAgentError("action type has no local executor")
@@ -408,10 +416,6 @@ class ResponseAgent:
                 started_at = str(prior.get("started_at") or "")
                 if not started_at:
                     raise ResponseAgentError("terminal local action history is missing started_at")
-                # A crash can occur after the local ledger reaches terminal state but
-                # before the server ever receives the executing acknowledgement.
-                # Re-establish that lifecycle edge first, then replay the stored
-                # terminal result without running the endpoint action again.
                 if server_status == "dispatching":
                     self._acknowledge_executing(
                         action_id=action_id,
@@ -446,10 +450,6 @@ class ResponseAgent:
             else:
                 if prior.get("status") != "executing":
                     raise ResponseAgentError("local action ledger contains an invalid active status")
-                # If the prior executing acknowledgement was lost before the crash,
-                # the server will still say dispatching. Re-acknowledge before any
-                # local work so a later terminal result cannot be rejected as an
-                # invalid lifecycle transition.
                 if server_status == "dispatching":
                     self._acknowledge_executing(
                         action_id=action_id,
