@@ -22,7 +22,15 @@
         "incident_id": {"type": "string", "format": "uuid"},
         "target_agent_id": {"type": "string", "minLength": 1, "maxLength": 64},
         "target_host_id": {"type": "string", "minLength": 1, "maxLength": 128},
-        "action_type": {"enum": ["restart_quietward_demo_service"]},
+        "action_type": {
+          "enum": [
+            "restart_quietward_demo_service",
+            "collect_host_diagnostic",
+            "collect_process_diagnostic",
+            "collect_network_diagnostic",
+            "collect_incident_triage_bundle"
+          ]
+        },
         "parameters": {"type": "object", "maxProperties": 0},
         "requested_at": {"type": "string", "format": "date-time"},
         "requested_by": {"type": "string", "minLength": 1, "maxLength": 128},
