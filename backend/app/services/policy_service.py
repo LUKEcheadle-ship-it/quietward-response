@@ -46,16 +46,12 @@ def incident_allows_response(incident: IncidentRecord) -> bool:
 
 
 def incident_enables_action(incident: IncidentRecord, action_type: str) -> bool:
-    """Return whether this open incident currently exposes the action."""
     if not incident_allows_response(incident):
         return False
     for recommendation in incident.recommended_actions or []:
         if not isinstance(recommendation, dict):
             continue
-        if (
-            recommendation.get("enabled") is True
-            and recommendation.get("registry_action_type") == action_type
-        ):
+        if recommendation.get("enabled") is True and recommendation.get("registry_action_type") == action_type:
             return True
     return False
 
@@ -116,8 +112,7 @@ def evaluate_action_policy(
         reasons.append("action type is not registered")
         return False, reasons
 
-    parameter_errors = definition.validate_parameters(action.parameters or {})
-    reasons.extend(parameter_errors)
+    reasons.extend(definition.validate_parameters(action.parameters or {}))
 
     agent = session.get(AgentRecord, action.target_agent_id)
     if agent is None:
