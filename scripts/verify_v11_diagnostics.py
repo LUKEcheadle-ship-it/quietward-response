@@ -26,6 +26,7 @@ EXPECTED_ACTIONS = {
     "collect_process_diagnostic",
     "collect_network_diagnostic",
     "collect_incident_triage_bundle",
+    "terminate_evidence_process",
 }
 
 
@@ -101,10 +102,14 @@ def _verify_action_surface(python: str) -> None:
     code = (
         "from app.services.action_registry import ACTION_REGISTRY; "
         f"expected={expected}; actual=set(ACTION_REGISTRY); "
-        "assert actual == expected, f'unexpected v1.1 actions: {sorted(actual)}'; "
-        "assert not ({'terminate_process_by_handle','quarantine_artifact_by_handle',"
-        "'restore_quarantined_artifact_by_handle','isolate_host','block_network'} & actual); "
-        "print('v1.1 action surface:', sorted(actual))"
+        "assert actual == expected, f'unexpected vNext actions: {sorted(actual)}'; "
+        "c=ACTION_REGISTRY['terminate_evidence_process']; "
+        "assert c.approval_required and c.risk_level == 'high' and not c.reversible; "
+        "assert c.validate_parameters({'pid':1}); "
+        "assert not c.validate_parameters({'evidence_handle':'qwrp-'+'a'*32}); "
+        "assert not ({'run_shell','run_arbitrary_command','terminate_arbitrary_process',"
+        "'quarantine_arbitrary_path','block_arbitrary_address','isolate_host'} & actual); "
+        "print('vNext action surface:', sorted(actual))"
     )
     verify_v1._run([python, "-c", code], cwd=BACKEND)
 
@@ -167,7 +172,7 @@ def _verify_joint(quietward_repo: Path, python: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run the QuietWard Response v1.1 diagnostic upgrade gate."
+        description="Run the QuietWard Response vNext development qualification gate."
     )
     parser.add_argument("--quietward-repo", type=Path)
     parser.add_argument("--skip-npm-audit", action="store_true")
@@ -180,9 +185,6 @@ def main() -> int:
     verify_v1._run([python, "-m", "pytest", "-W", "error"], cwd=BACKEND)
     _verify_action_surface(python)
 
-    # Windows can transiently keep a completed SQLite migration file open after
-    # subprocess exit. All schema/build/smoke assertions run before cleanup; do not
-    # turn a successful release gate into a false failure on temp-directory removal.
     with tempfile.TemporaryDirectory(
         prefix="qwr-v11-",
         ignore_cleanup_errors=(os.name == "nt"),
@@ -192,7 +194,7 @@ def main() -> int:
 
         npm = shutil.which("npm")
         if npm is None:
-            raise RuntimeError("npm is required for the v1.1 frontend gate")
+            raise RuntimeError("npm is required for the vNext frontend gate")
         verify_v1._run(verify_v1._npm_command(npm, "ci"), cwd=FRONTEND)
         verify_v1._run(verify_v1._npm_command(npm, "run", "typecheck"), cwd=FRONTEND)
         verify_v1._run(verify_v1._npm_command(npm, "run", "build"), cwd=FRONTEND)
@@ -205,7 +207,8 @@ def main() -> int:
         _verify_quietward(resolved_quietward, python)
         _verify_joint(resolved_quietward, python)
 
-    print("\nV1.1 DIAGNOSTIC UPGRADE GATE: PASS")
+    print("\nVNEXT DEVELOPMENT QUALIFICATION: PASS")
+    print("Final combined release still requires scripts/verify_vnext_resolution_coverage.py to PASS.")
     if args.quietward_repo is None:
         print("Companion QuietWard suite + joint acceptance: NOT RUN")
     else:
