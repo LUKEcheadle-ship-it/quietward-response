@@ -17,7 +17,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from evidence_store import is_process_evidence_handle
 from incident_triage_bundle import collect_incident_triage_bundle
+from process_containment import ProcessContainmentError, terminate_evidence_process
 from response_agent_diagnostics import (
     DiagnosticError,
     collect_host_diagnostic,
@@ -36,6 +38,7 @@ _ALLOWED_ACTIONS = {
     "collect_process_diagnostic",
     "collect_network_diagnostic",
     "collect_incident_triage_bundle",
+    "terminate_evidence_process",
 }
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
@@ -166,7 +169,7 @@ class AgentConfig:
 
 
 class ResponseAgent:
-    """Response-owned outward-polling executor for a finite diagnostic allowlist."""
+    """Response-owned outward-polling executor for a finite typed action allowlist."""
 
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
@@ -187,8 +190,13 @@ class ResponseAgent:
                 "collect_network_diagnostic",
                 "collect_incident_triage_bundle",
             ],
-            "mutating_actions": ["restart_quietward_demo_service"],
+            "mutating_actions": [
+                "restart_quietward_demo_service",
+                "terminate_evidence_process",
+            ],
             "arbitrary_command_execution": False,
+            "arbitrary_process_targeting": False,
+            "evidence_bound_process_containment": True,
             "raw_process_command_lines": False,
             "raw_executable_paths": False,
             "raw_remote_network_addresses": False,
@@ -262,6 +270,20 @@ class ResponseAgent:
             value = dict(ordered)
         _atomic_json(self.ledger_path, value)
 
+    def _validate_action_parameters(self, action_type: str, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ResponseAgentError("action parameters must be an object")
+        if action_type == "terminate_evidence_process":
+            if set(value) != {"evidence_handle"}:
+                raise ResponseAgentError("process containment requires exactly one evidence_handle")
+            handle = value.get("evidence_handle")
+            if not is_process_evidence_handle(handle):
+                raise ResponseAgentError("process containment evidence_handle is invalid")
+            return {"evidence_handle": str(handle)}
+        if value:
+            raise ResponseAgentError("this allowlisted action accepts no parameters")
+        return {}
+
     def _validate_action(self, action: dict[str, Any], ledger: dict[str, dict[str, Any]]) -> str:
         required = {
             "schema_version",
@@ -289,8 +311,7 @@ class ResponseAgent:
         action_type = str(action.get("action_type") or "")
         if action_type not in _ALLOWED_ACTIONS:
             raise ResponseAgentError("action type is not allowlisted by the Response agent")
-        if action.get("parameters") != {}:
-            raise ResponseAgentError("diagnostic action accepts no parameters")
+        self._validate_action_parameters(action_type, action.get("parameters"))
         if action.get("policy_allowed") is not True:
             raise ResponseAgentError("action was not policy-allowed by Response")
         if not str(action.get("approval_id") or "").strip():
@@ -331,6 +352,7 @@ class ResponseAgent:
 
     def _execute(self, action: dict[str, Any]) -> dict[str, Any]:
         action_type = str(action["action_type"])
+        parameters = self._validate_action_parameters(action_type, action.get("parameters"))
         try:
             if action_type == "restart_quietward_demo_service":
                 return self._apply_demo_action(str(action["action_id"]))
@@ -345,7 +367,13 @@ class ResponseAgent:
                     self.config.state_dir,
                     self._network_privacy_key,
                 )
-        except DiagnosticError as exc:
+            if action_type == "terminate_evidence_process":
+                return terminate_evidence_process(
+                    self.config.state_dir,
+                    self._network_privacy_key,
+                    str(parameters["evidence_handle"]),
+                )
+        except (DiagnosticError, ProcessContainmentError) as exc:
             raise ResponseAgentError(str(exc)) from exc
         raise ResponseAgentError("action type has no local executor")
 
@@ -373,9 +401,11 @@ class ResponseAgent:
                 "result": result,
                 "error": error,
                 "evidence": {
-                    "executor": "quietward-response-diagnostic-agent",
+                    "executor": "quietward-response-agent",
                     "action_type": action_type,
                     "read_only_diagnostic": action_type.startswith("collect_"),
+                    "evidence_bound_action": action_type == "terminate_evidence_process",
+                    "arbitrary_command_execution": False,
                 },
                 "agent_version": "1.1.0-alpha.1",
             },
@@ -487,7 +517,7 @@ class ResponseAgent:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the QuietWard Response diagnostic agent")
+    parser = argparse.ArgumentParser(description="Run the QuietWard Response endpoint agent")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--once", action="store_true", help="Poll once and exit")
     parser.add_argument("--interval", type=float, default=5.0)
