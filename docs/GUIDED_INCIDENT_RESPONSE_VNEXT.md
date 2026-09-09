@@ -15,52 +15,23 @@ A valid resolution path is either:
 
 A generic "investigate manually" placeholder does not count as release-ready resolution coverage.
 
-## Phase 1 — Guided QuietWard context
+## Implemented so far
 
-Status: implemented; qualification pending.
+- QuietWard response-context v1.1 with priority, evidence strength, playbook and investigation hints
+- backward-compatible optional opaque `resolution_target_handle`
+- approval-gated `collect_incident_triage_bundle`
+- endpoint-local process evidence handles
+- evidence-bound `terminate_evidence_process`
+- server policy requiring the process handle to originate from a successful triage result for the same incident/host/agent
+- endpoint execution-time process identity revalidation
+- protected system-process deny rules
+- UI workflow that selects a triage-produced handle rather than accepting free-form PID input
+- action-protocol tests rejecting arbitrary PID/command parameters
+- machine-readable resolution coverage matrix and hard release gate
 
-Response accepts allowlisted QuietWard response-context v1.1 values while retaining v1.0 compatibility:
+All of the above remain subject to local and joint qualification.
 
-- `response_priority`
-- `evidence_strength`
-- `recommended_playbook`
-- `investigation_hints`
-- optional opaque `resolution_target_handle`
-
-The opaque handle is not a path, PID, account, address, or command. Raw private targets remain outside the server-visible handoff. Guidance that violates the observation-only contract is rejected.
-
-## Phase 2 — Incident triage bundle
-
-Status: implemented; qualification pending.
-
-`collect_incident_triage_bundle` is an analyst-approved, parameterless Response action that composes bounded host health, process inventory, and a privacy-preserving network snapshot where supported.
-
-The bundle is read-only with respect to protected host state. Process entries may receive endpoint-local opaque evidence handles that can later authorize narrowly typed containment after separate analyst approval.
-
-## Phase 3 — Evidence-bound containment
-
-Status: in progress and release-blocking.
-
-### Process containment — implemented, qualification pending
-
-The branch now contains the first real remediation family:
-
-- `terminate_evidence_process`
-- no arbitrary PID field
-- only accepts `qwrp-<opaque handle>`
-- handle must originate from a successful triage result for the same incident, host, and agent
-- endpoint privately resolves the handle
-- process image, parent and start marker are revalidated immediately before action
-- critical/system processes and Response's own lineage are protected
-- stale, changed, cross-incident, unknown or expired evidence fails closed
-- explicit analyst approval remains mandatory
-- no shell or arbitrary command execution
-
-The server action schema, endpoint capability declaration, policy layer, protocol tests, UI, endpoint evidence store, and containment executor have all been wired for this path. This does **not** make the category release-ready until local and joint qualification passes.
-
-### Remaining release-blocking resolution families
-
-Still to be implemented and qualified:
+## Remaining release blockers
 
 - evidence-bound file quarantine and reversible restore
 - evidence-bound persistence disable/removal
@@ -72,52 +43,24 @@ Still to be implemented and qualified:
 - typed operational recovery workflows
 - generic-security fallback resolution into a specific actionable family
 
-## Resolution coverage matrix
-
-`backend/app/services/resolution_coverage.py` is the machine-readable coverage inventory. Every QuietWard Response category must exist in this matrix and remain `release_ready=False` until its real resolution path and qualification evidence exist.
-
-Current categories:
-
-- malware
-- integrity
-- privilege
-- persistence
-- identity
-- network
-- container
-- vulnerability
-- execution
-- file_integrity
-- operational
-- security
-
-The final release gate fails while even one category remains unresolved or unqualified.
-
-## Phase 4 — Higher-value detection playbooks
-
-After resolution coverage is complete, expand playbooks for ransomware, credential access/infostealers, persistence establishment, living-off-the-land activity, and correlated process/file/network attack chains.
-
-New detectors must not expand faster than Response's ability to safely resolve or explicitly escalate them; otherwise they recreate the detection/remediation gap this vNext release is intended to close.
-
-## Joint release gates
+## Required release gates
 
 Before release:
 
 - QuietWard remains observation-only
-- legacy v1.0/v1.1 handoffs remain upgrade-compatible
+- legacy handoffs remain upgrade-compatible
 - malformed optional remediation handles fail closed
-- Response guidance consumes only allowlisted versioned values
 - action capabilities are signed and explicitly enrolled
-- mutating actions are typed and parameter-constrained
-- evidence-bound actions prove same-incident/host/agent provenance
-- endpoints revalidate mutable targets at execution time
-- no arbitrary shell, PID, path, address, service name or free-form command surface
-- protected system targets are fail-closed
-- full backend/frontend tests pass
+- high-impact actions are typed, evidence-bound, approval-bound and audited
+- same-incident/host/agent provenance is verified before containment
+- mutable targets are revalidated at execution time
+- no arbitrary shell, PID, path, address, service name or free-form command surface exists
+- protected system targets fail closed
+- backend/frontend tests pass
 - companion QuietWard tests pass
 - joint finding -> handoff -> incident -> triage -> approval -> action -> result -> audit tests pass
 - `scripts/verify_vnext_resolution_coverage.py` passes with zero unresolved categories
 
-## Current qualification status
+## Current status
 
-The feature branches are still draft work. The local backend/frontend/joint suites have **not** been executed through this GitHub integration, and the final resolution-coverage gate is intentionally BLOCKED because multiple resolution families remain incomplete. Nothing in this document should be read as a release-pass claim.
+**BLOCKED / DRAFT.** The local backend/frontend/joint suites have not been executed through this GitHub integration, the first containment family has not yet been qualified, and multiple resolution families remain incomplete. The combined update must remain unreleased.
