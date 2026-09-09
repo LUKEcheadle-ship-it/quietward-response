@@ -19,11 +19,11 @@ def _action(
         "description": description,
         "enabled": diagnostic or controlled,
         "phase": (
-            "v1.1 — approval required"
+            "vNext — approval required"
             if controlled
-            else "v1.1"
+            else "vNext"
             if diagnostic
-            else "v1.1 — not enabled"
+            else "vNext — not enabled"
         ),
         "registry_action_type": registry_action_type,
         "requires_approval": controlled,
@@ -74,6 +74,20 @@ def _guided_profile_action(guidance: dict[str, object]) -> dict[str, object]:
     )
 
 
+def _process_containment() -> dict[str, object]:
+    return _action(
+        "remediation",
+        "Terminate an evidence-bound process",
+        (
+            "After a triage bundle has created an opaque process evidence handle, select the "
+            "specific observed process and request termination. Response never accepts an "
+            "arbitrary PID; the endpoint resolves the handle, revalidates process identity, "
+            "blocks protected system processes, and requires analyst approval before acting."
+        ),
+        registry_action_type="terminate_evidence_process",
+    )
+
+
 def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     categories = {str(event.category or "").lower() for event in events}
     types = {str(event.event_type or "").lower() for event in events}
@@ -92,9 +106,6 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
     if guidance is not None and not demo_event:
         recommendations.append(_guided_profile_action(guidance))
 
-    # Host diagnostics are intentionally useful across real incident families and
-    # remain parameterless, bounded, read-only, and analyst-approved. Keep the
-    # synthetic demo incident focused on its dedicated fixture.
     if not demo_event:
         recommendations.append(_host_diagnostic())
 
@@ -143,7 +154,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
         )
     )
     if process_relevant:
-        recommendations.append(_process_diagnostic())
+        recommendations.extend([_process_diagnostic(), _process_containment()])
     if network_relevant:
         recommendations.extend([_process_diagnostic(), _network_diagnostic()])
 
@@ -212,12 +223,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Disable persistence mechanism",
-                    "General persistence changes remain intentionally unavailable in this diagnostic release.",
+                    "Evidence-bound persistence removal is still release-blocking work for vNext.",
                 ),
                 _action(
                     "remediation",
                     "Quarantine executable",
-                    "File quarantine remains intentionally unavailable in this diagnostic release.",
+                    "Evidence-bound file quarantine and reversible restore are still release-blocking work for vNext.",
                 ),
             ]
         )
@@ -243,14 +254,11 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Restrict or stop the listener",
-                    "Network and general service changes remain intentionally unavailable in this diagnostic release.",
+                    "Evidence-bound network containment is still release-blocking work for vNext.",
                 ),
             ]
         )
 
-    # The dedicated demo health event is tagged operational for transport and UI
-    # grouping, but it is not a resource-exhaustion incident. Keep its response card
-    # focused instead of adding unrelated disk/capacity guidance.
     if not demo_event and (
         "operational" in categories
         or any("disk" in value or "service_unavailable" in value for value in types)
@@ -274,8 +282,8 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 ),
                 _action(
                     "remediation",
-                    "Reclaim disk space",
-                    "Deletion and cleanup actions remain intentionally unavailable in this diagnostic release.",
+                    "Recover affected resource",
+                    "Typed operational recovery actions are still release-blocking work for vNext.",
                 ),
             ]
         )
@@ -296,7 +304,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Apply corrective action",
-                    "No general remediation action is enabled in this diagnostic release.",
+                    "The generic fallback must resolve into a typed remediation family before vNext can release.",
                 ),
             ]
         )
@@ -321,7 +329,7 @@ def probable_cause_for(events: list[EventRecord]) -> str:
     ):
         base = (
             "The dedicated QuietWard Response demo service reported an unhealthy state. "
-            "The only enabled mutating remediation remains an approval-gated restart of that demo fixture."
+            "The only enabled demo mutation remains an approval-gated restart of that fixture."
         )
     elif "persistence" in categories:
         base = (
