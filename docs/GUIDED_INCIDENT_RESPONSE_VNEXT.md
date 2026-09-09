@@ -125,3 +125,7 @@ Before release:
 - companion QuietWard tests pass
 - joint finding -> handoff -> incident -> triage -> approval -> action -> result -> audit tests pass
 - `scripts/verify_vnext_resolution_coverage.py` passes with zero unresolved categories
+
+## Current qualification status
+
+The feature branches are still draft work. The local backend/frontend/joint suites have **not** been executed through this GitHub integration, and the final resolution-coverage gate is intentionally BLOCKED because multiple resolution families remain incomplete. Nothing in this document should be read as a release-pass claim.
