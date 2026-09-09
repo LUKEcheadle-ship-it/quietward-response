@@ -10,7 +10,7 @@ Response remains the authority boundary for any future remediation. QuietWard re
 
 ## Phase 1 — Consume guided QuietWard context
 
-Status: implementation started on `feature/guided-incident-response-vnext`.
+Status: implemented on `feature/guided-incident-response-vnext`; qualification pending.
 
 Response accepts only the allowlisted QuietWard response-context v1.1 values and ignores guidance that violates the source safety contract.
 
@@ -25,15 +25,15 @@ Response uses the profile to prioritize existing bounded diagnostics and to expl
 
 ## Phase 2 — One-click incident triage bundle
 
-Add `collect_incident_triage_bundle` as an analyst-approved, parameterless Response action.
+Status: implemented on the feature branch; qualification pending.
 
-The endpoint agent should compose:
+`collect_incident_triage_bundle` is an analyst-approved, parameterless Response action that composes:
 
 - host health diagnostic
 - process diagnostic where supported
 - privacy-preserving network diagnostic where supported
 
-The bundle must remain read-only, bounded, capability-aware, replay-safe, signed, and audited. Unsupported diagnostic components should be reported as skipped rather than causing unsafe fallbacks.
+The bundle remains read-only, bounded, capability-aware, replay-safe, signed, and audited through the existing Response action lifecycle. Unsupported diagnostic components are reported as skipped rather than replaced with unsafe fallbacks.
 
 ## Phase 3 — Evidence-bound containment
 
