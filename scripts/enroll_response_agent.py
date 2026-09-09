@@ -21,6 +21,7 @@ AGENT_ACTIONS = [
     "collect_host_diagnostic",
     "collect_network_diagnostic",
     "collect_process_diagnostic",
+    "collect_incident_triage_bundle",
     "restart_quietward_demo_service",
 ]
 
