@@ -9,7 +9,7 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
-from evidence_store import EvidenceStore, EvidenceStoreError
+from evidence_store import EvidenceStore, EvidenceStoreError, process_start_marker
 from response_agent_diagnostics import DiagnosticError, collect_process_diagnostic
 
 
@@ -31,6 +31,8 @@ _PROTECTED_IMAGES = {
     "init",
     "kthreadd",
 }
+_EXIT_CONFIRM_TIMEOUT_SECONDS = 3.0
+_EXIT_POLL_SECONDS = 0.05
 
 
 def _protected_reason(process: dict[str, Any]) -> str | None:
@@ -80,6 +82,19 @@ def _request_termination(pid: int) -> str:
     raise ProcessContainmentError("evidence-bound process containment is supported only on Windows and Linux")
 
 
+def _confirm_original_process_exited(pid: int, expected_start_marker: str) -> bool:
+    deadline = time.monotonic() + _EXIT_CONFIRM_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        current_marker = process_start_marker(pid)
+        # None means the PID no longer resolves. A different marker means the PID
+        # was reused, but the original evidence-bound process instance is gone.
+        if current_marker is None or current_marker != expected_start_marker:
+            return True
+        time.sleep(_EXIT_POLL_SECONDS)
+    current_marker = process_start_marker(pid)
+    return current_marker is None or current_marker != expected_start_marker
+
+
 def terminate_evidence_process(
     state_dir: Path,
     evidence_key: bytes,
@@ -105,18 +120,12 @@ def terminate_evidence_process(
         raise ProcessContainmentError(protected)
 
     pid = int(process["pid"])
+    expected_start_marker = str(process["start_marker"])
     mechanism = _request_termination(pid)
-    time.sleep(0.15)
-
-    try:
-        after_rows = collect_process_diagnostic().get("processes", [])
-    except DiagnosticError:
-        after_rows = []
-    still_present = False
-    if isinstance(after_rows, list):
-        still_present = any(
-            isinstance(row, dict) and int(row.get("pid", -1)) == pid
-            for row in after_rows
+    confirmed = _confirm_original_process_exited(pid, expected_start_marker)
+    if not confirmed:
+        raise ProcessContainmentError(
+            "termination was requested but the evidence-bound process instance remained active"
         )
 
     return {
@@ -131,7 +140,7 @@ def terminate_evidence_process(
         },
         "termination_mechanism": mechanism,
         "termination_requested": True,
-        "confirmed_not_present_after_request": not still_present,
+        "confirmed_original_process_exited": True,
         "execution_time_identity_revalidated": True,
         "arbitrary_pid_accepted": False,
         "arbitrary_command_execution": False,
