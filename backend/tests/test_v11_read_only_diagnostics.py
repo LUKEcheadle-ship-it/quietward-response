@@ -19,6 +19,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from incident_triage_bundle import collect_incident_triage_bundle
 from ingest_quietward_handoff import HandoffError, _validate_event
 from response_agent import AgentConfig, ResponseAgent
 from response_agent_diagnostics import collect_host_diagnostic
@@ -28,6 +29,7 @@ DIAGNOSTIC_ACTIONS = {
     "collect_host_diagnostic",
     "collect_process_diagnostic",
     "collect_network_diagnostic",
+    "collect_incident_triage_bundle",
 }
 
 
@@ -74,6 +76,19 @@ def _handoff_event(host_id: str = "host-1") -> dict:
             "quietward_source_chain_hash": None,
         },
     }
+
+
+def _guided_handoff_event(host_id: str = "host-1") -> dict:
+    payload = _handoff_event(host_id)
+    payload["metadata"].update(
+        {
+            "quietward_response_context_version": "1.1",
+            "response_priority": "urgent",
+            "evidence_strength": "strong",
+            "recommended_playbook": "network_triage",
+        }
+    )
+    return payload
 
 
 def _agent_config(tmp_path: Path, host_id: str = "host-1") -> AgentConfig:
@@ -150,12 +165,39 @@ def test_host_diagnostic_is_bounded_and_read_only(tmp_path: Path) -> None:
     assert set(result["agent_state_disk"]) == {"total", "used", "free"}
 
 
+def test_incident_triage_bundle_is_bounded_and_read_only(tmp_path: Path) -> None:
+    result = collect_incident_triage_bundle(tmp_path.resolve(), b"n" * 32)
+    assert result["read_only"] is True
+    assert result["system_state_changed"] is False
+    assert result["arbitrary_command_execution"] is False
+    assert result["raw_process_command_lines"] is False
+    assert result["raw_executable_paths"] is False
+    assert result["raw_remote_network_addresses"] is False
+    assert "host" in result["components"]
+    assert result["component_count"] >= 1
+
+
 def test_quietward_handoff_payload_matches_response_event_schema(tmp_path: Path) -> None:
     payload = _handoff_event()
     validated = EventCreate.model_validate(payload)
     assert validated.source == "quietward"
     assert validated.metadata["operating_system"] == "Linux"
     assert _validate_event(payload, _agent_config(tmp_path)) == payload
+
+
+def test_handoff_importer_accepts_guided_context_v11(tmp_path: Path) -> None:
+    payload = _guided_handoff_event()
+    validated = EventCreate.model_validate(payload)
+    assert validated.metadata["response_priority"] == "urgent"
+    assert validated.metadata["recommended_playbook"] == "network_triage"
+    assert _validate_event(payload, _agent_config(tmp_path)) == payload
+
+
+def test_handoff_importer_rejects_unknown_guided_playbook(tmp_path: Path) -> None:
+    payload = _guided_handoff_event()
+    payload["metadata"]["recommended_playbook"] = "run_anything"
+    with pytest.raises(HandoffError, match="recommended playbook"):
+        _validate_event(payload, _agent_config(tmp_path))
 
 
 def test_handoff_importer_accepts_valid_evidence_chain_provenance(tmp_path: Path) -> None:
@@ -224,7 +266,8 @@ def test_handoff_importer_rejects_partial_or_invalid_provenance(tmp_path: Path) 
 def test_agent_source_has_no_generic_command_execution_or_destructive_surface() -> None:
     agent_source = (SCRIPTS / "response_agent.py").read_text(encoding="utf-8").lower()
     diagnostics_source = (SCRIPTS / "response_agent_diagnostics.py").read_text(encoding="utf-8").lower()
-    combined = agent_source + "\n" + diagnostics_source
+    bundle_source = (SCRIPTS / "incident_triage_bundle.py").read_text(encoding="utf-8").lower()
+    combined = agent_source + "\n" + diagnostics_source + "\n" + bundle_source
 
     for forbidden in (
         "import subprocess",
