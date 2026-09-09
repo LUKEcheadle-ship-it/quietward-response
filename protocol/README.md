@@ -77,13 +77,26 @@ The server-side analyst lifecycle may be `pending` or `approved`, but those stat
 
 ### v1 allowlist
 
-The only executable action is:
+The endpoint action protocol allows only these bounded action types:
+
+Read-only diagnostics:
+
+```text
+collect_host_diagnostic
+collect_process_diagnostic
+collect_network_diagnostic
+collect_incident_triage_bundle
+```
+
+The guided incident triage bundle is parameterless and composes only the existing bounded diagnostics that are supported on the endpoint platform. Unsupported components are reported as skipped; they are not replaced with shell commands or arbitrary fallbacks.
+
+The only mutating action remains:
 
 ```text
 restart_quietward_demo_service
 ```
 
-Its parameter object must be empty. Despite the name, it does not operate a real OS service. The QuietWard executor modifies only its dedicated `quietward-response-demo.json` state fixture.
+Every currently enabled action requires an empty parameter object and analyst approval. The demo restart does not operate a real OS service; the Response executor modifies only its dedicated `quietward-response-demo.json` state fixture.
 
 There is no protocol form for:
 
