@@ -63,12 +63,14 @@ def _guided_profile_action(guidance: dict[str, object]) -> dict[str, object]:
     strength = str(guidance["evidence_strength"])
     return _action(
         "diagnostic",
-        "Follow QuietWard guided triage",
+        "Collect guided incident triage bundle",
         (
             f"QuietWard supplied an observation-only {priority} response profile with "
-            f"{strength} evidence and recommends the {playbook} playbook. Use the bounded "
-            "diagnostics below to validate the finding before considering remediation."
+            f"{strength} evidence and recommends the {playbook} playbook. After analyst "
+            "approval, collect one bounded read-only host/process/platform-supported "
+            "network triage bundle before considering remediation."
         ),
+        registry_action_type="collect_incident_triage_bundle",
     )
 
 
