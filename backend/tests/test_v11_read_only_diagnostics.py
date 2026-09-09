@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,11 @@ DIAGNOSTIC_ACTIONS = {
     "collect_network_diagnostic",
     "collect_incident_triage_bundle",
 }
+MUTATING_ACTIONS = {
+    "restart_quietward_demo_service",
+    "terminate_evidence_process",
+}
+PROCESS_HANDLE = re.compile(r"^qwrp-[0-9a-f]{32}$")
 
 
 def _event(event_type: str, category: str):
@@ -102,8 +108,8 @@ def _agent_config(tmp_path: Path, host_id: str = "host-1") -> AgentConfig:
     )
 
 
-def test_registry_contains_only_demo_mutation_and_read_only_diagnostics() -> None:
-    assert set(ACTION_REGISTRY) == {"restart_quietward_demo_service"} | DIAGNOSTIC_ACTIONS
+def test_registry_contains_only_explicit_diagnostics_and_mutations() -> None:
+    assert set(ACTION_REGISTRY) == DIAGNOSTIC_ACTIONS | MUTATING_ACTIONS
     for action_type in DIAGNOSTIC_ACTIONS:
         definition = ACTION_REGISTRY[action_type]
         assert definition.risk_level == "low"
@@ -112,18 +118,38 @@ def test_registry_contains_only_demo_mutation_and_read_only_diagnostics() -> Non
         assert definition.validate_parameters({}) == []
         assert definition.validate_parameters({"pid": 1})
 
+    containment = ACTION_REGISTRY["terminate_evidence_process"]
+    assert containment.risk_level == "high"
+    assert containment.approval_required is True
+    assert containment.reversible is False
+    assert containment.validate_parameters({})
+    assert containment.validate_parameters({"pid": 1234})
+    assert containment.validate_parameters({"evidence_handle": "qwrp-" + "a" * 32}) == []
+
     forbidden = {
-        "terminate_process_by_handle",
-        "quarantine_artifact_by_handle",
-        "restore_quarantined_artifact_by_handle",
-        "stop_process",
-        "block_network",
+        "run_shell",
+        "run_arbitrary_command",
+        "terminate_arbitrary_process",
+        "quarantine_arbitrary_path",
+        "block_arbitrary_address",
         "isolate_host",
     }
     assert not (forbidden & set(ACTION_REGISTRY))
 
 
-def test_recommendations_bind_diagnostics_to_relevant_incidents() -> None:
+def test_recommendations_bind_diagnostics_and_process_containment_to_relevant_incidents() -> None:
+    malware = recommendations_for([_event("malware_process_detected", "malware")])
+    malware_types = {
+        item.get("registry_action_type")
+        for item in malware
+        if item.get("registry_action_type")
+    }
+    assert {
+        "collect_host_diagnostic",
+        "collect_process_diagnostic",
+        "terminate_evidence_process",
+    } <= malware_types
+
     network = recommendations_for([_event("c2_beacon_detected", "network")])
     network_types = {
         item.get("registry_action_type")
@@ -144,15 +170,18 @@ def test_recommendations_bind_diagnostics_to_relevant_incidents() -> None:
     }
     assert "collect_host_diagnostic" in persistence_types
     assert "collect_process_diagnostic" in persistence_types
+    assert "terminate_evidence_process" in persistence_types
     assert "collect_network_diagnostic" not in persistence_types
 
 
-def test_response_agent_capabilities_are_narrow(tmp_path: Path) -> None:
+def test_response_agent_capabilities_are_narrow_and_evidence_bound(tmp_path: Path) -> None:
     agent = ResponseAgent(_agent_config(tmp_path))
     capabilities = agent.capabilities()
     assert set(capabilities["read_only_actions"]) == DIAGNOSTIC_ACTIONS
-    assert capabilities["mutating_actions"] == ["restart_quietward_demo_service"]
+    assert set(capabilities["mutating_actions"]) == MUTATING_ACTIONS
     assert capabilities["arbitrary_command_execution"] is False
+    assert capabilities["arbitrary_process_targeting"] is False
+    assert capabilities["evidence_bound_process_containment"] is True
     assert capabilities["raw_process_command_lines"] is False
     assert capabilities["raw_executable_paths"] is False
     assert capabilities["raw_remote_network_addresses"] is False
@@ -165,7 +194,7 @@ def test_host_diagnostic_is_bounded_and_read_only(tmp_path: Path) -> None:
     assert set(result["agent_state_disk"]) == {"total", "used", "free"}
 
 
-def test_incident_triage_bundle_is_bounded_and_read_only(tmp_path: Path) -> None:
+def test_incident_triage_bundle_is_bounded_read_only_and_mints_only_opaque_handles(tmp_path: Path) -> None:
     result = collect_incident_triage_bundle(tmp_path.resolve(), b"n" * 32)
     assert result["read_only"] is True
     assert result["system_state_changed"] is False
@@ -173,8 +202,16 @@ def test_incident_triage_bundle_is_bounded_and_read_only(tmp_path: Path) -> None
     assert result["raw_process_command_lines"] is False
     assert result["raw_executable_paths"] is False
     assert result["raw_remote_network_addresses"] is False
+    assert result["evidence_handles_local_only"] is True
     assert "host" in result["components"]
     assert result["component_count"] >= 1
+    process = result["components"].get("process")
+    if isinstance(process, dict):
+        assert process["evidence_handle_scheme"] == "endpoint_local_hmac_v1"
+        assert process["raw_process_target_parameters_required"] is False
+        for row in process.get("processes", []):
+            if "evidence_handle" in row:
+                assert PROCESS_HANDLE.fullmatch(row["evidence_handle"])
 
 
 def test_quietward_handoff_payload_matches_response_event_schema(tmp_path: Path) -> None:
@@ -224,7 +261,6 @@ def test_handoff_importer_rejects_nested_data_smuggling_and_summary_tampering(
     tmp_path: Path,
 ) -> None:
     config = _agent_config(tmp_path)
-
     hidden_subject = copy.deepcopy(_handoff_event())
     hidden_subject["metadata"]["raw_subject"] = "/private/secret/path"
     with pytest.raises(HandoffError, match="metadata contains unexpected fields"):
@@ -263,19 +299,23 @@ def test_handoff_importer_rejects_partial_or_invalid_provenance(tmp_path: Path) 
         _validate_event(invalid, config)
 
 
-def test_agent_source_has_no_generic_command_execution_or_destructive_surface() -> None:
-    agent_source = (SCRIPTS / "response_agent.py").read_text(encoding="utf-8").lower()
-    diagnostics_source = (SCRIPTS / "response_agent_diagnostics.py").read_text(encoding="utf-8").lower()
-    bundle_source = (SCRIPTS / "incident_triage_bundle.py").read_text(encoding="utf-8").lower()
-    combined = agent_source + "\n" + diagnostics_source + "\n" + bundle_source
-
+def test_agent_source_has_no_generic_command_or_arbitrary_target_surface() -> None:
+    paths = [
+        SCRIPTS / "response_agent.py",
+        SCRIPTS / "response_agent_diagnostics.py",
+        SCRIPTS / "incident_triage_bundle.py",
+        SCRIPTS / "evidence_store.py",
+        SCRIPTS / "process_containment.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8").lower() for path in paths)
     for forbidden in (
         "import subprocess",
         "from subprocess",
         "os.system(",
         "shell=true",
-        "terminate_process_by_handle",
-        "quarantine_artifact_by_handle",
-        "restore_quarantined_artifact_by_handle",
+        "run_arbitrary_command",
+        "arbitrary_pid_accepted\": true",
+        "quarantine_arbitrary_path",
+        "block_arbitrary_address",
     ):
         assert forbidden not in combined
