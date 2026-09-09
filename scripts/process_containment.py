@@ -47,38 +47,57 @@ def _protected_reason(process: dict[str, Any]) -> str | None:
     return None
 
 
-def _terminate_windows(pid: int) -> None:
+def _terminate_windows(pid: int) -> bool:
     if os.name != "nt":
         raise ProcessContainmentError("Windows process termination requested on a non-Windows host")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     PROCESS_TERMINATE = 0x0001
+    SYNCHRONIZE = 0x00100000
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
     kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
-    handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    handle = kernel32.OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, False, pid)
     if not handle:
         raise ProcessContainmentError("evidence-bound process could not be opened for termination")
     try:
         if not kernel32.TerminateProcess(handle, 1):
             raise ProcessContainmentError("Windows refused evidence-bound process termination")
+        wait_result = kernel32.WaitForSingleObject(
+            handle,
+            int(_EXIT_CONFIRM_TIMEOUT_SECONDS * 1000),
+        )
+        if wait_result == 0x00000102:
+            raise ProcessContainmentError(
+                "Windows did not signal evidence-bound process exit before timeout"
+            )
+        if wait_result == 0xFFFFFFFF:
+            raise ProcessContainmentError(
+                "Windows could not confirm evidence-bound process exit"
+            )
+        if wait_result != 0:
+            raise ProcessContainmentError(
+                "Windows returned an unknown evidence-bound process wait status"
+            )
     finally:
         kernel32.CloseHandle(handle)
+    return True
 
 
-def _request_termination(pid: int) -> str:
+def _request_termination(pid: int) -> tuple[str, bool]:
     system = platform.system().lower()
     if system == "linux":
         try:
             os.kill(pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError, OSError) as exc:
             raise ProcessContainmentError(f"Linux process termination failed: {exc}") from exc
-        return "SIGTERM"
+        return "SIGTERM", False
     if os.name == "nt":
-        _terminate_windows(pid)
-        return "TerminateProcess"
+        return "TerminateProcess", _terminate_windows(pid)
     raise ProcessContainmentError("evidence-bound process containment is supported only on Windows and Linux")
 
 
@@ -121,8 +140,10 @@ def terminate_evidence_process(
 
     pid = int(process["pid"])
     expected_start_marker = str(process["start_marker"])
-    mechanism = _request_termination(pid)
-    confirmed = _confirm_original_process_exited(pid, expected_start_marker)
+    mechanism, handle_confirmed = _request_termination(pid)
+    confirmed = handle_confirmed or _confirm_original_process_exited(
+        pid, expected_start_marker
+    )
     if not confirmed:
         raise ProcessContainmentError(
             "termination was requested but the evidence-bound process instance remained active"
