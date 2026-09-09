@@ -53,6 +53,24 @@ _ALLOWED_HINTS = {
     "process_inventory",
     "network_snapshot",
     "artifact_metadata_review",
+    "identity_activity_review",
+    "evidence_chain_review",
+}
+_ALLOWED_RESPONSE_PRIORITIES = {"routine", "elevated", "urgent"}
+_ALLOWED_EVIDENCE_STRENGTHS = {"limited", "corroborated", "strong"}
+_ALLOWED_PLAYBOOKS = {
+    "malware_triage",
+    "evidence_integrity_triage",
+    "privilege_triage",
+    "persistence_triage",
+    "identity_triage",
+    "network_triage",
+    "container_triage",
+    "vulnerability_triage",
+    "process_execution_triage",
+    "file_integrity_triage",
+    "host_health_triage",
+    "general_incident_triage",
 }
 _ALLOWED_OS = {None, "Windows", "Linux", "Darwin", "Unknown"}
 _ALLOWED_EVENT_KEYS = {
@@ -82,7 +100,7 @@ _ALLOWED_EVIDENCE_KEYS = {
     "subject_hmac_sha256",
     "subject_type",
 }
-_ALLOWED_METADATA_KEYS = {
+_BASE_METADATA_KEYS = {
     "quietward_response_context_version",
     "quietward_finding_hmac_sha256",
     "quietward_score",
@@ -94,6 +112,11 @@ _ALLOWED_METADATA_KEYS = {
     "operating_system",
     "quietward_source_cycle_id",
     "quietward_source_chain_hash",
+}
+_GUIDED_METADATA_KEYS = _BASE_METADATA_KEYS | {
+    "response_priority",
+    "evidence_strength",
+    "recommended_playbook",
 }
 
 
@@ -174,6 +197,15 @@ def _validate_provenance(metadata: dict[str, Any]) -> None:
         raise HandoffError("handoff QuietWard evidence-chain hash is invalid")
 
 
+def _validate_guided_context(metadata: dict[str, Any]) -> None:
+    if metadata.get("response_priority") not in _ALLOWED_RESPONSE_PRIORITIES:
+        raise HandoffError("handoff response priority is invalid")
+    if metadata.get("evidence_strength") not in _ALLOWED_EVIDENCE_STRENGTHS:
+        raise HandoffError("handoff evidence strength is invalid")
+    if metadata.get("recommended_playbook") not in _ALLOWED_PLAYBOOKS:
+        raise HandoffError("handoff recommended playbook is invalid")
+
+
 def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
     if not isinstance(event, dict):
         raise HandoffError("handoff event must be an object")
@@ -204,16 +236,22 @@ def _validate_event(event: Any, config: AgentConfig) -> dict[str, Any]:
     evidence = event.get("evidence")
     if not isinstance(metadata, dict) or not isinstance(evidence, dict):
         raise HandoffError("handoff event metadata/evidence is invalid")
-    if set(metadata) != _ALLOWED_METADATA_KEYS:
-        raise HandoffError("handoff metadata contains unexpected fields")
+    context_version = metadata.get("quietward_response_context_version")
+    if context_version == "1.0":
+        if set(metadata) != _BASE_METADATA_KEYS:
+            raise HandoffError("handoff metadata contains unexpected fields")
+    elif context_version == "1.1":
+        if set(metadata) != _GUIDED_METADATA_KEYS:
+            raise HandoffError("handoff metadata contains unexpected fields")
+        _validate_guided_context(metadata)
+    else:
+        raise HandoffError("handoff event context version is invalid")
     if set(evidence) != _ALLOWED_EVIDENCE_KEYS:
         raise HandoffError("handoff evidence contains unexpected fields")
     if metadata.get("observation_only_source") is not True:
         raise HandoffError("handoff event is not marked observation-only")
     if metadata.get("executable_authority") is not False:
         raise HandoffError("handoff event claims executable authority")
-    if metadata.get("quietward_response_context_version") != "1.0":
-        raise HandoffError("handoff event context version is invalid")
     finding_token = metadata.get("quietward_finding_hmac_sha256")
     if not isinstance(finding_token, str) or not _FINDING_TOKEN.fullmatch(finding_token):
         raise HandoffError("handoff QuietWard finding identity is not privacy-keyed")
