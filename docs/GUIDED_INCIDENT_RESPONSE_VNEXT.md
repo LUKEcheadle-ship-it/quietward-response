@@ -1,81 +1,127 @@
 # QuietWard Response Guided Incident Response — vNext
 
-This update turns sanitized QuietWard detection context into a faster, safer analyst response workflow without introducing autonomous endpoint mutation.
+This update turns sanitized QuietWard detection context into a safer detection-to-resolution workflow while preserving the architectural separation between QuietWard observation and Response authority.
 
-## Goal
+## Non-negotiable release requirement
 
-When QuietWard produces a strong correlated finding, Response should immediately know the coarse priority, evidence strength, recommended investigation playbook, and safe diagnostic sequence.
+The combined QuietWard + QuietWard Response vNext update **must not be released while any QuietWard finding family lacks a tested Response resolution path**.
 
-Response remains the authority boundary for any future remediation. QuietWard remains observation-only.
+`scripts/verify_vnext_resolution_coverage.py` is the release-blocking gate. It must return PASS before this combined update can move out of draft/release-candidate status.
 
-## Phase 1 — Consume guided QuietWard context
+A valid resolution path is either:
 
-Status: implemented on `feature/guided-incident-response-vnext`; qualification pending.
+1. a typed, evidence-bound, policy-checked Response action with analyst approval where host mutation is safe and generalizable; or
+2. a tested guided escalation/recovery workflow with explicit evidence and closure criteria where automatic mutation would be unsafe or environment-specific.
 
-Response accepts only the allowlisted QuietWard response-context v1.1 values and ignores guidance that violates the source safety contract.
+A generic "investigate manually" placeholder does not count as release-ready resolution coverage.
 
-Accepted guidance includes:
+## Phase 1 — Guided QuietWard context
+
+Status: implemented; qualification pending.
+
+Response accepts allowlisted QuietWard response-context v1.1 values while retaining v1.0 compatibility:
 
 - `response_priority`
 - `evidence_strength`
 - `recommended_playbook`
 - `investigation_hints`
+- optional opaque `resolution_target_handle`
 
-Response uses the profile to prioritize existing bounded diagnostics and to explain why the investigation sequence was recommended. The profile never grants executable authority.
+The opaque handle is not a path, PID, account, address, or command. Raw private targets remain outside the server-visible handoff. Guidance that violates the observation-only contract is rejected.
 
-## Phase 2 — One-click incident triage bundle
+## Phase 2 — Incident triage bundle
 
-Status: implemented on the feature branch; qualification pending.
+Status: implemented; qualification pending.
 
 `collect_incident_triage_bundle` is an analyst-approved, parameterless Response action that composes:
 
-- host health diagnostic
-- process diagnostic where supported
-- privacy-preserving network diagnostic where supported
+- bounded host health
+- bounded process inventory
+- privacy-preserving network snapshot where supported
 
-The bundle remains read-only, bounded, capability-aware, replay-safe, signed, and audited through the existing Response action lifecycle. Unsupported diagnostic components are reported as skipped rather than replaced with unsafe fallbacks.
+The bundle is read-only with respect to protected host state. Process entries may receive endpoint-local opaque evidence handles that can later authorize narrowly typed containment after separate analyst approval.
 
 ## Phase 3 — Evidence-bound containment
 
-After the diagnostic bundle and joint integration gates pass, add narrowly typed remediation actions to Response only.
+Status: in progress and release-blocking.
 
-Initial candidates:
+### Process containment
 
-- `quarantine_observed_file`
-- `terminate_observed_process`
-- `disable_observed_persistence`
-- `restore_quarantined_file`
+Implemented in the feature branch; qualification pending:
 
-Containment requirements:
+- `terminate_evidence_process`
+- no arbitrary PID field
+- only accepts `qwrp-<opaque handle>`
+- handle must originate from a successful triage result for the same incident, host, and agent
+- endpoint privately resolves the handle
+- process image, parent and start marker are revalidated immediately before action
+- critical/system processes and Response's own lineage are protected
+- stale, changed, cross-incident, unknown or expired evidence fails closed
+- explicit analyst approval remains mandatory
+- no shell or arbitrary command execution
 
-- explicit human approval
-- deterministic policy validation
-- target must originate from previously signed endpoint evidence
-- execution-time target revalidation
-- stale/mismatched evidence fails closed
-- strong allowlists for protected/system-critical processes and files
-- no free-form commands or arbitrary shell execution
-- complete before/after result and audit record
-- reversible action preferred where practical
+### Remaining release-blocking resolution families
 
-## Phase 4 — Threat-specific playbooks
+Still to be implemented and qualified:
 
-Build response playbooks for the highest-value QuietWard detection families:
+- evidence-bound file quarantine and reversible restore
+- evidence-bound persistence disable/removal
+- evidence-bound network containment/isolation
+- identity/session recovery workflow
+- container/workload containment
+- vulnerability patch/update verification workflow
+- evidence-integrity recovery workflow
+- typed operational recovery workflows
+- generic-security fallback resolution into a specific actionable family
+
+## Resolution coverage matrix
+
+`backend/app/services/resolution_coverage.py` is the machine-readable coverage inventory. Every QuietWard Response category must exist in this matrix and remain `release_ready=False` until its real resolution path and qualification evidence exist.
+
+Current categories:
+
+- malware
+- integrity
+- privilege
+- persistence
+- identity
+- network
+- container
+- vulnerability
+- execution
+- file_integrity
+- operational
+- security
+
+The final release gate fails while even one category remains unresolved.
+
+## Phase 4 — Higher-value detection playbooks
+
+After resolution coverage is complete, expand playbooks for:
 
 1. ransomware behavior
-2. credential access / infostealer behavior
+2. credential access / infostealers
 3. persistence establishment
 4. suspicious living-off-the-land activity
 5. correlated process + file + network attack chains
 
-Playbooks should guide collection and propose bounded response actions, but should not bypass approval or policy controls.
+New detectors must not expand faster than Response's ability to safely resolve or explicitly escalate them; otherwise they create the same detection/remediation gap this vNext release is intended to close.
 
 ## Joint release gates
 
-- QuietWard observation-only invariants remain unchanged
-- Response guidance parser consumes only allowlisted, versioned values
-- malformed or executable-authority handoffs fail closed
-- action capabilities are explicitly enrolled and server-validated
-- all real endpoint actions remain typed and parameter constrained
-- no inbound endpoint listener or remote shell
-- joint end-to-end coverage verifies finding -> handoff -> incident -> recommendation -> approval -> action -> signed result -> audit
+Before release:
+
+- QuietWard remains observation-only
+- legacy v1.0/v1.1 handoffs remain upgrade-compatible
+- malformed optional remediation handles fail closed
+- Response guidance consumes only allowlisted versioned values
+- action capabilities are signed and explicitly enrolled
+- mutating actions are typed and parameter-constrained
+- evidence-bound actions prove same-incident/host/agent provenance
+- endpoints revalidate mutable targets at execution time
+- no arbitrary shell, PID, path, address, service name or free-form command surface
+- protected system targets are fail-closed
+- full backend/frontend tests pass
+- companion QuietWard tests pass
+- joint finding -> handoff -> incident -> triage -> approval -> action -> result -> audit tests pass
+- `scripts/verify_vnext_resolution_coverage.py` passes with zero unresolved categories
