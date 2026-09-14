@@ -1,4 +1,9 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+let analystToken = "";
+
+export function setAnalystToken(token: string) {
+  analystToken = token; // Memory only; reload/logout removes the credential.
+}
 
 function errorMessageFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
@@ -20,6 +25,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(analystToken ? { Authorization: `Bearer ${analystToken}` } : {}),
       ...(init?.headers || {})
     }
   });

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database.models import EventRecord
+from app.analyst_auth import authenticated_analyst
 from app.database.session import get_db
 from app.schemas.event import EventCreate, EventRead, IngestionResult
 from app.services.agent_auth import verify_agent_request
@@ -50,6 +51,8 @@ async def receive_event(
 ) -> IngestionResult:
     settings = request.app.state.settings
     source = payload.source.strip().lower()
+    if source != "quietward" and settings.analyst_token_hashes and settings.environment.strip().lower() == "development":
+        authenticated_analyst(request)
 
     if settings.require_agent_auth_for_quietward_events and source == "quietward":
         raw = await request.body()

@@ -82,7 +82,7 @@ This gives the single v1 demo action explicit crash/retry idempotency. Future hi
 
 The server refuses action creation or dispatch when the action is unregistered, parameters are invalid, the action is not an enabled controlled recommendation for the incident, the incident is closed, target agent/host do not match the incident, the action or approval is expired, the agent is disabled, the approval is not approved, or redundant approval/action lifecycle identity fields do not match. Expired/cancelled state is persisted rather than rolled back. The agent separately rejects unknown fields/types, non-empty parameters, stale expiry, missing policy allowance, wrong host, and wrong agent.
 
-Current limitation: local analyst identity is represented by `X-Actor-ID` and is not yet backed by OIDC/RBAC. The identifier is bounded before persistence, but v1 proves the approval state machine and security boundary, not production analyst authentication.
+Current development adds named bearer credentials, stored server-side as SHA-256 digests, for all analyst API routes. Server-verified names replace `X-Actor-ID` before mutations and approvals. Credentials are mandatory outside configured loopback development; the default loopback demo still accepts a bounded caller name. Analysts share permissions, and OIDC/RBAC, expiry and automatic rotation remain future work. See [configuration and limitations](REVIEW_IMPROVEMENTS.md).
 
 ### Corrupt endpoint response state
 

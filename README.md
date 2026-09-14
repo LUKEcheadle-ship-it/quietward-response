@@ -175,6 +175,8 @@ Default local surfaces:
 ```bash
 cp .env.example .env
 # replace QWR_ENROLLMENT_TOKEN with a random 24+ character value
+python scripts/configure_analyst.py your-name
+# paste the printed QWR_ANALYST_TOKEN_HASHES assignment into .env
 docker compose up --build
 ```
 
@@ -205,7 +207,7 @@ The current preview deliberately has:
 - no enterprise OIDC/RBAC claim
 - no multi-tenant/horizontal-scaling claim
 
-Analyst identity remains local-development grade. HMAC transport should use TLS outside loopback/trusted local development. The audit chain provides tamper evidence, not immutable storage.
+Named analyst credentials now bind API changes and approvals to server-verified identities. They are required outside loopback development; all named analysts share the existing permissions. See [review improvements](docs/REVIEW_IMPROVEMENTS.md) for setup, revocation, incident filtering and bridge activity. HMAC transport should use TLS outside loopback/trusted local development. The audit chain provides tamper evidence, not immutable storage.
 
 ## Explore or contribute
 
