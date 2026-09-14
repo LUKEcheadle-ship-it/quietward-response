@@ -1,10 +1,14 @@
-fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
-pydantic>=2.8,<3
-pydantic-settings>=2.4,<3
-SQLAlchemy>=2.0,<3
-alembic>=1.13,<2
-psycopg[binary]>=3.2,<4
-httpx2>=2.9,<3
-jsonschema>=4.23,<5
-pytest>=8.3,<10
+# Tested together on Python 3.12. Update as a group and run pytest -W error.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+SQLAlchemy==2.0.53
+alembic==1.20.0
+psycopg[binary]==3.3.5
+httpx2==2.13.0
+jsonschema==4.26.0
+pytest==8.4.2
+# Starlette 1.6.0 TestClient still uses the pre-4.15 BlockingPortal alias.
+starlette==1.6.0
+anyio==4.14.2

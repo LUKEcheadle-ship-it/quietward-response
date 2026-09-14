@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — public review
+
+- Add incident search, filters and cursor pagination with counts.
+- Show QuietWard receipt activity and guide empty screens toward demo/pairing.
+- Require named analyst credentials outside loopback development and bind audited identities on the server.
+- Update sharp to 0.35.4 to resolve GHSA-rgj7-g3m4-5g8c in the frontend lockfile.
+- Pin the tested backend dependency baseline to restore warnings-as-errors qualification.
+
 All notable changes to QuietWard Response are documented here.
 
 ## Public launch refresh — 2026-08-26

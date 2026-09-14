@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
+import json
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import Session
 
-from app.database.models import IncidentRecord
+from app.database.models import IncidentRecord, EventRecord
 from app.database.session import get_db
 from app.schemas.incident import IncidentDetail, IncidentPatch, IncidentSummary
 from app.services.incident_service import (
@@ -37,6 +41,48 @@ def list_incidents(
         db.scalars(statement.order_by(IncidentRecord.updated_at.desc()).limit(limit))
     )
     return [incident_to_summary(incident) for incident in incidents]
+
+
+@router.get("/page")
+def incident_page(
+    status_filter: str | None = Query(default=None, alias="status", max_length=32),
+    severity: str | None = Query(default=None, max_length=16),
+    host: str | None = Query(default=None, max_length=128),
+    search: str | None = Query(default=None, max_length=120),
+    cursor: str | None = Query(default=None, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    filters = []
+    if status_filter:
+        filters.append(IncidentRecord.status == status_filter)
+    if severity:
+        filters.append(IncidentRecord.severity == severity.lower())
+    if host:
+        filters.append(IncidentRecord.incident_id.in_(select(EventRecord.incident_id).where(EventRecord.host_id == host)))
+    if search:
+        filters.append(or_(IncidentRecord.title.icontains(search, autoescape=True),
+                           IncidentRecord.incident_id == search))
+    total = db.scalar(select(func.count()).select_from(IncidentRecord).where(*filters)) or 0
+    if cursor:
+        try:
+            value = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+            timestamp = datetime.fromisoformat(value["updated_at"])
+            identity = value["id"]
+            if not isinstance(identity, str) or len(identity) > 36:
+                raise ValueError("invalid id")
+        except (ValueError, TypeError, KeyError, UnicodeError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid incident cursor") from exc
+        filters.append(or_(IncidentRecord.updated_at < timestamp,
+                           and_(IncidentRecord.updated_at == timestamp, IncidentRecord.incident_id < identity)))
+    rows = list(db.scalars(select(IncidentRecord).where(*filters)
+                          .order_by(IncidentRecord.updated_at.desc(), IncidentRecord.incident_id.desc()).limit(limit+1)))
+    page = rows[:limit]
+    next_cursor = None
+    if len(rows) > limit:
+        last = page[-1]
+        next_cursor = base64.urlsafe_b64encode(json.dumps({"updated_at": last.updated_at.isoformat(), "id": last.incident_id}).encode()).decode()
+    return {"items": [incident_to_summary(row) for row in page], "total": total, "next_cursor": next_cursor}
 
 
 @router.get("/{incident_id}", response_model=IncidentDetail)

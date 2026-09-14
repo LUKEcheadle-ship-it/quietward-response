@@ -7,6 +7,7 @@ import { ErrorState, LoadingState } from "@/components/States";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { apiFetch, formatRelative } from "@/lib/api";
 import type { Overview } from "@/lib/types";
+import { BridgeStatus } from "@/components/BridgeStatus";
 
 export default function OverviewPage() {
   const [data, setData] = useState<Overview | null>(null);
@@ -30,6 +31,7 @@ export default function OverviewPage() {
       </section>
 
       {error && <ErrorState message={error} />}
+      <BridgeStatus />
       {!data && !error && <LoadingState />}
       {data && (
         <>
@@ -72,12 +74,12 @@ export default function OverviewPage() {
             <aside className="panel h-fit">
               <p className="eyebrow">Control boundary</p>
               <h2 className="mt-2 text-lg font-semibold">Human decisions remain authoritative</h2>
-              <p className="muted mt-3">v1 permits only the dedicated demo-fixture restart action. It must be registered, targeted to the enrolled host, explicitly approved, policy-allowed, and validated again by QuietWard. General host remediation is not available.</p>
+              <p className="muted mt-3">The current preview supports typed read-only diagnostics and a dedicated demo-fixture action. Each requires analyst approval, policy checks, and independent validation by the Response endpoint agent. QuietWard remains observation-only.</p>
               <div className="mt-5 space-y-3 text-sm">
                 <div className="flex justify-between border-b border-line pb-3"><span className="text-slate-400">Correlation</span><span className="text-emerald-300">Deterministic</span></div>
                 <div className="flex justify-between border-b border-line pb-3"><span className="text-slate-400">Audit chain</span><span className="text-emerald-300">Tamper-evident</span></div>
                 <div className="flex justify-between border-b border-line pb-3"><span className="text-slate-400">Approval</span><span className="text-emerald-300">Required</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Executable scope</span><span className="text-amber-200">Demo fixture only</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Executable scope</span><span className="text-amber-200">Diagnostics + demo fixture</span></div>
               </div>
             </aside>
           </section>
