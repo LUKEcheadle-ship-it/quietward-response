@@ -57,7 +57,25 @@ export default function OverviewPage() {
                 <Link href="/incidents" className="text-sm text-cyan hover:text-white">View all →</Link>
               </div>
               <div className="space-y-3">
-                {data.recent_incidents.length === 0 && <div className="panel text-sm text-slate-400">No incidents yet. Run the safe demo seeder or connect an enrolled QuietWard agent to exercise the pipeline.</div>}
+                {data.recent_incidents.length === 0 && (
+                  <div className="panel">
+                    <p className="font-medium text-white">No incidents yet</p>
+                    <p className="muted mt-2 text-sm">
+                      An incident groups validated security events into an explainable investigation with evidence, timeline context, and approval-gated response recommendations.
+                    </p>
+                    <p className="mt-4 text-sm text-slate-300">Try the safe synthetic demo from the repository root:</p>
+                    <code className="mt-2 block overflow-x-auto rounded-md border border-line bg-slate-950 px-3 py-2 text-xs text-cyan">
+                      python scripts/quick_demo.py
+                    </code>
+                    <div className="mt-4 flex flex-wrap gap-4 text-sm">
+                      <a href="http://localhost:8002/docs" target="_blank" rel="noreferrer" className="text-cyan hover:text-white">Open API docs ↗</a>
+                      <Link href="/events" className="text-cyan hover:text-white">View validated events →</Link>
+                    </div>
+                    <p className="muted mt-4 text-xs">
+                      Standalone Response accepts authenticated security events directly. Paired mode can also ingest sanitized, verified findings from QuietWard while keeping detection authority and response authority separate.
+                    </p>
+                  </div>
+                )}
                 {data.recent_incidents.map((incident) => (
                   <Link key={incident.incident_id} href={`/incidents/${incident.incident_id}`} className="panel block transition hover:border-cyan/40 hover:bg-slate-900">
                     <div className="flex flex-wrap items-start justify-between gap-3">
