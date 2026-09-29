@@ -1,19 +1,53 @@
 # QuietWard Response
 
 [![CI](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/workflows/ci.yml/badge.svg)](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/workflows/ci.yml)
-
-**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
-
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)
 ![Frontend](https://img.shields.io/badge/Frontend-Next.js-black)
+![Database](https://img.shields.io/badge/Database-PostgreSQL-336791)
 ![Preview](https://img.shields.io/badge/Preview-1.1.0a1-orange)
 
-QuietWard Response is an event-driven incident investigation and controlled-response platform for local and trusted-network security environments.
+**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
 
-It turns authenticated security observations into explainable incidents, timelines, recommendations, explicit analyst decisions, tightly typed endpoint diagnostics, signed results, and tamper-evident audit history.
+QuietWard Response is a full-stack incident-investigation and controlled-response platform. It turns authenticated security observations into explainable incidents, evidence timelines, recommendations, explicit analyst decisions, bounded endpoint diagnostics, signed results, and tamper-evident audit history.
 
-> **The design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
+### At a glance
+
+**FastAPI + Next.js + PostgreSQL** · **Automated backend/frontend CI** · **Human approval required** · **Replay-resistant event ingestion** · **No arbitrary remote shell**
+
+```mermaid
+flowchart LR
+    A[Security event] --> B[Authenticated ingestion]
+    B --> C[Deterministic correlation]
+    C --> D[Incident + evidence]
+    D --> E[Recommendation]
+    E --> F[Analyst approval]
+    F --> G[Policy enforcement]
+    G --> H[Typed diagnostic]
+    H --> I[Signed result + audit]
+```
+
+### Try the full product
+
+Start the local stack with safe synthetic incidents already loaded:
+
+```bash
+python scripts/quick_demo.py
+```
+
+Windows:
+
+```powershell
+py -3.12 scripts\quick_demo.py
+```
+
+Then open the analyst console at `http://localhost:3001`.
+
+The demo does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation.
+
+> **Next visual milestone:** add a real analyst-console screenshot captured from the synthetic demo so the full-stack product is visible immediately on the repository landing page.
+
+> **Design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
 
 ## Engineering highlights
 
