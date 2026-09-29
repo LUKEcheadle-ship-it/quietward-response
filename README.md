@@ -1,34 +1,35 @@
 # QuietWard Response
 
 [![CI](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/workflows/ci.yml/badge.svg)](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/workflows/ci.yml)
-
-**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
-
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)
 ![Frontend](https://img.shields.io/badge/Frontend-Next.js-black)
+![Database](https://img.shields.io/badge/Database-PostgreSQL-336791)
 ![Preview](https://img.shields.io/badge/Preview-1.1.0a1-orange)
 
-QuietWard Response is an event-driven incident investigation and controlled-response platform for local and trusted-network security environments.
+**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
 
-It turns authenticated security observations into explainable incidents, timelines, recommendations, explicit analyst decisions, tightly typed endpoint diagnostics, signed results, and tamper-evident audit history.
+QuietWard Response is a full-stack incident-investigation and controlled-response platform. It turns authenticated security observations into explainable incidents, evidence timelines, recommendations, explicit analyst decisions, bounded endpoint diagnostics, signed results, and tamper-evident audit history.
 
-> **The design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
+### At a glance
 
-## Engineering highlights
+**FastAPI + Next.js + PostgreSQL** · **Automated backend/frontend CI** · **Human approval required** · **Replay-resistant event ingestion** · **No arbitrary remote shell**
 
-- **Full-stack security product:** FastAPI backend, Next.js frontend, PostgreSQL-supported local stack, and a browser-based analyst console.
-- **Human-in-the-loop response:** recommendations, explicit analyst approval, deterministic policy enforcement, and endpoint-side validation are separate stages.
-- **Authenticated event pipeline:** HMAC-SHA256 authentication, timestamp windows, persisted nonces, and replay resistance.
-- **Constrained endpoint control:** typed, capability-declared actions replace arbitrary shell or remote-command execution.
-- **Auditability:** signed endpoint results and a hash-chained audit ledger preserve evidence for later verification.
-- **Failure-safe execution:** idempotent action handling and reconciliation are designed to avoid duplicate execution during retries or recovery.
-- **Cross-project integration:** a sanitized, verified bridge accepts QuietWard findings while keeping detection and response authority separate.
-- **Release discipline:** the paired candidate passed backend tests on Linux and Windows, frontend type/build checks, migration verification, dependency audit, and cross-repository acceptance before promotion to `main`.
+```mermaid
+flowchart LR
+    A[Security event] --> B[Authenticated ingestion]
+    B --> C[Deterministic correlation]
+    C --> D[Incident + evidence]
+    D --> E[Recommendation]
+    E --> F[Analyst approval]
+    F --> G[Policy enforcement]
+    G --> H[Typed diagnostic]
+    H --> I[Signed result + audit]
+```
 
-## Try the full product with one command
+### Try the full product
 
-Start the normal local stack with safe synthetic incidents already loaded:
+Start the local stack with safe synthetic incidents already loaded:
 
 ```bash
 python scripts/quick_demo.py
@@ -42,7 +43,20 @@ py -3.12 scripts\quick_demo.py
 
 Then open the analyst console at `http://localhost:3001`.
 
-The helper uses the existing synthetic seed path. It does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
+The demo does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
+
+> **Design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
+
+## Engineering highlights
+
+- **Full-stack security product:** FastAPI backend, Next.js frontend, PostgreSQL-supported local stack, and a browser-based analyst console.
+- **Human-in-the-loop response:** recommendations, explicit analyst approval, deterministic policy enforcement, and endpoint-side validation are separate stages.
+- **Authenticated event pipeline:** HMAC-SHA256 authentication, timestamp windows, persisted nonces, and replay resistance.
+- **Constrained endpoint control:** typed, capability-declared actions replace arbitrary shell or remote-command execution.
+- **Auditability:** signed endpoint results and a hash-chained audit ledger preserve evidence for later verification.
+- **Failure-safe execution:** idempotent action handling and reconciliation are designed to avoid duplicate execution during retries or recovery.
+- **Cross-project integration:** a sanitized, verified bridge accepts QuietWard findings while keeping detection and response authority separate.
+- **Release discipline:** the paired candidate passed backend tests on Linux and Windows, frontend type/build checks, migration verification, dependency audit, and cross-repository acceptance before promotion to `main`.
 
 ## What you can see immediately
 
