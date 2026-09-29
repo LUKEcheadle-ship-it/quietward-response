@@ -11,6 +11,8 @@
 
 QuietWard Response is a full-stack incident-investigation and controlled-response platform. It turns authenticated security observations into explainable incidents, evidence timelines, recommendations, explicit analyst decisions, bounded endpoint diagnostics, signed results, and tamper-evident audit history.
 
+![QuietWard Response analyst console with seeded synthetic incidents](docs/assets/quietward-response-overview.png)
+
 ### At a glance
 
 **FastAPI + Next.js + PostgreSQL** · **Automated backend/frontend CI** · **Human approval required** · **Replay-resistant event ingestion** · **No arbitrary remote shell**
