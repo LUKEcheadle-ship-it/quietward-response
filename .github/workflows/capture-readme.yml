@@ -1,0 +1,73 @@
+name: Capture Response README screenshot
+
+on:
+  push:
+    branches:
+      - portfolio/response-real-screenshot-20260929
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    if: ${{ !contains(github.event.head_commit.message, '[skip capture]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: portfolio/response-real-screenshot-20260929
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install browser tooling
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Start the real synthetic demo
+        run: |
+          nohup python scripts/quick_demo.py > /tmp/qwr-demo.log 2>&1 &
+          echo $! > /tmp/qwr-demo.pid
+          python - <<'PY'
+          import time, urllib.request
+          deadline=time.time()+180
+          while time.time()<deadline:
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:3001", timeout=3) as r:
+                      if 200 <= r.status < 400:
+                          raise SystemExit(0)
+              except Exception:
+                  time.sleep(2)
+          print(open("/tmp/qwr-demo.log", errors="replace").read()[-8000:])
+          raise SystemExit("Response frontend did not become healthy")
+          PY
+
+      - name: Capture real analyst console
+        run: |
+          mkdir -p docs/assets
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page(viewport={"width": 1440, "height": 1050}, device_scale_factor=1)
+              page.goto("http://127.0.0.1:3001", wait_until="networkidle")
+              page.wait_for_timeout(4000)
+              page.screenshot(path="docs/assets/quietward-response-overview.png", full_page=False)
+              browser.close()
+          PY
+
+      - name: Commit screenshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/assets/quietward-response-overview.png
+          git commit -m "docs: capture real Response product screenshot [skip capture]"
+          git push origin HEAD:portfolio/response-real-screenshot-20260929
