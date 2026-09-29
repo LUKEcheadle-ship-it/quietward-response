@@ -43,9 +43,7 @@ py -3.12 scripts\quick_demo.py
 
 Then open the analyst console at `http://localhost:3001`.
 
-The demo does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation.
-
-> **Next visual milestone:** add a real analyst-console screenshot captured from the synthetic demo so the full-stack product is visible immediately on the repository landing page.
+The demo does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
 
 > **Design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
 
@@ -59,24 +57,6 @@ The demo does **not** enable destructive endpoint authority, arbitrary commands,
 - **Failure-safe execution:** idempotent action handling and reconciliation are designed to avoid duplicate execution during retries or recovery.
 - **Cross-project integration:** a sanitized, verified bridge accepts QuietWard findings while keeping detection and response authority separate.
 - **Release discipline:** the paired candidate passed backend tests on Linux and Windows, frontend type/build checks, migration verification, dependency audit, and cross-repository acceptance before promotion to `main`.
-
-## Try the full product with one command
-
-Start the normal local stack with safe synthetic incidents already loaded:
-
-```bash
-python scripts/quick_demo.py
-```
-
-Windows:
-
-```powershell
-py -3.12 scripts\quick_demo.py
-```
-
-Then open the analyst console at `http://localhost:3001`.
-
-The helper uses the existing synthetic seed path. It does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
 
 ## What you can see immediately
 
