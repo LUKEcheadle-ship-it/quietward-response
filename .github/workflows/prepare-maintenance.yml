@@ -1,0 +1,46 @@
+name: Prepare maintenance backport
+on:
+  push:
+    branches: [review/prepare-maintenance-20261012]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 5cf817422091a6e594e6b4e69b2c357a404ba1fe
+          path: candidate
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          ref: 972bac1be241f2701d362b6a2e471423f66f8517
+          path: reviewed
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply readable hash-checked maintenance transformation
+        run: python harness/review/build_maintenance.py candidate reviewed
+      - name: Verify full backend and public source safety audit
+        run: |
+          python -m pip install -r candidate/backend/requirements.txt
+          (cd candidate/backend && python -m pytest -W error -o addopts='' -q)
+          (cd candidate && python scripts/audit_public_release.py)
+          git -C candidate diff --check
+      - name: Publish new maintenance branch only
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          git add scripts/response_agent.py scripts/enroll_response_agent.py scripts/verify_frontend_browser.py backend/tests/test_private_state_writes.py backend/tests/test_maintenance_boundary.py docs/FRONTEND_SECURITY_UPDATE.md frontend/
+          git diff --cached --stat
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Backport reviewed private-write and frontend maintenance without vNext actions'
+          git push origin HEAD:refs/heads/maintenance/public-review-20261012
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
