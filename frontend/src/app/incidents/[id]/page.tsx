@@ -72,7 +72,7 @@ export default function IncidentDetailPage() {
               disabled={saving}
               value={incident.status}
               onChange={(event) => void setStatus(event.target.value)}
-              className="mt-2 block rounded-lg border border-line bg-slate-950 px-4 py-2 text-sm capitalize text-white outline-none focus:border-cyan"
+              className="mt-2 block rounded-lg border border-line bg-slate-950 px-4 py-2 text-sm capitalize text-white outline-hidden focus:border-cyan"
             >
               <option value="new">New</option>
               <option value="investigating">Investigating</option>

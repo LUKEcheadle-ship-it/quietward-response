@@ -9,6 +9,7 @@ import os
 import secrets
 import stat
 import time
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,24 +69,23 @@ def _parse_utc(value: Any, field_name: str) -> datetime:
 
 def _atomic_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_name(path.name + ".tmp")
+    if path.is_symlink():
+        raise OSError("Response agent state must not be a symlink")
     data = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    descriptor, name = tempfile.mkstemp(prefix=".qwr-state-", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
     try:
-        offset = 0
-        while offset < len(data):
-            written = os.write(descriptor, data[offset:])
-            if written <= 0:
-                raise OSError("short Response agent state write")
-            offset += written
-        os.fsync(descriptor)
+        # Exclusive binary creation avoids truncating an attacker-chosen .tmp
+        # target and preserves exact bytes on Windows. POSIX mode is 0600.
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.is_symlink():
+            raise OSError("Response agent state must not be a symlink")
+        os.replace(temporary, path)
     finally:
-        os.close(descriptor)
-    os.replace(temporary, path)
-    try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+        temporary.unlink(missing_ok=True)
 
 
 def _load_json(path: Path, expected_type: type) -> Any:
