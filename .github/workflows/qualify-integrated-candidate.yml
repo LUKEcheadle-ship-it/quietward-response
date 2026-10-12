@@ -1,0 +1,107 @@
+name: Qualify integrated guided-response candidate
+on:
+  push:
+    branches: [review/response-integrated-qualification-20261011]
+permissions:
+  contents: read
+env:
+  CANDIDATE: e78d07b60d327627b4d9c0fbee88c92a471bede8
+  BUNDLE_SHA256: 5a666af7b2efffa84bd89223eccd4feb5a64cef812b8ebf49b6fd6705b76f53c
+  NEXT_TELEMETRY_DISABLED: '1'
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-transfer
+          path: .review/response-candidate.bundle
+          include-hidden-files: true
+          retention-days: 3
+      - name: Verify source before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
+          git bundle verify .review/response-candidate.bundle
+          git fetch .review/response-candidate.bundle HEAD
+          git cat-file -e "$CANDIDATE^{commit}"
+  qualification:
+    needs: integrity
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: response
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: LUKEcheadle-ship-it/quietward
+          ref: fbeada828ab865c17e1dff9d34c6fb304abb9d23
+          path: quietward
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Open exact integrated candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd response
+          echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
+          git bundle verify .review/response-candidate.bundle
+          git fetch .review/response-candidate.bundle HEAD
+          git checkout -B feature/guided-incident-response-vnext "$CANDIDATE"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE"
+          git -C ../quietward checkout -B feature/guided-incident-response-vnext fbeada828ab865c17e1dff9d34c6fb304abb9d23
+      - name: Full paired current-slice gate including native child containment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/response-evidence"
+          cd response
+          python scripts/verify_vnext_current_slice.py --quietward-repo ../quietward 2>&1 | tee "$RUNNER_TEMP/response-evidence/qualification.log"
+          python ../quietward/scripts/quick_demo.py --json > "$RUNNER_TEMP/response-evidence/quietward-demo.json"
+          git rev-parse HEAD > "$RUNNER_TEMP/response-evidence/response-sha.txt"
+          git -C ../quietward rev-parse HEAD > "$RUNNER_TEMP/response-evidence/quietward-sha.txt"
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paired-qualification-${{ matrix.os }}
+          path: ${{ runner.temp }}/response-evidence/
+          retention-days: 7
+          if-no-files-found: warn
+  push-qualified-source:
+    needs: qualification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fast-forward the existing development branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
+          git bundle verify .review/response-candidate.bundle
+          git fetch .review/response-candidate.bundle HEAD
+          test "$(git rev-parse refs/remotes/origin/feature/guided-incident-response-vnext)" = '4fa60fe36622d565bcc9835eef642fb9b97d0427'
+          git push origin "$CANDIDATE:refs/heads/feature/guided-incident-response-vnext"
+          echo 'Current implemented slice qualified. Full remediation release remains governed by the separate unchanged coverage gate. No main merge or release performed.'
