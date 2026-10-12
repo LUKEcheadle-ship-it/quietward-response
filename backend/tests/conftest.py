@@ -32,6 +32,8 @@ def client(tmp_path: Path):
         agent_replay_window_seconds=300,
         action_default_ttl_seconds=600,
         require_agent_auth_for_quietward_events=True,
+        analyst_token_hashes={},
+        api_host="127.0.0.1",
     )
     with TestClient(create_app(settings=settings)) as test_client:
         yield test_client

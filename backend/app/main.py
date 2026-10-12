@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.analyst_auth import AnalystAuthMiddleware
 from app.api import actions, agents, audit, capabilities, events, health, hosts, incidents, overview
 from app.config import Settings, get_settings
 from app.database import capabilities as _capability_models  # noqa: F401
@@ -76,6 +77,7 @@ def create_app(
     )
     application.state.database = database
     application.state.settings = resolved
+    application.add_middleware(AnalystAuthMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=resolved.cors_origins,
@@ -83,6 +85,7 @@ def create_app(
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=[
             "Content-Type",
+            "Authorization",
             "X-Actor-ID",
             "X-QWR-Enrollment-Token",
             "X-QWR-Agent-ID",
@@ -136,6 +139,11 @@ def create_app(
     application.include_router(capabilities.router)
     application.include_router(actions.router)
     application.include_router(audit.router)
+
+    @application.get("/api/v1/access")
+    def analyst_access() -> dict[str, object]:
+        return {"authentication_required": bool(resolved.analyst_token_hashes),
+                "mode": "named_analyst" if resolved.analyst_token_hashes else "loopback_demo"}
 
     @application.get("/", include_in_schema=False)
     def root() -> dict[str, str]:

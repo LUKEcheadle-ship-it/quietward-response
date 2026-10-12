@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -51,6 +52,8 @@ class Settings(BaseSettings):
     agent_replay_window_seconds: int = Field(default=300, ge=30, le=900)
     action_default_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     require_agent_auth_for_quietward_events: bool = True
+    # Named analysts mapped to SHA-256 token digests; never store raw tokens here.
+    analyst_token_hashes: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def enforce_security_boundary(self) -> "Settings":
@@ -74,6 +77,14 @@ class Settings(BaseSettings):
 
         if "*" in self.cors_origins and not loopback:
             raise ValueError("wildcard CORS is not allowed on a non-loopback API bind")
+
+        for name, digest in self.analyst_token_hashes.items():
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+                raise ValueError("QWR_ANALYST_TOKEN_HASHES requires simple analyst names and lowercase SHA-256 digests")
+        if len(set(self.analyst_token_hashes.values())) != len(self.analyst_token_hashes):
+            raise ValueError("Each analyst must have a distinct token digest")
+        if (environment != "development" or not loopback) and not self.analyst_token_hashes:
+            raise ValueError("QWR_ANALYST_TOKEN_HASHES must be configured outside loopback development")
 
         return self
 

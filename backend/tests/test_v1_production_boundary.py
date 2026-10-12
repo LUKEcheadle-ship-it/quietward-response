@@ -13,6 +13,7 @@ from app.main import create_app
 def test_unauthenticated_synthetic_sensor_is_development_only_and_audited(tmp_path: Path, event_factory) -> None:
     settings = Settings(
         environment="production",
+        analyst_token_hashes={"test-analyst": "0" * 64},
         database_url=f"sqlite:///{(tmp_path / 'production.db').as_posix()}",
         enrollment_token="production-enrollment-token-for-test",
         cors_origins=["http://localhost:3001"],

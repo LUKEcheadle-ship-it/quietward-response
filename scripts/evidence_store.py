@@ -7,6 +7,8 @@ import json
 import os
 import platform
 import stat
+import tempfile
+import re
 from ctypes import wintypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +18,7 @@ from typing import Any
 EVIDENCE_FORMAT = "quietward-response-evidence-store-v1"
 EVIDENCE_TTL_MINUTES = 30
 MAX_EVIDENCE_ENTRIES = 2048
+MAX_EVIDENCE_BYTES = 4 * 1024 * 1024
 _PROCESS_HANDLE_PREFIX = "qwrp-"
 
 
@@ -30,7 +33,10 @@ def _utc_text() -> str:
 def _parse_time(value: Any) -> datetime:
     if not isinstance(value, str):
         raise EvidenceStoreError("evidence timestamp is invalid")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, OverflowError) as exc:
+        raise EvidenceStoreError("evidence timestamp is invalid") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise EvidenceStoreError("evidence timestamp must be timezone-aware")
     return parsed.astimezone(timezone.utc)
@@ -38,24 +44,36 @@ def _parse_time(value: Any) -> datetime:
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_name(path.name + ".tmp")
     data = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    if len(data) > MAX_EVIDENCE_BYTES:
+        raise EvidenceStoreError("evidence store exceeds the size limit")
+    # mkstemp is exclusive-create and binary by default on Windows. Do not use a
+    # predictable .tmp pathname which could already be a symlink to another file.
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".qwr-evidence-", dir=path.parent)
+    temporary = Path(temporary_name)
     try:
-        offset = 0
-        while offset < len(data):
-            written = os.write(descriptor, data[offset:])
-            if written <= 0:
-                raise OSError("short evidence-store write")
-            offset += written
-        os.fsync(descriptor)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.is_symlink():
+            raise EvidenceStoreError("evidence store must not be a symlink")
+        os.replace(temporary, path)
     finally:
-        os.close(descriptor)
-    os.replace(temporary, path)
+        temporary.unlink(missing_ok=True)
+
+
+def _boot_identity() -> str:
+    if platform.system().lower() != "linux":
+        # Windows creation times are absolute FILETIME values, not time-since-boot.
+        return "absolute-process-creation-time"
     try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+        identity = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError) as exc:
+        raise EvidenceStoreError("Linux boot identity is unavailable") from exc
+    if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", identity):
+        raise EvidenceStoreError("Linux boot identity is invalid")
+    return identity
 
 
 def _linux_process_start_marker(pid: int) -> str | None:
@@ -137,17 +155,28 @@ class EvidenceStore:
     """
 
     def __init__(self, state_dir: Path, key: bytes) -> None:
-        if len(key) < 32:
+        if not isinstance(key, bytes) or len(key) < 32:
             raise EvidenceStoreError("evidence handle key is too short")
         self.path = state_dir.resolve() / "response-agent-evidence.json"
         self.key = key
 
     def _load(self) -> dict[str, Any]:
+        if self.path.is_symlink():
+            raise EvidenceStoreError("evidence store must not be a symlink")
         if not self.path.exists():
             return {"format": EVIDENCE_FORMAT, "entries": {}}
         try:
-            value = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_NONBLOCK", 0))
+            descriptor = os.open(self.path, flags)
+            with os.fdopen(descriptor, "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    raise EvidenceStoreError("evidence store is not a regular file")
+                data = stream.read(MAX_EVIDENCE_BYTES + 1)
+            if len(data) > MAX_EVIDENCE_BYTES:
+                raise EvidenceStoreError("evidence store exceeds the size limit")
+            value = json.loads(data.decode("utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceStoreError("evidence store is unreadable or invalid") from exc
         if not isinstance(value, dict) or value.get("format") != EVIDENCE_FORMAT:
             raise EvidenceStoreError("evidence store format is invalid")
@@ -172,7 +201,10 @@ class EvidenceStore:
             if expires > now:
                 retained.append((str(handle), raw))
         retained = retained[-MAX_EVIDENCE_ENTRIES:]
-        _atomic_json(self.path, {"format": EVIDENCE_FORMAT, "entries": dict(retained)})
+        try:
+            _atomic_json(self.path, {"format": EVIDENCE_FORMAT, "entries": dict(retained)})
+        except OSError as exc:
+            raise EvidenceStoreError("evidence store could not be saved") from exc
 
     def _handle_for(self, canonical: str) -> str:
         token = hmac.new(
@@ -182,14 +214,41 @@ class EvidenceStore:
         ).hexdigest()[:32]
         return _PROCESS_HANDLE_PREFIX + token
 
-    def record_process(self, row: dict[str, Any]) -> str | None:
+    def _record_signature(self, handle: str, record: dict[str, Any]) -> str:
+        body = {key: value for key, value in record.items() if key != "record_hmac_sha256"}
+        payload = json.dumps(
+            {"handle": handle, "record": body}, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False,
+        ).encode("utf-8")
+        return hmac.new(self.key, b"qwr-process-record-v2:" + payload, hashlib.sha256).hexdigest()
+
+    def _verify_record(self, handle: str, raw: dict[str, Any]) -> None:
+        signature = raw.get("record_hmac_sha256")
+        if raw.get("record_auth_version") != 2 or not isinstance(signature, str):
+            raise EvidenceStoreError("unsigned legacy evidence; collect a fresh triage bundle")
+        if not re.fullmatch(r"[0-9a-f]{64}", signature):
+            raise EvidenceStoreError("evidence record authentication failed")
         try:
-            pid = int(row["pid"])
-            parent_pid = int(row["parent_pid"])
-            image = str(row["image"])
-        except (KeyError, TypeError, ValueError):
+            expected = self._record_signature(handle, raw)
+        except (TypeError, ValueError) as exc:
+            raise EvidenceStoreError("evidence record authentication failed") from exc
+        if not hmac.compare_digest(signature, expected):
+            raise EvidenceStoreError("evidence record authentication failed")
+        now = datetime.now(timezone.utc)
+        created, expires = _parse_time(raw.get("created_at")), _parse_time(raw.get("expires_at"))
+        if created > now or expires <= created or expires - created > timedelta(minutes=EVIDENCE_TTL_MINUTES):
+            raise EvidenceStoreError("evidence record lifetime is invalid")
+        if expires <= now:
+            raise EvidenceStoreError("process evidence handle has expired")
+        if raw.get("boot_identity") != _boot_identity():
+            raise EvidenceStoreError("evidence was collected before a reboot or on another platform")
+
+    def record_process(self, row: dict[str, Any]) -> str | None:
+        if not isinstance(row, dict):
             return None
-        if pid <= 0 or not image or len(image) > 128:
+        pid, parent_pid, image = row.get("pid"), row.get("parent_pid"), row.get("image")
+        if (type(pid) is not int or type(parent_pid) is not int or pid <= 0
+                or parent_pid < 0 or not isinstance(image, str) or not 0 < len(image) <= 128):
             return None
         start_marker = process_start_marker(pid)
         if start_marker is None:
@@ -198,18 +257,17 @@ class EvidenceStore:
         handle = self._handle_for(canonical)
         now = datetime.now(timezone.utc)
         value = self._load()
-        entries = value["entries"]
-        entries[handle] = {
+        record = {
             "kind": "process",
             "created_at": now.isoformat(),
             "expires_at": (now + timedelta(minutes=EVIDENCE_TTL_MINUTES)).isoformat(),
             "locator": {"pid": pid},
-            "fingerprint": {
-                "parent_pid": parent_pid,
-                "image": image,
-                "start_marker": start_marker,
-            },
+            "fingerprint": {"parent_pid": parent_pid, "image": image, "start_marker": start_marker},
+            "record_auth_version": 2,
+            "boot_identity": _boot_identity(),
         }
+        record["record_hmac_sha256"] = self._record_signature(handle, record)
+        value["entries"][handle] = record
         self._save(value)
         return handle
 
@@ -220,33 +278,38 @@ class EvidenceStore:
         raw = value["entries"].get(handle)
         if not isinstance(raw, dict) or raw.get("kind") != "process":
             raise EvidenceStoreError("process evidence handle is unknown")
-        if _parse_time(raw.get("expires_at")) <= datetime.now(timezone.utc):
-            raise EvidenceStoreError("process evidence handle has expired")
-        locator = raw.get("locator")
-        fingerprint = raw.get("fingerprint")
+        self._verify_record(handle, raw)
+        locator, fingerprint = raw.get("locator"), raw.get("fingerprint")
         if not isinstance(locator, dict) or not isinstance(fingerprint, dict):
             raise EvidenceStoreError("process evidence record is malformed")
-        try:
-            pid = int(locator["pid"])
-            expected_parent = int(fingerprint["parent_pid"])
-            expected_image = str(fingerprint["image"])
-            expected_start = str(fingerprint["start_marker"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise EvidenceStoreError("process evidence record is malformed") from exc
-        current = next((row for row in current_rows if int(row.get("pid", -1)) == pid), None)
-        if current is None:
+        pid = locator.get("pid")
+        expected_parent = fingerprint.get("parent_pid")
+        expected_image = fingerprint.get("image")
+        expected_start = fingerprint.get("start_marker")
+        if (type(pid) is not int or pid <= 0 or type(expected_parent) is not int
+                or expected_parent < 0 or not isinstance(expected_image, str)
+                or not 0 < len(expected_image) <= 128 or not isinstance(expected_start, str)):
+            raise EvidenceStoreError("process evidence record is malformed")
+        canonical = f"{pid}|{expected_parent}|{expected_image.casefold()}|{expected_start}"
+        if not hmac.compare_digest(handle, self._handle_for(canonical)):
+            raise EvidenceStoreError("process evidence handle does not match its record")
+        if not isinstance(current_rows, list):
+            raise EvidenceStoreError("current process inventory is invalid")
+        matches = [row for row in current_rows if isinstance(row, dict)
+                   and type(row.get("pid")) is int and row["pid"] == pid]
+        if not matches:
             raise EvidenceStoreError("evidence-bound process is no longer running")
-        if int(current.get("parent_pid", -1)) != expected_parent:
+        if len(matches) != 1:
+            raise EvidenceStoreError("evidence-bound process inventory is ambiguous")
+        current = matches[0]
+        if type(current.get("parent_pid")) is not int or current["parent_pid"] != expected_parent:
             raise EvidenceStoreError("evidence-bound process parent identity changed")
-        if str(current.get("image") or "").casefold() != expected_image.casefold():
+        if not isinstance(current.get("image"), str) or current["image"].casefold() != expected_image.casefold():
             raise EvidenceStoreError("evidence-bound process image identity changed")
         current_start = process_start_marker(pid)
         if current_start is None or current_start != expected_start:
             raise EvidenceStoreError("evidence-bound process instance changed")
         return {
-            "pid": pid,
-            "parent_pid": expected_parent,
-            "image": expected_image,
-            "start_marker": expected_start,
-            "evidence_handle": handle,
+            "pid": pid, "parent_pid": expected_parent, "image": expected_image,
+            "start_marker": expected_start, "evidence_handle": handle,
         }

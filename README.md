@@ -1,34 +1,40 @@
 # QuietWard Response
 
-**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
-
+[![CI](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/workflows/ci.yml/badge.svg)](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)
 ![Frontend](https://img.shields.io/badge/Frontend-Next.js-black)
+![Database](https://img.shields.io/badge/Database-PostgreSQL-336791)
 ![Preview](https://img.shields.io/badge/Preview-1.1.0a1-orange)
 
-> **vNext development notice:** the Guided Incident Response branch is not release-ready. The combined QuietWard + Response update is explicitly blocked until every QuietWard finding category has a tested Response resolution path and the final resolution-coverage gate passes. Evidence-bound process containment is implemented on the branch but still requires local/joint qualification; several other resolution families remain incomplete.
+**Investigate, approve, and verify endpoint response — without exposing a remote shell.**
 
-QuietWard Response is an event-driven incident investigation and controlled-response platform for local and trusted-network security environments.
+> **vNext development notice:** This integrated candidate adds guided triage and evidence-bound process containment, but is not the full remediation release. The final resolution-coverage gate remains blocking until every required finding category has an implemented and tested resolution path. Current-slice test results are recorded separately from full-release approval. Historical main-line diagnostic qualification below does not qualify this new candidate.
 
-It turns authenticated security observations into explainable incidents, timelines, recommendations, explicit analyst decisions, tightly typed endpoint diagnostics, signed results, and tamper-evident audit history.
 
-> **The design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
+QuietWard Response is a full-stack incident-investigation and controlled-response platform. It turns authenticated security observations into explainable incidents, evidence timelines, recommendations, explicit analyst decisions, bounded endpoint diagnostics, signed results, and tamper-evident audit history.
 
-## Engineering highlights
+![QuietWard Response analyst console with seeded synthetic incidents](docs/assets/quietward-response-overview.png)
 
-- **Full-stack security product:** FastAPI backend, Next.js frontend, PostgreSQL-supported local stack, and a browser-based analyst console.
-- **Human-in-the-loop response:** recommendations, explicit analyst approval, deterministic policy enforcement, and endpoint-side validation are separate stages.
-- **Authenticated event pipeline:** HMAC-SHA256 authentication, timestamp windows, persisted nonces, and replay resistance.
-- **Constrained endpoint control:** typed, capability-declared actions replace arbitrary shell or remote-command execution.
-- **Auditability:** signed endpoint results and a hash-chained audit ledger preserve evidence for later verification.
-- **Failure-safe execution:** idempotent action handling and reconciliation are designed to avoid duplicate execution during retries or recovery.
-- **Cross-project integration:** a sanitized, verified bridge accepts QuietWard findings while keeping detection and response authority separate.
-- **Release discipline:** the paired candidate passed backend tests on Linux and Windows, frontend type/build checks, migration verification, dependency audit, and cross-repository acceptance before promotion to `main`.
+### At a glance
 
-## Try the full product with one command
+**FastAPI + Next.js + PostgreSQL** · **Automated backend/frontend CI** · **Human approval required** · **Replay-resistant event ingestion** · **No arbitrary remote shell**
 
-Start the normal local stack with safe synthetic incidents already loaded:
+```mermaid
+flowchart LR
+    A[Security event] --> B[Authenticated ingestion]
+    B --> C[Deterministic correlation]
+    C --> D[Incident + evidence]
+    D --> E[Recommendation]
+    E --> F[Analyst approval]
+    F --> G[Policy enforcement]
+    G --> H[Typed diagnostic]
+    H --> I[Signed result + audit]
+```
+
+### Try the full product
+
+Start the local stack with safe synthetic incidents already loaded:
 
 ```bash
 python scripts/quick_demo.py
@@ -42,7 +48,20 @@ py -3.12 scripts\quick_demo.py
 
 Then open the analyst console at `http://localhost:3001`.
 
-The helper uses the existing synthetic seed path. It does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
+The demo does **not** enable destructive endpoint authority, arbitrary commands, or autonomous remediation. See [`docs/TRY_IT.md`](docs/TRY_IT.md) for the guided walkthrough.
+
+> **Design goal:** move from **detect** to **act** without turning the control plane into unrestricted remote administration.
+
+## Engineering highlights
+
+- **Full-stack security product:** FastAPI backend, Next.js frontend, PostgreSQL-supported local stack, and a browser-based analyst console.
+- **Human-in-the-loop response:** recommendations, explicit analyst approval, deterministic policy enforcement, and endpoint-side validation are separate stages.
+- **Authenticated event pipeline:** HMAC-SHA256 authentication, timestamp windows, persisted nonces, and replay resistance.
+- **Constrained endpoint control:** typed, capability-declared actions replace arbitrary shell or remote-command execution.
+- **Auditability:** signed endpoint results and a hash-chained audit ledger preserve evidence for later verification.
+- **Failure-safe execution:** idempotent action handling and reconciliation are designed to avoid duplicate execution during retries or recovery.
+- **Cross-project integration:** a sanitized, verified bridge accepts QuietWard findings while keeping detection and response authority separate.
+- **Release discipline:** the paired candidate passed backend tests on Linux and Windows, frontend type/build checks, migration verification, dependency audit, and cross-repository acceptance before promotion to `main`.
 
 ## What you can see immediately
 
@@ -177,6 +196,8 @@ Default local surfaces:
 ```bash
 cp .env.example .env
 # replace QWR_ENROLLMENT_TOKEN with a random 24+ character value
+python scripts/configure_analyst.py your-name
+# paste the printed QWR_ANALYST_TOKEN_HASHES assignment into .env
 docker compose up --build
 ```
 
@@ -209,7 +230,7 @@ The current public preview deliberately has:
 - no enterprise OIDC/RBAC claim
 - no multi-tenant/horizontal-scaling claim
 
-Analyst identity remains local-development grade. HMAC transport should use TLS outside loopback/trusted local development. The audit chain provides tamper evidence, not immutable storage.
+Named analyst credentials now bind API changes and approvals to server-verified identities. They are required outside loopback development; all named analysts share the existing permissions. See [review improvements](docs/REVIEW_IMPROVEMENTS.md) for setup, revocation, incident filtering and bridge activity. HMAC transport should use TLS outside loopback/trusted local development. The audit chain provides tamper evidence, not immutable storage.
 
 ## Explore or contribute
 

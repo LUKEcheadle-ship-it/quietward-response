@@ -7,5 +7,5 @@ export function ErrorState({ message }: { message: string }) {
 }
 
 export function EmptyState({ message }: { message: string }) {
-  return <div className="panel text-sm text-slate-400">{message}</div>;
+  return <div className="panel space-y-3 text-sm text-slate-400"><p>{message}</p><p>To explore synthetic incidents, run <code>python scripts/quick_demo.py</code> from your Response checkout. An incident groups related observations into one investigation.</p><p>The demo works independently. Pair QuietWard to ingest verified findings from your own monitor.</p></div>;
 }
