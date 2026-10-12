@@ -16,20 +16,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/upload-artifact@v4
-        with:
-          name: candidate-transfer
-          path: .review/response-candidate.bundle
-          include-hidden-files: true
-          retention-days: 3
-      - name: Verify source before execution
+      - name: Restore and verify the exact source transport
         shell: bash
         run: |
           set -euo pipefail
+          python .review/repair_transfer.py
           echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
           git bundle verify .review/response-candidate.bundle
           git fetch .review/response-candidate.bundle HEAD
           git cat-file -e "$CANDIDATE^{commit}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-transfer-verified
+          path: .review/response-candidate.bundle
+          include-hidden-files: true
+          retention-days: 3
   qualification:
     needs: integrity
     strategy:
@@ -62,9 +63,11 @@ jobs:
         run: |
           set -euo pipefail
           cd response
+          python .review/repair_transfer.py
           echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
           git bundle verify .review/response-candidate.bundle
           git fetch .review/response-candidate.bundle HEAD
+          git checkout -- .review/response-candidate.bundle
           git checkout -B feature/guided-incident-response-vnext "$CANDIDATE"
           test "$(git rev-parse HEAD)" = "$CANDIDATE"
           git -C ../quietward checkout -B feature/guided-incident-response-vnext fbeada828ab865c17e1dff9d34c6fb304abb9d23
@@ -99,6 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python .review/repair_transfer.py
           echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
           git bundle verify .review/response-candidate.bundle
           git fetch .review/response-candidate.bundle HEAD
