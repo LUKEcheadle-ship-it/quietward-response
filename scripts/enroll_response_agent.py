@@ -7,8 +7,8 @@ import hmac
 import json
 import os
 import secrets
-import stat
 import time
+import tempfile
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -77,27 +77,32 @@ def _default_state_dir() -> Path:
 def _private_json(path: Path, value: dict[str, object], *, force: bool) -> None:
     if not path.is_absolute():
         raise ValueError("agent config path must be absolute")
+    if path.is_symlink():
+        raise ValueError("agent config must not be a symlink")
     if path.exists() and not force:
         raise ValueError(f"agent config already exists: {path}")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     data = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    temporary = path.with_name(path.name + ".tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    descriptor, name = tempfile.mkstemp(prefix=".qwr-config-", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
     try:
-        offset = 0
-        while offset < len(data):
-            written = os.write(descriptor, data[offset:])
-            if written <= 0:
-                raise OSError("short agent-config write")
-            offset += written
-        os.fsync(descriptor)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.is_symlink():
+            raise ValueError("agent config must not be a symlink")
+        if force:
+            os.replace(temporary, path)
+        else:
+            # Unlike exists()+replace(), link fails atomically if another
+            # enrollment created the destination meanwhile. No unsafe fallback.
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise ValueError(f"agent config already exists: {path}") from exc
     finally:
-        os.close(descriptor)
-    os.replace(temporary, path)
-    try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+        temporary.unlink(missing_ok=True)
 
 
 def _derive_hmac_key(secret: str) -> bytes:
@@ -190,7 +195,15 @@ def main() -> int:
         return 2
 
     state_dir = (args.state_dir or _default_state_dir()).expanduser().resolve()
-    config_path = (args.config or state_dir / "agent-config.json").expanduser().resolve()
+    # Preserve the final pathname so a symlink cannot be resolved away before
+    # the private writer checks it. Refuse before creating a remote enrollment.
+    config_path = (args.config or state_dir / "agent-config.json").expanduser().absolute()
+    if config_path.is_symlink():
+        print("agent config must not be a symlink")
+        return 2
+    if config_path.exists() and not args.force:
+        print("agent config already exists; use --force only for an intentional replacement")
+        return 2
     payload = json.dumps(
         {
             "host_id": args.host_id,
