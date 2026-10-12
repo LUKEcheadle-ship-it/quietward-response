@@ -5,40 +5,82 @@ on:
 permissions:
   contents: read
 env:
-  CANDIDATE: e78d07b60d327627b4d9c0fbee88c92a471bede8
+  BASE_CANDIDATE: e78d07b60d327627b4d9c0fbee88c92a471bede8
   BUNDLE_SHA256: 5a666af7b2efffa84bd89223eccd4feb5a64cef812b8ebf49b6fd6705b76f53c
   NEXT_TELEMETRY_DISABLED: '1'
 jobs:
-  integrity:
+  prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      candidate: ${{ steps.freeze.outputs.candidate }}
+      bundle_hash: ${{ steps.freeze.outputs.bundle_hash }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Restore and verify the exact source transport
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore verified integration and apply the reviewed frontend update
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prepared-candidate"
+          cp .review/upgrade_frontend.py "$RUNNER_TEMP/upgrade_frontend.py"
+          cp .review/verify_frontend_browser.py "$RUNNER_TEMP/verify_frontend_browser.py"
           python .review/repair_transfer.py
           echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
           git bundle verify .review/response-candidate.bundle
           git fetch .review/response-candidate.bundle HEAD
-          git cat-file -e "$CANDIDATE^{commit}"
+          git checkout -- .review/response-candidate.bundle
+          git checkout --detach "$BASE_CANDIDATE"
+          python "$RUNNER_TEMP/upgrade_frontend.py" .
+          cp "$RUNNER_TEMP/verify_frontend_browser.py" scripts/verify_frontend_browser.py
+      - name: Regenerate the dependency lock and require a zero-vulnerability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd frontend
+          npm install --package-lock-only
+          npm update --package-lock-only sharp source-map-js postcss-selector-parser
+          npm audit --audit-level=low --json > "$RUNNER_TEMP/prepared-candidate/npm-audit.json"
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(p.metadata.vulnerabilities.total!==0)process.exit(1)' "$RUNNER_TEMP/prepared-candidate/npm-audit.json"
+      - name: Freeze the exact candidate and its public-source bundle
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git add frontend/package.json frontend/package-lock.json frontend/postcss.config.mjs frontend/src docs/FRONTEND_SECURITY_UPDATE.md scripts/verify_frontend_browser.py
+          git -c user.name='Project qualification' -c user.email='qualification@users.noreply.github.com' commit -m 'Remove vulnerable frontend dependency chains and verify the migrated interface'
+          CANDIDATE=$(git rev-parse HEAD)
+          git bundle create "$RUNNER_TEMP/prepared-candidate/candidate.bundle" HEAD ^4fa60fe36622d565bcc9835eef642fb9b97d0427 ^5cf817422091a6e594e6b4e69b2c357a404ba1fe
+          git bundle verify "$RUNNER_TEMP/prepared-candidate/candidate.bundle"
+          HASH=$(sha256sum "$RUNNER_TEMP/prepared-candidate/candidate.bundle" | cut -d' ' -f1)
+          echo "$CANDIDATE" > "$RUNNER_TEMP/prepared-candidate/source-sha.txt"
+          echo "$HASH" > "$RUNNER_TEMP/prepared-candidate/bundle-sha256.txt"
+          echo "candidate=$CANDIDATE" >> "$GITHUB_OUTPUT"
+          echo "bundle_hash=$HASH" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: candidate-transfer-verified
-          path: .review/response-candidate.bundle
-          include-hidden-files: true
-          retention-days: 3
+          name: dependency-repaired-candidate
+          path: ${{ runner.temp }}/prepared-candidate/
+          retention-days: 7
+          if-no-files-found: error
   qualification:
-    needs: integrity
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    env:
+      CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+      CANDIDATE_BUNDLE_HASH: ${{ needs.prepare.outputs.bundle_hash }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +94,10 @@ jobs:
           path: quietward
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-repaired-candidate
+          path: candidate-transfer
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -62,12 +108,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "$CANDIDATE_BUNDLE_HASH  candidate-transfer/candidate.bundle" | sha256sum -c -
           cd response
-          python .review/repair_transfer.py
-          echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
-          git bundle verify .review/response-candidate.bundle
-          git fetch .review/response-candidate.bundle HEAD
-          git checkout -- .review/response-candidate.bundle
+          git bundle verify ../candidate-transfer/candidate.bundle
+          git fetch ../candidate-transfer/candidate.bundle HEAD
           git checkout -B feature/guided-incident-response-vnext "$CANDIDATE"
           test "$(git rev-parse HEAD)" = "$CANDIDATE"
           git -C ../quietward checkout -B feature/guided-incident-response-vnext fbeada828ab865c17e1dff9d34c6fb304abb9d23
@@ -82,6 +126,14 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/response-evidence/response-sha.txt"
           git -C ../quietward rev-parse HEAD > "$RUNNER_TEMP/response-evidence/quietward-sha.txt"
           test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Real browser navigation and migrated-theme verification
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+          python response/scripts/verify_frontend_browser.py --root response --output "$RUNNER_TEMP/response-evidence/browser"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -90,22 +142,28 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
   push-qualified-source:
-    needs: qualification
+    needs: [prepare, qualification]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+      CANDIDATE_BUNDLE_HASH: ${{ needs.prepare.outputs.bundle_hash }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-repaired-candidate
+          path: candidate-transfer
       - name: Fast-forward the existing development branch only
         shell: bash
         run: |
           set -euo pipefail
-          python .review/repair_transfer.py
-          echo "$BUNDLE_SHA256  .review/response-candidate.bundle" | sha256sum -c -
-          git bundle verify .review/response-candidate.bundle
-          git fetch .review/response-candidate.bundle HEAD
+          echo "$CANDIDATE_BUNDLE_HASH  candidate-transfer/candidate.bundle" | sha256sum -c -
+          git bundle verify candidate-transfer/candidate.bundle
+          git fetch candidate-transfer/candidate.bundle HEAD
           test "$(git rev-parse refs/remotes/origin/feature/guided-incident-response-vnext)" = '4fa60fe36622d565bcc9835eef642fb9b97d0427'
           git push origin "$CANDIDATE:refs/heads/feature/guided-incident-response-vnext"
-          echo 'Current implemented slice qualified. Full remediation release remains governed by the separate unchanged coverage gate. No main merge or release performed.'
+          echo 'Implemented update qualified on both platforms and pushed. Future remediation families remain outside this qualification; no main merge or release performed.'
