@@ -92,12 +92,12 @@ export default function OverviewPage() {
             <aside className="panel h-fit">
               <p className="eyebrow">Control boundary</p>
               <h2 className="mt-2 text-lg font-semibold">Human decisions remain authoritative</h2>
-              <p className="muted mt-3">The current preview supports typed read-only diagnostics and a dedicated demo-fixture action. Each requires analyst approval, policy checks, and independent validation by the Response endpoint agent. QuietWard remains observation-only.</p>
+              <p className="muted mt-3">This development candidate supports typed diagnostics, the dedicated demo fixture, and evidence-bound process containment on supported endpoints. Every action requires analyst approval, capability and policy checks, and endpoint validation. QuietWard remains observation-only. General remediation is not release-qualified.</p>
               <div className="mt-5 space-y-3 text-sm">
                 <div className="flex justify-between border-b border-line pb-3"><span className="text-slate-400">Correlation</span><span className="text-emerald-300">Deterministic</span></div>
                 <div className="flex justify-between border-b border-line pb-3"><span className="text-slate-400">Audit chain</span><span className="text-emerald-300">Tamper-evident</span></div>
                 <div className="flex justify-between border-b border-line pb-3"><span className="text-slate-400">Approval</span><span className="text-emerald-300">Required</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Executable scope</span><span className="text-amber-200">Diagnostics + demo fixture</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Executable scope</span><span className="text-amber-200">Capability-checked actions</span></div>
               </div>
             </aside>
           </section>

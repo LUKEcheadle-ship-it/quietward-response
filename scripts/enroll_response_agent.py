@@ -7,8 +7,8 @@ import hmac
 import json
 import os
 import secrets
-import stat
 import time
+import tempfile
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -79,27 +79,32 @@ def _default_state_dir() -> Path:
 def _private_json(path: Path, value: dict[str, object], *, force: bool) -> None:
     if not path.is_absolute():
         raise ValueError("agent config path must be absolute")
+    if path.is_symlink():
+        raise ValueError("agent config must not be a symlink")
     if path.exists() and not force:
         raise ValueError(f"agent config already exists: {path}")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     data = (json.dumps(value, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    temporary = path.with_name(path.name + ".tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    descriptor, name = tempfile.mkstemp(prefix=".qwr-config-", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
     try:
-        offset = 0
-        while offset < len(data):
-            written = os.write(descriptor, data[offset:])
-            if written <= 0:
-                raise OSError("short agent-config write")
-            offset += written
-        os.fsync(descriptor)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.is_symlink():
+            raise ValueError("agent config must not be a symlink")
+        if force:
+            os.replace(temporary, path)
+        else:
+            # Unlike exists()+replace(), link fails atomically if another
+            # enrollment created the destination meanwhile. No unsafe fallback.
+            try:
+                os.link(temporary, path)
+            except FileExistsError as exc:
+                raise ValueError(f"agent config already exists: {path}") from exc
     finally:
-        os.close(descriptor)
-    os.replace(temporary, path)
-    try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+        temporary.unlink(missing_ok=True)
 
 
 def _derive_hmac_key(secret: str) -> bytes:
