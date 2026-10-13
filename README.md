@@ -9,6 +9,9 @@
 
 **Investigate, approve, and verify endpoint response — without exposing a remote shell.**
 
+> **vNext development notice:** This integrated candidate adds guided triage and evidence-bound process containment, but is not the full remediation release. The final resolution-coverage gate remains blocking until every required finding category has an implemented and tested resolution path. Current-slice test results are recorded separately from full-release approval. Historical main-line diagnostic qualification below does not qualify this new candidate.
+
+
 QuietWard Response is a full-stack incident-investigation and controlled-response platform. It turns authenticated security observations into explainable incidents, evidence timelines, recommendations, explicit analyst decisions, bounded endpoint diagnostics, signed results, and tamper-evident audit history.
 
 ![QuietWard Response analyst console with seeded synthetic incidents](docs/assets/quietward-response-overview.png)
@@ -120,7 +123,7 @@ These are parameterless, capability-declared, approval-gated investigation actio
 
 Despite the name, it does **not** restart an operating-system service. It changes only a dedicated JSON demo fixture used to prove the controlled mutation lifecycle.
 
-There is still no general service control, process termination, quarantine, firewall modification, host isolation, or arbitrary command execution.
+There is still no general service control, process termination, quarantine, firewall modification, host isolation, or arbitrary command execution in the current public preview. The draft vNext branch is developing evidence-bound process containment under stricter approval, provenance, and execution-time revalidation rules; that work is not yet release-qualified.
 
 ## Qualification evidence
 
@@ -208,11 +211,13 @@ python scripts/verify_v11_diagnostics.py --quietward-repo ../quietward
 
 That gate covers Response tests, public-release audit, migrations, frontend install/typecheck/build/audit, quick-start smoke, the complete QuietWard suite, the focused v0.6 handoff gate, and live cross-repository acceptance.
 
+The draft vNext combined release has an additional hard gate: `python scripts/verify_vnext_resolution_coverage.py`. It must report zero unresolved categories before the combined update can be released.
+
 ## Security boundary
 
 QuietWard Response is a local/trusted-network security project and architecture demonstration. It is **not** presented as an Internet-facing production EDR/XDR/SOAR replacement.
 
-The current preview deliberately has:
+The current public preview deliberately has:
 
 - no generic shell / PowerShell / cmd / bash execution
 - no arbitrary process termination
@@ -233,6 +238,7 @@ Named analyst credentials now bind API changes and approvals to server-verified 
 - [`docs/COMMUNITY_ROADMAP.md`](docs/COMMUNITY_ROADMAP.md) — public product direction
 - [`docs/JOINT_QUIETWARD_RESPONSE_UPDATE.md`](docs/JOINT_QUIETWARD_RESPONSE_UPDATE.md) — paired-system design
 - [`docs/V11_DIAGNOSTIC_UPGRADE.md`](docs/V11_DIAGNOSTIC_UPGRADE.md) — current diagnostics
+- [`docs/GUIDED_INCIDENT_RESPONSE_VNEXT.md`](docs/GUIDED_INCIDENT_RESPONSE_VNEXT.md) — draft vNext resolution architecture and release blockers
 - [`docs/architecture.md`](docs/architecture.md) — architecture
 - [`docs/threat-model.md`](docs/threat-model.md) — trust model
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guide
@@ -242,3 +248,7 @@ Good-first-issue and help-wanted tasks are deliberately scoped around UI, docs, 
 ## License
 
 Apache License 2.0. See [`LICENSE`](LICENSE).
+
+## Guided recovery development update
+
+The guided-response branch adds an evidence-backed human recovery workbench for all declared finding categories. It requires named independent approval and verification, records ordered category-specific checkpoints, and keeps acknowledged escalations unresolved. It does not execute the notes, fetch artifacts, create external tickets, or claim that a human attestation is an automated endpoint scan. See [the workflow contract](docs/GUIDED_RECOVERY_WORKFLOWS.md).

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
+
+
+_PROCESS_HANDLE = re.compile(r"^qwrp-[0-9a-f]{32}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,9 +19,14 @@ class ActionDefinition:
     implementation_version: str
 
     def validate_parameters(self, parameters: dict[str, Any]) -> list[str]:
-        # The current controlled surface deliberately exposes no arbitrary target,
-        # service, path, PID, address, or command parameter. Diagnostic executors
-        # determine their bounded local scope themselves.
+        if self.action_type == "terminate_evidence_process":
+            if set(parameters) != {"evidence_handle"}:
+                return ["terminate_evidence_process requires exactly one evidence_handle parameter"]
+            handle = parameters.get("evidence_handle")
+            if not isinstance(handle, str) or not _PROCESS_HANDLE.fullmatch(handle):
+                return ["process evidence_handle is invalid"]
+            return []
+        # All other currently registered actions are deliberately parameterless.
         if parameters:
             return ["this action accepts no parameters"]
         return []
@@ -63,6 +72,26 @@ COLLECT_NETWORK_DIAGNOSTIC = ActionDefinition(
     implementation_version="2",
 )
 
+COLLECT_INCIDENT_TRIAGE_BUNDLE = ActionDefinition(
+    action_type="collect_incident_triage_bundle",
+    description="Collect one bounded read-only incident triage bundle from host, process, and platform-supported privacy-preserving network diagnostics.",
+    risk_level="low",
+    approval_required=True,
+    supported_os=("linux", "windows", "darwin", "unknown"),
+    reversible=True,
+    implementation_version="2",
+)
+
+TERMINATE_EVIDENCE_PROCESS = ActionDefinition(
+    action_type="terminate_evidence_process",
+    description="Terminate only a process instance previously captured by the endpoint triage bundle and represented by an opaque evidence handle.",
+    risk_level="high",
+    approval_required=True,
+    supported_os=("linux", "windows"),
+    reversible=False,
+    implementation_version="1",
+)
+
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
     item.action_type: item
     for item in (
@@ -70,6 +99,8 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         COLLECT_HOST_DIAGNOSTIC,
         COLLECT_PROCESS_DIAGNOSTIC,
         COLLECT_NETWORK_DIAGNOSTIC,
+        COLLECT_INCIDENT_TRIAGE_BUNDLE,
+        TERMINATE_EVIDENCE_PROCESS,
     )
 }
 

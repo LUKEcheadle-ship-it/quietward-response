@@ -9,15 +9,66 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function asAllowedString(value: unknown, allowed: readonly string[]): string | null {
+  return typeof value === "string" && allowed.includes(value) ? value : null;
+}
+
+function highestRanked(values: Array<string | null>, ranking: readonly string[]): string | null {
+  let selected: string | null = null;
+  let selectedRank = -1;
+  for (const value of values) {
+    if (value === null) continue;
+    const rank = ranking.indexOf(value);
+    if (rank > selectedRank) {
+      selected = value;
+      selectedRank = rank;
+    }
+  }
+  return selected;
+}
+
+const CONTEXT_VERSIONS = ["1.0", "1.1"] as const;
+const RESPONSE_PRIORITIES = ["routine", "elevated", "urgent"] as const;
+const EVIDENCE_STRENGTHS = ["limited", "corroborated", "strong"] as const;
+
 export function QuietWardContext({ incident }: { incident: IncidentDetail }) {
-  const events = incident.events.filter(
-    (event) =>
+  const events = incident.events.filter((event) => {
+    const contextVersion = event.metadata.quietward_response_context_version;
+    return (
       event.source.toLowerCase() === "quietward" &&
-      event.metadata.quietward_response_context_version === "1.0" &&
+      typeof contextVersion === "string" &&
+      CONTEXT_VERSIONS.includes(contextVersion as (typeof CONTEXT_VERSIONS)[number]) &&
       event.metadata.observation_only_source === true &&
-      event.metadata.executable_authority === false,
-  );
+      event.metadata.executable_authority === false
+    );
+  });
   if (events.length === 0) return null;
+
+  const guidedEvents = events.filter(
+    (event) => event.metadata.quietward_response_context_version === "1.1",
+  );
+  const responsePriority = highestRanked(
+    guidedEvents.map((event) =>
+      asAllowedString(event.metadata.response_priority, RESPONSE_PRIORITIES),
+    ),
+    RESPONSE_PRIORITIES,
+  );
+  const evidenceStrength = highestRanked(
+    guidedEvents.map((event) =>
+      asAllowedString(event.metadata.evidence_strength, EVIDENCE_STRENGTHS),
+    ),
+    EVIDENCE_STRENGTHS,
+  );
+  const playbooks = Array.from(
+    new Set(
+      guidedEvents
+        .map((event) => event.metadata.recommended_playbook)
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && /^[a-z0-9_]{1,64}$/.test(value),
+        ),
+    ),
+  ).sort();
 
   const scores = events
     .map((event) => asNumber(event.metadata.quietward_score))
@@ -80,6 +131,48 @@ export function QuietWardContext({ incident }: { incident: IncidentDetail }) {
           No execution authority
         </span>
       </div>
+
+      {guidedEvents.length > 0 && (
+        <div className="mt-5 rounded-xl border border-cyan/20 bg-cyan/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-cyan">Guided triage profile</p>
+              <p className="mt-1 text-sm text-slate-300">
+                QuietWard v1.1 supplied coarse response guidance so the analyst can choose the next bounded investigation faster.
+              </p>
+            </div>
+            <span className="rounded border border-cyan/20 bg-slate-950/40 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan">
+              Context v1.1
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-line bg-slate-950/40 p-3">
+              <p className="text-xs text-slate-500">Response priority</p>
+              <p className="mt-1 text-base font-semibold capitalize text-white">
+                {responsePriority ?? "Unspecified"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-line bg-slate-950/40 p-3">
+              <p className="text-xs text-slate-500">Evidence strength</p>
+              <p className="mt-1 text-base font-semibold capitalize text-white">
+                {evidenceStrength ?? "Unspecified"}
+              </p>
+            </div>
+          </div>
+          {playbooks.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs uppercase tracking-wider text-slate-500">Recommended playbook</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {playbooks.map((playbook) => (
+                  <span key={playbook} className="rounded border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs text-cyan">
+                    {playbook.replaceAll("_", " ")}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-line bg-slate-950/40 p-3">

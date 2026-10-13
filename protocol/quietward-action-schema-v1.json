@@ -22,8 +22,32 @@
         "incident_id": {"type": "string", "format": "uuid"},
         "target_agent_id": {"type": "string", "minLength": 1, "maxLength": 64},
         "target_host_id": {"type": "string", "minLength": 1, "maxLength": 128},
-        "action_type": {"enum": ["restart_quietward_demo_service"]},
-        "parameters": {"type": "object", "maxProperties": 0},
+        "action_type": {
+          "enum": [
+            "restart_quietward_demo_service",
+            "collect_host_diagnostic",
+            "collect_process_diagnostic",
+            "collect_network_diagnostic",
+            "collect_incident_triage_bundle",
+            "terminate_evidence_process"
+          ]
+        },
+        "parameters": {
+          "oneOf": [
+            {"type": "object", "maxProperties": 0},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["evidence_handle"],
+              "properties": {
+                "evidence_handle": {
+                  "type": "string",
+                  "pattern": "^qwrp-[0-9a-f]{32}$"
+                }
+              }
+            }
+          ]
+        },
         "requested_at": {"type": "string", "format": "date-time"},
         "requested_by": {"type": "string", "minLength": 1, "maxLength": 128},
         "approval_id": {"type": "string", "format": "uuid"},
@@ -37,7 +61,28 @@
         "result": {"type": ["object", "null"]},
         "error": {"type": ["string", "null"]},
         "evidence": {"type": ["object", "null"]}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"action_type": {"const": "terminate_evidence_process"}}},
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["evidence_handle"],
+                "properties": {
+                  "evidence_handle": {
+                    "type": "string",
+                    "pattern": "^qwrp-[0-9a-f]{32}$"
+                  }
+                }
+              }
+            }
+          },
+          "else": {"properties": {"parameters": {"type": "object", "maxProperties": 0}}}
+        }
+      ]
     },
     "ActionResult": {
       "type": "object",

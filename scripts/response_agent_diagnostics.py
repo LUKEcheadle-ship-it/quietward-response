@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-MAX_PROCESS_RESULTS = 128
+MAX_PROCESS_RESULTS = 512
 MAX_NETWORK_RESULTS = 256
 
 
