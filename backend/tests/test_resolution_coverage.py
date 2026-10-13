@@ -35,3 +35,17 @@ def test_every_declared_category_has_a_concrete_tested_recovery_contract() -> No
     assert unresolved_categories() == []
     for coverage in RESOLUTION_COVERAGE.values():
         assert coverage.resolution_mode in {"guided_human_recovery", "evidence_routed_guided_recovery"}
+
+
+def test_unimplemented_automatic_recommendations_point_to_guided_recovery() -> None:
+    from types import SimpleNamespace
+    from app.services.recommendation import recommendations_for
+    for category in ("persistence", "network", "operational", "identity"):
+        event = SimpleNamespace(category=category, event_type="review_test", raw_payload={})
+        actions = recommendations_for([event])
+        disabled = [a for a in actions if a["action_type"] == "remediation" and not a["enabled"]]
+        assert disabled, category
+        for action in disabled:
+            assert "Guided resolution" in action["description"]
+            assert action["registry_action_type"] is None
+            assert "release-blocking" not in action["description"]

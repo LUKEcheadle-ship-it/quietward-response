@@ -5,7 +5,7 @@ The Guided Incident Response vNext branch is intentionally split into two qualif
 1. **Current implemented slice** — everything already built must pass its tests.
 2. **Final combined release coverage** — every QuietWard finding family must have a tested Response resolution path before release.
 
-The second gate is expected to remain blocked while remediation families are still being implemented.
+The second gate now executes the implemented human-recovery contracts for all 12 categories. It must pass with no missing or skipped category. This is evidence-attested operator recovery, not implementation of every automatic platform-specific remediation executor.
 
 ## Required branches
 
@@ -56,7 +56,7 @@ VNEXT CURRENT IMPLEMENTED SLICE: PASS
 
 and prints the exact QuietWard and Response HEAD SHAs that were qualified.
 
-The final resolution-coverage report may still say `BLOCKED`; that is expected until every remediation family is complete.
+A current-slice PASS alone is not release clearance. The separate final resolution-coverage gate must also PASS, together with native and real-browser acceptance on the selected source.
 
 ## Live containment safety
 
@@ -79,7 +79,15 @@ The final combined release must also pass:
 python scripts/verify_vnext_resolution_coverage.py
 ```
 
-This command intentionally returns a failure while any QuietWard response category remains unresolved or unqualified. Do not make the PRs ready for review or merge the combined update merely because the current-slice qualification passes.
+This command runs the API and negative-path contract tests and returns failure if any category lacks a tested recovery or escalation path, or any required case fails or skips. It does not inspect real endpoint artifacts: the product explicitly labels outcome verification as independent human attestation. Do not make the PRs ready or merge merely because the current-slice qualification passes.
+
+The browser acceptance is a separate executable gate:
+
+```bash
+python scripts/verify_guided_recovery_browser.py --output <new-evidence-directory>
+```
+
+It requires the built frontend and Playwright/Chromium. It uses separate named analyst sessions and disposable synthetic state to exercise approval, ordered checkpoints, independent verification, closure and acknowledged-but-unresolved escalation. No endpoint agent or action is started by this browser test.
 
 ## Development-only offline option
 

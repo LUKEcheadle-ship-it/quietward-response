@@ -163,7 +163,7 @@ def main() -> int:
                     expect(reviewer.get_by_test_id("recovery-state")).to_have_text("verified")
                     reviewer.get_by_label("Final incident closure rationale", exact=True).fill(NOTE)
                     reviewer.get_by_role("button", name="Close independently verified recovery", exact=True).click()
-                    expect(reviewer.get_by_label("Status", exact=True)).to_have_value("resolved")
+                    expect(reviewer.get_by_role("combobox", name="Status", exact=True)).to_have_value("resolved")
                     reviewer.get_by_role("heading", name="Guided resolution", exact=True).scroll_into_view_if_needed()
                     reviewer.screenshot(path=str(out / "verified-recovery.png"), full_page=True)
                     assert request(f"/api/v1/incidents/{identifier}")["status"] == "resolved"

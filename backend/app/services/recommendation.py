@@ -223,12 +223,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Disable persistence mechanism",
-                    "Evidence-bound persistence removal is still release-blocking work for vNext.",
+                    "Automatic persistence removal is not implemented. Use Guided resolution to record owner-executed disablement, evidence custody, rollback and independent verification.",
                 ),
                 _action(
                     "remediation",
                     "Quarantine executable",
-                    "Evidence-bound file quarantine and reversible restore are still release-blocking work for vNext.",
+                    "Automatic file quarantine and restore are not implemented. Use Guided resolution with authorized tools, preserved artifact identity, custody records and independently reviewed recovery evidence.",
                 ),
             ]
         )
@@ -254,7 +254,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Restrict or stop the listener",
-                    "Evidence-bound network containment is still release-blocking work for vNext.",
+                    "Automatic network containment is not implemented. Use Guided resolution for an authorized, scoped network change with management-access protection, rollback and connectivity verification.",
                 ),
             ]
         )
@@ -283,7 +283,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Recover affected resource",
-                    "Typed operational recovery actions are still release-blocking work for vNext.",
+                    "Automatic operational recovery is not implemented. Use Guided resolution to record the owner-approved subsystem runbook, its recovery receipt and fresh service-health verification.",
                 ),
             ]
         )
@@ -304,7 +304,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
                 _action(
                     "remediation",
                     "Apply corrective action",
-                    "The generic fallback must resolve into a typed remediation family before vNext can release.",
+                    "Use Guided resolution to select a concrete recovery family, obtain independent approval, record each evidence-backed checkpoint and independently verify the outcome. This recommendation does not execute a corrective action.",
                 ),
             ]
         )
