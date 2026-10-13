@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/States";
 import { QuietWardContext } from "@/components/QuietWardContext";
+import { ResolutionWorkbench } from "@/components/ResolutionWorkbench";
 import { ResponseActions } from "@/components/ResponseActions";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { apiFetch, formatTime } from "@/lib/api";
@@ -162,6 +163,7 @@ export default function IncidentDetailPage() {
       </div>
 
       <ResponseActions incident={incident} onIncidentRefresh={loadIncident} />
+      <ResolutionWorkbench incidentId={incident.incident_id} onRefresh={loadIncident} />
 
       <section>
         <p className="eyebrow">Evidence</p>

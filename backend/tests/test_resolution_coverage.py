@@ -28,9 +28,10 @@ def test_resolution_matrix_covers_every_quietward_response_category() -> None:
         assert coverage.rationale
 
 
-def test_vnext_remains_release_blocked_until_resolution_paths_are_complete() -> None:
-    # This is a development invariant, not the final release assertion. The final
-    # gate is scripts/verify_vnext_resolution_coverage.py, which exits non-zero while
-    # this list is non-empty. When the final category is implemented, this test
-    # should be updated in the same commit to assert unresolved_categories() == [].
-    assert set(unresolved_categories()) <= EXPECTED_QUIETWARD_CATEGORIES
+def test_every_declared_category_has_a_concrete_tested_recovery_contract() -> None:
+    from app.services.resolution_playbooks import PLAYBOOKS, SOURCE_CATEGORIES
+    assert set(SOURCE_CATEGORIES) == EXPECTED_QUIETWARD_CATEGORIES
+    assert set(PLAYBOOKS) == EXPECTED_QUIETWARD_CATEGORIES - {"security"}
+    assert unresolved_categories() == []
+    for coverage in RESOLUTION_COVERAGE.values():
+        assert coverage.resolution_mode in {"guided_human_recovery", "evidence_routed_guided_recovery"}

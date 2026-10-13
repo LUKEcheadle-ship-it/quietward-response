@@ -54,12 +54,13 @@ def _assert_v11_schema(database: Path) -> None:
             "actions",
             "audit_records",
             "agent_capabilities",
+            "resolution_workflows",
         }
         missing = required - tables
         if missing:
             raise RuntimeError(f"v1.1 migration missing tables: {sorted(missing)}")
         version = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-        if not version or version[0] != "0003_agent_diag_caps":
+        if not version or version[0] != "0004_guided_recovery":
             raise RuntimeError(f"unexpected v1.1 Alembic version: {version!r}")
         columns = {
             row[1]

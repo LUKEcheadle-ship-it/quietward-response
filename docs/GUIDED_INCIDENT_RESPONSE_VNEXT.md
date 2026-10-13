@@ -26,7 +26,7 @@ A valid resolution path is either a typed, evidence-bound, policy-checked Respon
 
 All of the above remain subject to local and joint qualification.
 
-## Remaining release blockers
+## Automated executor roadmap (not claimed as implemented)
 
 - evidence-bound file quarantine and reversible restore
 - evidence-bound persistence disable/removal
@@ -58,4 +58,6 @@ Before release:
 
 ## Current status
 
-**BLOCKED / DRAFT.** The local backend/frontend/joint suites have not been executed through this GitHub integration, the first containment family has not yet been qualified, and multiple resolution families remain incomplete. The combined update must remain unreleased.
+Versioned, evidence-backed **human recovery workflows** cover the declared categories, including concrete routing for the generic-security fallback. They require named independent approval, ordered evidence checkpoints, fresh independent verification, and accountable escalation. They add no endpoint mutation authority. See [GUIDED_RECOVERY_WORKFLOWS.md](GUIDED_RECOVERY_WORKFLOWS.md) for the exact implemented behavior and its limits.
+
+The original primary outcomes remain in the coverage matrix. The executable coverage gate now also runs the positive and negative API contracts for every category and refuses skipped or missing cases. Full backend, frontend, migration, native and paired verification still apply to the selected release revision. Do not equate human-attested recovery with automatic implementation of the executor roadmap above.

@@ -11,9 +11,10 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.analyst_auth import AnalystAuthMiddleware
-from app.api import actions, agents, audit, capabilities, events, health, hosts, incidents, overview
+from app.api import actions, agents, audit, capabilities, events, health, hosts, incidents, overview, resolutions
 from app.config import Settings, get_settings
 from app.database import capabilities as _capability_models  # noqa: F401
+from app.database import resolutions as _resolution_models  # noqa: F401
 from app.database.session import Database
 from app.logging import configure_logging
 from app.request_serialization import SerializedRequestMiddleware
@@ -133,6 +134,7 @@ def create_app(
     application.include_router(health.router)
     application.include_router(events.router)
     application.include_router(incidents.router)
+    application.include_router(resolutions.router)
     application.include_router(hosts.router)
     application.include_router(overview.router)
     application.include_router(agents.router)

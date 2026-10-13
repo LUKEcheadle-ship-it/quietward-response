@@ -130,3 +130,26 @@ def test_unsupported_atomic_no_replace_fails_closed(tmp_path):
 def test_relative_config_path_is_refused():
     with pytest.raises(ValueError, match="absolute"):
         enrollment._private_json(Path("relative.json"), {"synthetic": True}, force=False)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink regression")
+def test_enrollment_cli_refuses_symlink_before_network(tmp_path, monkeypatch):
+    existing = tmp_path / "existing.json"
+    existing.write_bytes(b"PRESERVE")
+    alias = tmp_path / "alias.json"
+    alias.symlink_to(existing)
+    monkeypatch.setenv("QWR_ENROLLMENT_TOKEN", "synthetic-enrollment-test-token")
+    monkeypatch.setattr(sys, "argv", ["enroll_response_agent.py", "--host-id", "synthetic-host", "--config", str(alias), "--force"])
+    with patch.object(enrollment, "urlopen", side_effect=AssertionError("network must not run")):
+        assert enrollment.main() == 2
+    assert alias.is_symlink() and existing.read_bytes() == b"PRESERVE"
+
+
+def test_enrollment_cli_existing_config_refused_before_network(tmp_path, monkeypatch):
+    existing = tmp_path / "existing.json"
+    existing.write_bytes(b"PRESERVE")
+    monkeypatch.setenv("QWR_ENROLLMENT_TOKEN", "synthetic-enrollment-test-token")
+    monkeypatch.setattr(sys, "argv", ["enroll_response_agent.py", "--host-id", "synthetic-host", "--config", str(existing)])
+    with patch.object(enrollment, "urlopen", side_effect=AssertionError("network must not run")):
+        assert enrollment.main() == 2
+    assert existing.read_bytes() == b"PRESERVE"

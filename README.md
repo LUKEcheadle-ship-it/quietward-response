@@ -248,3 +248,7 @@ Good-first-issue and help-wanted tasks are deliberately scoped around UI, docs, 
 ## License
 
 Apache License 2.0. See [`LICENSE`](LICENSE).
+
+## Guided recovery development update
+
+The guided-response branch adds an evidence-backed human recovery workbench for all declared finding categories. It requires named independent approval and verification, records ordered category-specific checkpoints, and keeps acknowledged escalations unresolved. It does not execute the notes, fetch artifacts, create external tickets, or claim that a human attestation is an automated endpoint scan. See [the workflow contract](docs/GUIDED_RECOVERY_WORKFLOWS.md).

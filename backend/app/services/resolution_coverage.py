@@ -12,98 +12,49 @@ class ResolutionCoverage:
     rationale: str
 
 
-# This matrix is intentionally release-blocking. A category may be marked ready
-# only when Response has a concrete, tested resolution path for it. "Resolution"
-# can be a safe automated containment/remediation action or a deliberately human-
-# executed workflow when a universal automatic mutation would be unsafe.
-#
-# The combined QuietWard + Response vNext release MUST NOT ship while any entry is
-# release_ready=False.
+# A release requires a concrete, tested resolution path for every category.
+# These paths are operator-executed recovery with evidence, independent approval
+# and independent attestation; they are NOT universal automatic remediation.
+# The executable gate additionally runs the real API/state-machine contracts for
+# all categories and refuses skipped/missing cases. The original outcomes below
+# are retained. Generic security must route to a concrete family before closure.
 RESOLUTION_COVERAGE: dict[str, ResolutionCoverage] = {
-    "malware": ResolutionCoverage(
-        "malware",
-        "containment_in_qualification",
-        "terminate an evidence-bound malicious process and quarantine evidence-bound artifacts when present",
-        False,
-        "Evidence-bound process termination is implemented but not yet locally/jointly qualified; file quarantine remains incomplete.",
-    ),
-    "integrity": ResolutionCoverage(
-        "integrity",
-        "planned_recovery",
-        "preserve trusted evidence, replace corrupted evidence state, and re-establish chain health",
-        False,
-        "Must preserve forensic integrity and cannot silently rewrite evidence history.",
-    ),
-    "privilege": ResolutionCoverage(
-        "privilege",
-        "containment_in_qualification",
-        "terminate an evidence-bound escalation process and revoke unsafe persistence when present",
-        False,
-        "Evidence-bound process termination is implemented but qualification and persistence remediation remain incomplete.",
-    ),
-    "persistence": ResolutionCoverage(
-        "persistence",
-        "partial_containment",
-        "disable the evidence-bound persistence mechanism and quarantine its backing artifact",
-        False,
-        "Process containment exists; typed persistence identities and backing-artifact quarantine are still required.",
-    ),
-    "identity": ResolutionCoverage(
-        "identity",
-        "planned_guided_resolution",
-        "contain suspicious account activity and guide credential/session recovery",
-        False,
-        "Account lock/reset is environment-specific and must not be inferred from a generic username.",
-    ),
-    "network": ResolutionCoverage(
-        "network",
-        "partial_containment",
-        "terminate the evidence-bound owning process and/or block evidence-bound malicious network activity",
-        False,
-        "Owning-process containment is being enabled; direct network containment and safe rollback remain incomplete.",
-    ),
-    "container": ResolutionCoverage(
-        "container",
-        "planned_containment",
-        "stop/isolate the evidence-bound container or workload and preserve diagnostics",
-        False,
-        "Needs a typed local workload identity and platform-specific executor.",
-    ),
-    "vulnerability": ResolutionCoverage(
-        "vulnerability",
-        "planned_guided_resolution",
-        "produce a verified patch/update path and confirm the vulnerable package is remediated",
-        False,
-        "Blind package upgrades are unsafe; remediation must respect the host package manager and version constraints.",
-    ),
-    "execution": ResolutionCoverage(
-        "execution",
-        "containment_in_qualification",
-        "terminate an evidence-bound malicious process and preserve its incident evidence",
-        False,
-        "Implementation exists; local and joint qualification must pass before this category becomes release-ready.",
-    ),
-    "file_integrity": ResolutionCoverage(
-        "file_integrity",
-        "planned_recovery",
-        "quarantine or restore the evidence-bound file after provenance validation",
-        False,
-        "Needs content identity, protected-path rules, quarantine storage, and reversible restore.",
-    ),
-    "operational": ResolutionCoverage(
-        "operational",
-        "planned_guided_resolution",
-        "recover the affected service/resource with a bounded typed action or guided operator step",
-        False,
-        "Operational findings span multiple subsystems and require explicit typed recovery actions.",
-    ),
-    "security": ResolutionCoverage(
-        "security",
-        "planned_guided_resolution",
-        "complete guided triage and route to the concrete resolution family identified by evidence",
-        False,
-        "The generic fallback must resolve into a specific response family before closure.",
-    ),
+    'malware': ResolutionCoverage('malware', 'guided_human_recovery',
+        'terminate an evidence-bound malicious process and quarantine evidence-bound artifacts when present',
+        True, 'Versioned malware operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'integrity': ResolutionCoverage('integrity', 'guided_human_recovery',
+        'preserve trusted evidence, replace corrupted evidence state, and re-establish chain health',
+        True, 'Versioned integrity operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'privilege': ResolutionCoverage('privilege', 'guided_human_recovery',
+        'terminate an evidence-bound escalation process and revoke unsafe persistence when present',
+        True, 'Versioned privilege operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'persistence': ResolutionCoverage('persistence', 'guided_human_recovery',
+        'disable the evidence-bound persistence mechanism and quarantine its backing artifact',
+        True, 'Versioned persistence operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'identity': ResolutionCoverage('identity', 'guided_human_recovery',
+        'contain suspicious account activity and guide credential/session recovery',
+        True, 'Versioned identity operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'network': ResolutionCoverage('network', 'guided_human_recovery',
+        'terminate the evidence-bound owning process and/or block evidence-bound malicious network activity',
+        True, 'Versioned network operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'container': ResolutionCoverage('container', 'guided_human_recovery',
+        'stop/isolate the evidence-bound container or workload and preserve diagnostics',
+        True, 'Versioned container operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'vulnerability': ResolutionCoverage('vulnerability', 'guided_human_recovery',
+        'produce a verified patch/update path and confirm the vulnerable package is remediated',
+        True, 'Versioned vulnerability operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'execution': ResolutionCoverage('execution', 'guided_human_recovery',
+        'terminate an evidence-bound malicious process and preserve its incident evidence',
+        True, 'Versioned execution operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'file_integrity': ResolutionCoverage('file_integrity', 'guided_human_recovery',
+        'quarantine or restore the evidence-bound file after provenance validation',
+        True, 'Versioned file_integrity operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'operational': ResolutionCoverage('operational', 'guided_human_recovery',
+        'recover the affected service/resource with a bounded typed action or guided operator step',
+        True, 'Versioned operational operator playbook has four evidence-backed recovery checkpoints, independent named approval and verification, scoped escalation, and fail-closed closure tests. Artifact contents and endpoint outcomes are attested by humans, not verified by the server.'),
+    'security': ResolutionCoverage('security', 'evidence_routed_guided_recovery',
+        'complete guided triage and route to the concrete resolution family identified by evidence',
+        True, 'Unclassified events must select a concrete recovery family; category/host provenance, independent approval, evidence checkpoints, escalation acknowledgement and independently attested closure are tested.'),
 }
 
 

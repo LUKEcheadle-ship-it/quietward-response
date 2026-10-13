@@ -60,6 +60,7 @@ try:
             for name,path in [("overview","/"),("incidents","/incidents"),("hosts","/hosts"),("agents","/agents"),("events","/events")]:
                 page.goto("http://127.0.0.1:3001"+path,wait_until="networkidle")
                 expect(page.locator("h1")).to_be_visible()
+                expect(page.get_by_text("Loading current response state…",exact=True)).to_have_count(0)
                 expect(page.get_by_text("API request failed",exact=False)).to_have_count(0)
                 expect(page.get_by_role("navigation").get_by_role("link",name="Incidents",exact=True)).to_be_visible()
                 assert page.locator("header").evaluate("e=>getComputedStyle(e).position")=="sticky"
@@ -68,9 +69,19 @@ try:
                 page.screenshot(path=str(out/f"{name}.png"),full_page=True)
             page.goto("http://127.0.0.1:3001/incidents",wait_until="networkidle")
             expect(page.locator("tbody tr").first).to_be_visible()
-            page.locator('tbody a[href^="/incidents/"]').first.click()
-            page.wait_for_load_state("networkidle")
-            expect(page.locator("h1")).to_be_visible()
+            incident_link=page.locator('tbody a[href^="/incidents/"]').first
+            incident_path=incident_link.get_attribute("href")
+            assert incident_path is not None and incident_path.startswith("/incidents/")
+            incident_title=incident_link.inner_text().strip()
+            assert incident_title
+            incident_link.click()
+            # Client-side routing can leave the previous h1 visible briefly.
+            # Require the destination and its loaded evidence, not only h1 presence.
+            page.wait_for_url("http://127.0.0.1:3001"+incident_path,timeout=30000)
+            expect(page.get_by_role("heading",name=incident_title,exact=True)).to_be_visible(timeout=30000)
+            for heading in ("Incident timeline", "Raw event details", "Audit trail", "Controlled actions"):
+                expect(page.get_by_role("heading",name=heading,exact=True)).to_be_visible(timeout=30000)
+            expect(page.get_by_text("Loading current response state…",exact=True)).to_have_count(0)
             expect(page.get_by_text("API request failed",exact=False)).to_have_count(0)
             page.screenshot(path=str(out/"incident-detail.png"),full_page=True)
             assert not errors,errors
@@ -83,6 +94,7 @@ try:
         finally:browser.close()
     receipt={"decision":"PASS","browser":"Chromium","routes":6,"synthetic_data_only":True,
              "endpoint_agents_started":0,"response_actions_requested":0,"javascript_errors":errors,
+             "incident_detail_loaded":True,
              "source_sha":subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True).strip(),
              "lock_sha256":hashlib.sha256((root/"frontend/package-lock.json").read_bytes()).hexdigest()}
     (out/"receipt.json").write_text(json.dumps(receipt,indent=2)+"\n",encoding="utf-8")

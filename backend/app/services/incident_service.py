@@ -10,6 +10,7 @@ from app.schemas.incident import IncidentPatch
 from app.services.action_service import cancel_undispatched_actions_for_incident
 from app.services.audit_service import record_audit
 from app.services.timeline import timeline_for
+from app.services.resolution_service import assert_closure
 
 
 def event_to_dict(event: EventRecord) -> dict[str, Any]:
@@ -99,6 +100,8 @@ def update_incident(
     *,
     actor_id: str,
 ) -> IncidentRecord:
+    if patch.status in {"resolved", "dismissed"} and patch.status != incident.status:
+        assert_closure(session, incident)
     changed = False
     if patch.status is not None and patch.status != incident.status:
         previous = incident.status

@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
 from app.database import capabilities as _capability_models  # noqa: F401
+from app.database import resolutions as _resolution_models  # noqa: F401
 from app.database.models import Base
 
 config = context.config

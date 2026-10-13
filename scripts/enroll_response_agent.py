@@ -197,7 +197,15 @@ def main() -> int:
         return 2
 
     state_dir = (args.state_dir or _default_state_dir()).expanduser().resolve()
-    config_path = (args.config or state_dir / "agent-config.json").expanduser().resolve()
+    # Preserve the final pathname so a symlink cannot be resolved away before
+    # the private writer checks it. Refuse before creating a remote enrollment.
+    config_path = (args.config or state_dir / "agent-config.json").expanduser().absolute()
+    if config_path.is_symlink():
+        print("agent config must not be a symlink")
+        return 2
+    if config_path.exists() and not args.force:
+        print("agent config already exists; use --force only for an intentional replacement")
+        return 2
     payload = json.dumps(
         {
             "host_id": args.host_id,
