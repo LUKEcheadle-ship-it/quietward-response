@@ -1,0 +1,120 @@
+diff --git a/backend/app/services/recommendation.py b/backend/app/services/recommendation.py
+index 54cf281..e5b8208 100644
+--- a/backend/app/services/recommendation.py
++++ b/backend/app/services/recommendation.py
+@@ -223,12 +223,12 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
+                 _action(
+                     "remediation",
+                     "Disable persistence mechanism",
+-                    "Evidence-bound persistence removal is still release-blocking work for vNext.",
++                    "Automatic persistence removal is not implemented. Use Guided resolution to record owner-executed disablement, evidence custody, rollback and independent verification.",
+                 ),
+                 _action(
+                     "remediation",
+                     "Quarantine executable",
+-                    "Evidence-bound file quarantine and reversible restore are still release-blocking work for vNext.",
++                    "Automatic file quarantine and restore are not implemented. Use Guided resolution with authorized tools, preserved artifact identity, custody records and independently reviewed recovery evidence.",
+                 ),
+             ]
+         )
+@@ -254,7 +254,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
+                 _action(
+                     "remediation",
+                     "Restrict or stop the listener",
+-                    "Evidence-bound network containment is still release-blocking work for vNext.",
++                    "Automatic network containment is not implemented. Use Guided resolution for an authorized, scoped network change with management-access protection, rollback and connectivity verification.",
+                 ),
+             ]
+         )
+@@ -283,7 +283,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
+                 _action(
+                     "remediation",
+                     "Recover affected resource",
+-                    "Typed operational recovery actions are still release-blocking work for vNext.",
++                    "Automatic operational recovery is not implemented. Use Guided resolution to record the owner-approved subsystem runbook, its recovery receipt and fresh service-health verification.",
+                 ),
+             ]
+         )
+@@ -304,7 +304,7 @@ def recommendations_for(events: list[EventRecord]) -> list[dict[str, object]]:
+                 _action(
+                     "remediation",
+                     "Apply corrective action",
+-                    "The generic fallback must resolve into a typed remediation family before vNext can release.",
++                    "Use Guided resolution to select a concrete recovery family, obtain independent approval, record each evidence-backed checkpoint and independently verify the outcome. This recommendation does not execute a corrective action.",
+                 ),
+             ]
+         )
+diff --git a/backend/tests/test_resolution_coverage.py b/backend/tests/test_resolution_coverage.py
+index a25f2b2..abe70f9 100644
+--- a/backend/tests/test_resolution_coverage.py
++++ b/backend/tests/test_resolution_coverage.py
+@@ -35,3 +35,17 @@ def test_every_declared_category_has_a_concrete_tested_recovery_contract() -> No
+     assert unresolved_categories() == []
+     for coverage in RESOLUTION_COVERAGE.values():
+         assert coverage.resolution_mode in {"guided_human_recovery", "evidence_routed_guided_recovery"}
++
++
++def test_unimplemented_automatic_recommendations_point_to_guided_recovery() -> None:
++    from types import SimpleNamespace
++    from app.services.recommendation import recommendations_for
++    for category in ("persistence", "network", "operational", "identity"):
++        event = SimpleNamespace(category=category, event_type="review_test", raw_payload={})
++        actions = recommendations_for([event])
++        disabled = [a for a in actions if a["action_type"] == "remediation" and not a["enabled"]]
++        assert disabled, category
++        for action in disabled:
++            assert "Guided resolution" in action["description"]
++            assert action["registry_action_type"] is None
++            assert "release-blocking" not in action["description"]
+diff --git a/docs/VNEXT_TESTING.md b/docs/VNEXT_TESTING.md
+index 4e0034c..e7d6f9f 100644
+--- a/docs/VNEXT_TESTING.md
++++ b/docs/VNEXT_TESTING.md
+@@ -5,7 +5,7 @@ The Guided Incident Response vNext branch is intentionally split into two qualif
+ 1. **Current implemented slice** — everything already built must pass its tests.
+ 2. **Final combined release coverage** — every QuietWard finding family must have a tested Response resolution path before release.
+ 
+-The second gate is expected to remain blocked while remediation families are still being implemented.
++The second gate now executes the implemented human-recovery contracts for all 12 categories. It must pass with no missing or skipped category. This is evidence-attested operator recovery, not implementation of every automatic platform-specific remediation executor.
+ 
+ ## Required branches
+ 
+@@ -56,7 +56,7 @@ VNEXT CURRENT IMPLEMENTED SLICE: PASS
+ 
+ and prints the exact QuietWard and Response HEAD SHAs that were qualified.
+ 
+-The final resolution-coverage report may still say `BLOCKED`; that is expected until every remediation family is complete.
++A current-slice PASS alone is not release clearance. The separate final resolution-coverage gate must also PASS, together with native and real-browser acceptance on the selected source.
+ 
+ ## Live containment safety
+ 
+@@ -79,7 +79,15 @@ The final combined release must also pass:
+ python scripts/verify_vnext_resolution_coverage.py
+ ```
+ 
+-This command intentionally returns a failure while any QuietWard response category remains unresolved or unqualified. Do not make the PRs ready for review or merge the combined update merely because the current-slice qualification passes.
++This command runs the API and negative-path contract tests and returns failure if any category lacks a tested recovery or escalation path, or any required case fails or skips. It does not inspect real endpoint artifacts: the product explicitly labels outcome verification as independent human attestation. Do not make the PRs ready or merge merely because the current-slice qualification passes.
++
++The browser acceptance is a separate executable gate:
++
++```bash
++python scripts/verify_guided_recovery_browser.py --output <new-evidence-directory>
++```
++
++It requires the built frontend and Playwright/Chromium. It uses separate named analyst sessions and disposable synthetic state to exercise approval, ordered checkpoints, independent verification, closure and acknowledged-but-unresolved escalation. No endpoint agent or action is started by this browser test.
+ 
+ ## Development-only offline option
+ 
+diff --git a/scripts/verify_guided_recovery_browser.py b/scripts/verify_guided_recovery_browser.py
+index 8c96cba..5348792 100644
+--- a/scripts/verify_guided_recovery_browser.py
++++ b/scripts/verify_guided_recovery_browser.py
+@@ -163,7 +163,7 @@ def main() -> int:
+                     expect(reviewer.get_by_test_id("recovery-state")).to_have_text("verified")
+                     reviewer.get_by_label("Final incident closure rationale", exact=True).fill(NOTE)
+                     reviewer.get_by_role("button", name="Close independently verified recovery", exact=True).click()
+-                    expect(reviewer.get_by_label("Status", exact=True)).to_have_value("resolved")
++                    expect(reviewer.get_by_role("combobox", name="Status", exact=True)).to_have_value("resolved")
+                     reviewer.get_by_role("heading", name="Guided resolution", exact=True).scroll_into_view_if_needed()
+                     reviewer.screenshot(path=str(out / "verified-recovery.png"), full_page=True)
+                     assert request(f"/api/v1/incidents/{identifier}")["status"] == "resolved"

@@ -1,0 +1,8 @@
+tree 7ae76f5a8e784e0de2b7b853f7a2b14d23a4bedc
+parent 448cf1a3bfc45bb80343d66ef498258603fb4054
+author Luke Cheadle <260803955+LUKEcheadle-ship-it@users.noreply.github.com> 1791912454 +0000
+committer Luke Cheadle <260803955+LUKEcheadle-ship-it@users.noreply.github.com> 1791912454 +0000
+
+Correct accessible browser selector and describe the available recovery path
+
+Keep the resolved-state assertion exact using the Status combobox accessible name. Direct unavailable automatic recommendation descriptions to the implemented evidence-attested recovery workflow, without enabling those actions. Add coverage for the distinction and refresh testing guidance.
