@@ -176,7 +176,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
-          (cd release-assets && sha256sum -c SHA256SUMS.txt)
+          (cd "$RUNNER_TEMP/qwr-release-assets" && sha256sum -c SHA256SUMS.txt)
           grep -Fx "Response source SHA: $GITHUB_SHA" $RUNNER_TEMP/qwr-release-assets/SOURCE-REVISIONS.txt
           grep -Fx 'Companion QuietWard source SHA: cef5ba275b7d011b5b2236051cc7f4b40035c9b8' $RUNNER_TEMP/qwr-release-assets/SOURCE-REVISIONS.txt
           if gh release view v1.1.0-alpha.1 >/dev/null 2>&1; then
