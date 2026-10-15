@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0-alpha.1 — experimental guided-response source candidate
+
+- Includes the v1.1 diagnostic integration plus human-executed, evidence-attested guided recovery/escalation for all 12 declared QuietWard finding categories.
+- Requires named independent analyst approval, ordered checkpoints, fresh independent verification and signed/audited evidence; ticket IDs and artifact hashes are operator-provided metadata, not external repairs verified by the server.
+- Includes narrowly evidence-bound, analyst-approved disposable-target process containment. No arbitrary PID, shell, path, remote command or automatic remediation executor is offered.
+- Source prerelease (if published) is gated on the exact release SHA passing complete Linux/Windows native tests, all 12 recovery and escalation contracts, cross-repository QuietWard integration, real browser workflows, migration verification, frontend build/audit and public-source audit.
+- Source archives and SHA-256 provenance receipts are **not** native installers or proof of Windows 11/Debian 12 QuietWard service deployment.
+- Manual host recovery, external change approval and rollback remain the operator's responsibility. This alpha is not certified as production EDR/SOAR.
+
 ## Unreleased — public review
 
 - Add incident search, filters and cursor pagination with counts.
