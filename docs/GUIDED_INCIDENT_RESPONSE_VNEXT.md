@@ -24,7 +24,7 @@ A valid resolution path is either a typed, evidence-bound, policy-checked Respon
 - action-protocol tests rejecting arbitrary PID/command parameters
 - machine-readable resolution coverage matrix and hard release gate
 
-All of the above remain subject to local and joint qualification.
+The reviewed October 13 candidate underwent Windows and Ubuntu backend/native tests, database migration checks, real multi-analyst browser verification and paired-source checks. The [qualification workflow](https://github.com/LUKEcheadle-ship-it/quietward-response/actions/runs/38439060669) also passed the all-12-category recovery and escalation gate. These source-test receipts are **not** a separately published versioned package or host-by-host installer qualification.
 
 ## Automated executor roadmap (not claimed as implemented)
 
@@ -58,6 +58,6 @@ Before release:
 
 ## Current status
 
-Versioned, evidence-backed **human recovery workflows** cover the declared categories, including concrete routing for the generic-security fallback. They require named independent approval, ordered evidence checkpoints, fresh independent verification, and accountable escalation. They add no endpoint mutation authority. See [GUIDED_RECOVERY_WORKFLOWS.md](GUIDED_RECOVERY_WORKFLOWS.md) for the exact implemented behavior and its limits.
+Versioned, evidence-backed **human recovery workflows** cover all 12 declared categories in the October 13 reviewed source, including concrete routing for the generic-security fallback. They require named independent approval, ordered evidence checkpoints, fresh independent verification, and accountable escalation. They add no endpoint mutation authority. See [GUIDED_RECOVERY_WORKFLOWS.md](GUIDED_RECOVERY_WORKFLOWS.md) for the exact implemented behavior and its limits.
 
-The original primary outcomes remain in the coverage matrix. The executable coverage gate now also runs the positive and negative API contracts for every category and refuses skipped or missing cases. Full backend, frontend, migration, native and paired verification still apply to the selected release revision. Do not equate human-attested recovery with automatic implementation of the executor roadmap above.
+The original primary outcomes remain in the coverage matrix. The executable coverage gate runs positive and negative API contracts for every category and refuses skipped or missing cases; it **passed in the reviewed October 13 Windows and Ubuntu qualification**. Full backend, frontend, migration, native and paired verification must still be bound to any later selected formal release revision. The full vNext release is not tagged/published, and the gate's PASS does not mean the automatic-executor roadmap above is implemented.
