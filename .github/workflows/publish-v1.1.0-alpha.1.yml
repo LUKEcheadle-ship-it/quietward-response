@@ -1,0 +1,216 @@
+name: Response 1.1.0-alpha.1 qualified prerelease
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/publish-v1.1.0-alpha.1.yml
+      - CHANGELOG.md
+      - README.md
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v1.1.0-alpha.1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: response-v1.1.0-alpha.1-release
+  cancel-in-progress: false
+
+jobs:
+  linux-joint:
+    name: Exact-SHA Linux, companion, guided browser and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: response
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: LUKEcheadle-ship-it/quietward
+          ref: cef5ba275b7d011b5b2236051cc7f4b40035c9b8
+          path: quietward
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert immutable source pairing
+        run: |
+          test "$(git -C response rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C quietward rev-parse HEAD)" = "cef5ba275b7d011b5b2236051cc7f4b40035c9b8"
+          test -z "$(git -C response status --porcelain)"
+          test -z "$(git -C quietward status --porcelain)"
+      - name: Verify entire paired diagnostic and source qualification
+        working-directory: response
+        run: python scripts/verify_v11_diagnostics.py --quietward-repo ../quietward
+      - name: Enforce all 12 actual category recovery and escalation contracts
+        working-directory: response
+        run: .venv/bin/python scripts/verify_vnext_resolution_coverage.py
+      - name: Native bounded process containment on disposable children
+        working-directory: response
+        run: .venv/bin/python scripts/verify_vnext_process_containment.py
+      - name: Install Playwright Chromium for actual guided recovery workflow
+        working-directory: response
+        run: |
+          .venv/bin/python -m pip install playwright
+          .venv/bin/python -m playwright install --with-deps chromium
+      - name: Exercise independent analyst approval and verification in real browser
+        working-directory: response
+        run: .venv/bin/python scripts/verify_guided_recovery_browser.py --output "$RUNNER_TEMP/response-guided-browser"
+      - name: Ensure checkout remains unmodified
+        run: |
+          test -z "$(git -C response status --porcelain)"
+          test -z "$(git -C quietward status --porcelain)"
+      - name: Preserve synthetic browser receipts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qwr-v1.1.0-alpha.1-guided-browser
+          path: |
+            ${{ runner.temp }}/response-guided-browser/receipt.json
+            ${{ runner.temp }}/response-guided-browser/*.png
+          retention-days: 14
+          if-no-files-found: warn
+
+  windows-native:
+    name: Exact-SHA Windows backend and evidence-bound process checks
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: response
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned backend dependencies
+        run: python -m pip install -r response/backend/requirements.txt
+      - name: Full Windows backend suite (warnings fail)
+        working-directory: response/backend
+        run: python -m pytest -W error -o addopts='' -q
+      - name: All 12 recovery and escalation paths
+        working-directory: response
+        run: python scripts/verify_vnext_resolution_coverage.py
+      - name: Native disposable-process containment and stale-handle rejection
+        working-directory: response
+        run: python scripts/verify_vnext_process_containment.py
+      - name: Public-source and exact-SHA audit
+        working-directory: response
+        shell: pwsh
+        run: |
+          python scripts/audit_public_release.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $Sha = (git rev-parse HEAD).Trim()
+          if ($Sha -ne $env:GITHUB_SHA) { throw "Windows source SHA mismatch" }
+          if (git status --porcelain) { throw "Windows checkout was modified" }
+
+  source-assets:
+    name: Audit exact source archive and provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify release metadata, public audit and source archive
+        run: |
+          set -euo pipefail
+          python scripts/audit_public_release.py
+          python - <<'PY'
+          from pathlib import Path
+          assert '__version__ = "1.1.0a1"' in Path('backend/app/__init__.py').read_text()
+          assert 'Apache License' in Path('LICENSE').read_text()
+          assert 'human' in Path('docs/GUIDED_RECOVERY_WORKFLOWS.md').read_text().lower()
+          assert '## Unreleased' in Path('CHANGELOG.md').read_text()
+          PY
+          git archive --format=zip --output "$RUNNER_TEMP/quietward-response-v1.1.0-alpha.1-source.zip" "$GITHUB_SHA"
+          git archive --format=zip --output "$RUNNER_TEMP/repeat.zip" "$GITHUB_SHA"
+          cmp "$RUNNER_TEMP/quietward-response-v1.1.0-alpha.1-source.zip" "$RUNNER_TEMP/repeat.zip"
+          unzip -t "$RUNNER_TEMP/quietward-response-v1.1.0-alpha.1-source.zip" >/dev/null
+          (cd "$RUNNER_TEMP" && sha256sum quietward-response-v1.1.0-alpha.1-source.zip > SHA256SUMS.txt)
+          printf "Response source SHA: %s\nCompanion QuietWard source SHA: %s\n" "$GITHUB_SHA" "cef5ba275b7d011b5b2236051cc7f4b40035c9b8" > "$RUNNER_TEMP/SOURCE-REVISIONS.txt"
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qwr-v1.1.0-alpha.1-source
+          path: |
+            ${{ runner.temp }}/quietward-response-v1.1.0-alpha.1-source.zip
+            ${{ runner.temp }}/SHA256SUMS.txt
+            ${{ runner.temp }}/SOURCE-REVISIONS.txt
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    name: Publish bounded v1.1.0-alpha.1 prerelease
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [linux-joint, windows-native, source-assets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: qwr-v1.1.0-alpha.1-source
+          path: release-assets
+      - name: Refuse overwrite and revalidate exact-source assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          (cd release-assets && sha256sum -c SHA256SUMS.txt)
+          grep -Fx "Response source SHA: $GITHUB_SHA" release-assets/SOURCE-REVISIONS.txt
+          grep -Fx 'Companion QuietWard source SHA: cef5ba275b7d011b5b2236051cc7f4b40035c9b8' release-assets/SOURCE-REVISIONS.txt
+          if gh release view v1.1.0-alpha.1 >/dev/null 2>&1; then
+            echo "Prerelease already exists: refusing to overwrite" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin refs/tags/v1.1.0-alpha.1 >/dev/null 2>&1; then
+            echo "Tag already exists: refusing to retarget" >&2
+            exit 1
+          fi
+      - name: Publish prerelease with frank safety scope
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          Experimental QuietWard Response 1.1.0-alpha.1 source prerelease. This is **not** a production-certified EDR/SOAR, universal automatic-remediation system, or an invitation to expose an unauthenticated dashboard to the Internet.
+
+          Includes authenticated incident handling, evidence-bound diagnostics, narrowly scoped analyst-approved process containment, independent named-analyst recovery approval/verification, immutable audit records and guided human-executed recovery/escalation contracts across all 12 declared categories.
+
+          **Not implemented:** automatic generic quarantine, firewall isolation, account recovery, container termination or patch management, arbitrary command/PID/path targeting. Recovery evidence hashes and ticket references are **operator attestations**, not independent server verification that systems were repaired. No arbitrary remote shell.
+
+          Qualified on this exact Response source revision against companion QuietWard source **cef5ba275b7d011b5b2236051cc7f4b40035c9b8** using Linux and Windows backend/native tests, all 12 resolution recovery/escalation contracts, fresh migrations, frontend type/build/npm audit, real local browser independent-analyst flows, and cross-repository source/handoff acceptance. This does **not** certify a separately released QuietWard 0.6 installer on Windows 11/Debian 12.
+
+          Archive contents are repository-tracked public source only (not a compiled installer). SHA-256 archive checksum and exact paired-source revision receipt attached. See the README, SECURITY.md, docs/GUIDED_RECOVERY_WORKFLOWS.md and docs/GUIDED_INCIDENT_RESPONSE_VNEXT.md for deployment restrictions and remaining work.
+          NOTES
+          gh release create v1.1.0-alpha.1 \
+            release-assets/quietward-response-v1.1.0-alpha.1-source.zip \
+            release-assets/SHA256SUMS.txt \
+            release-assets/SOURCE-REVISIONS.txt \
+            --target "$GITHUB_SHA" --prerelease \
+            --title 'QuietWard Response v1.1.0-alpha.1 (experimental)' \
+            --notes-file "$RUNNER_TEMP/notes.md"
+      - name: Verify published prerelease and asset receipt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view v1.1.0-alpha.1 --json url,tagName,isDraft,isPrerelease,assets,targetCommitish
