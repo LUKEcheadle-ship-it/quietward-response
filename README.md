@@ -9,7 +9,7 @@
 
 **Investigate, approve, and verify endpoint response — without exposing a remote shell.**
 
-> **vNext development notice:** The October 13 reviewed source adds approval-gated triage, narrowly evidence-bound process containment and tested **human-executed** recovery/escalation workflows for all 12 declared categories. The category coverage gate passed in the reviewed Windows/Ubuntu candidate. This is **not** a published vNext remediation release: automatic quarantine, firewall, identity, container and patch executors are not implemented, and formal release/host qualification remains separate.
+> **vNext development notice:** The October 13 reviewed source adds approval-gated triage, narrowly evidence-bound process containment and tested **human-executed** recovery/escalation workflows for all 12 declared categories. The category coverage gate passed in the reviewed Windows/Ubuntu candidate. This is **not** the full vNext remediation release: automatic quarantine, firewall, identity, container and patch executors are not implemented. A versioned experimental source prerelease, if listed in GitHub Releases, does not certify production deployment or target-host installers.
 
 
 QuietWard Response is a full-stack incident-investigation and controlled-response platform. It turns authenticated security observations into explainable incidents, evidence timelines, recommendations, explicit analyst decisions, bounded endpoint diagnostics, signed results, and tamper-evident audit history.
@@ -123,7 +123,7 @@ These are parameterless, capability-declared, approval-gated investigation actio
 
 Despite the name, it does **not** restart an operating-system service. It changes only a dedicated JSON demo fixture used to prove the controlled mutation lifecycle.
 
-Current `main` contains a narrowly scoped, triage-evidence-bound process-containment action and a human-guided recovery workbench. It does **not** provide general service control, arbitrary PID/process targeting, automatic quarantine, firewall changes, host isolation, or arbitrary command execution. New vNext source capabilities have not been separately published as a versioned release; see the linked qualification and workflow boundaries.
+Current `main` contains a narrowly scoped, triage-evidence-bound process-containment action and a human-guided recovery workbench. It does **not** provide general service control, arbitrary PID/process targeting, automatic quarantine, firewall changes, host isolation, or arbitrary command execution. The experimental source-release boundary is distinct from production deployment certification; see the linked qualification and workflow limits.
 
 ## Qualification evidence
 
@@ -251,4 +251,4 @@ Apache License 2.0. See [`LICENSE`](LICENSE).
 
 ## Guided recovery development update
 
-The October 13 merged source adds an evidence-backed human recovery workbench for all declared finding categories. It requires named independent approval and verification, records ordered category-specific checkpoints, and keeps acknowledged escalations unresolved. It does not execute the notes, fetch artifacts, create external tickets, or claim that human attestation is an automated endpoint scan. See [the workflow contract](docs/GUIDED_RECOVERY_WORKFLOWS.md). No separately tagged vNext package or installer has been published.
+The October 13 merged source adds an evidence-backed human recovery workbench for all declared finding categories. It requires named independent approval and verification, records ordered category-specific checkpoints, and keeps acknowledged escalations unresolved. It does not execute the notes, fetch artifacts, create external tickets, or claim that human attestation is an automated endpoint scan. See [the workflow contract](docs/GUIDED_RECOVERY_WORKFLOWS.md). Any experimental v1.1 alpha source archive is not a production installer or an automatically remediating vNext product.
