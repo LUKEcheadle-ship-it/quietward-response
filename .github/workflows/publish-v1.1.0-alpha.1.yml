@@ -168,7 +168,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: qwr-v1.1.0-alpha.1-source
-          path: release-assets
+          path: ${{ runner.temp }}/qwr-release-assets
       - name: Refuse overwrite and revalidate exact-source assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -177,8 +177,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
           (cd release-assets && sha256sum -c SHA256SUMS.txt)
-          grep -Fx "Response source SHA: $GITHUB_SHA" release-assets/SOURCE-REVISIONS.txt
-          grep -Fx 'Companion QuietWard source SHA: cef5ba275b7d011b5b2236051cc7f4b40035c9b8' release-assets/SOURCE-REVISIONS.txt
+          grep -Fx "Response source SHA: $GITHUB_SHA" $RUNNER_TEMP/qwr-release-assets/SOURCE-REVISIONS.txt
+          grep -Fx 'Companion QuietWard source SHA: cef5ba275b7d011b5b2236051cc7f4b40035c9b8' $RUNNER_TEMP/qwr-release-assets/SOURCE-REVISIONS.txt
           if gh release view v1.1.0-alpha.1 >/dev/null 2>&1; then
             echo "Prerelease already exists: refusing to overwrite" >&2
             exit 1
@@ -204,9 +204,9 @@ jobs:
           Archive contents are repository-tracked public source only (not a compiled installer). SHA-256 archive checksum and exact paired-source revision receipt attached. See the README, SECURITY.md, docs/GUIDED_RECOVERY_WORKFLOWS.md and docs/GUIDED_INCIDENT_RESPONSE_VNEXT.md for deployment restrictions and remaining work.
           NOTES
           gh release create v1.1.0-alpha.1 \
-            release-assets/quietward-response-v1.1.0-alpha.1-source.zip \
-            release-assets/SHA256SUMS.txt \
-            release-assets/SOURCE-REVISIONS.txt \
+            $RUNNER_TEMP/qwr-release-assets/quietward-response-v1.1.0-alpha.1-source.zip \
+            $RUNNER_TEMP/qwr-release-assets/SHA256SUMS.txt \
+            $RUNNER_TEMP/qwr-release-assets/SOURCE-REVISIONS.txt \
             --target "$GITHUB_SHA" --prerelease \
             --title 'QuietWard Response v1.1.0-alpha.1 (experimental)' \
             --notes-file "$RUNNER_TEMP/notes.md"
