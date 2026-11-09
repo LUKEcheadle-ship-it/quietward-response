@@ -117,7 +117,9 @@ def verify_agent_request(
         raise _auth_error("unknown_or_disabled_agent", "agent is unknown or disabled")
     if not agent.enabled and not allow_disabled:
         raise _auth_error("unknown_or_disabled_agent", "agent is unknown or disabled")
-    if not hmac.compare_digest(agent.key_id, key_id):
+    # Byte comparisons preserve constant-time verification for valid credentials
+    # while rejecting non-ASCII header values without an unhandled TypeError.
+    if not hmac.compare_digest(agent.key_id.encode("utf-8"), key_id.encode("utf-8")):
         raise _auth_error("invalid_key_id", "credential key identifier does not match")
 
     try:
@@ -144,7 +146,7 @@ def verify_agent_request(
         ),
         hashlib.sha256,
     ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
+    if not hmac.compare_digest(expected.encode("ascii"), signature.encode("utf-8")):
         raise _auth_error("invalid_signature", "request signature is invalid")
 
     cutoff = _utcnow() - timedelta(seconds=replay_window_seconds * 2)
