@@ -45,7 +45,9 @@ def enroll(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     expected = request.app.state.settings.enrollment_token
-    if not token or not hmac.compare_digest(token, expected):
+    # HTTP headers can contain non-ASCII bytes; compare bytes so malformed
+    # credentials are rejected rather than raising TypeError in compare_digest.
+    if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "invalid_enrollment_token"},

@@ -8,7 +8,7 @@ alembic==1.20.0
 psycopg[binary]==3.3.5
 httpx2==2.13.0
 jsonschema==4.26.0
-pytest==8.4.2
+pytest==9.0.3
 # Starlette 1.6.0 TestClient still uses the pre-4.15 BlockingPortal alias.
 starlette==1.6.0
 anyio==4.14.2
